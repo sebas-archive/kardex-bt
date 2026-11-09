@@ -1,0 +1,42 @@
+name: inventario-bt
+
+services:
+  oracle:
+    image: gvenzl/oracle-xe:11-slim
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD}
+      APP_USER: ${APP_USER}
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD}
+    ports:
+      - "127.0.0.1:1521:1521"
+    volumes:
+      - oracle-data:/u01/app/oracle/oradata
+      - ./db/init:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+
+  # Contenedor de desarrollo/pruebas del servidor (perfil "dev": no arranca con `up`).
+  pybase:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: docker/pybase/Dockerfile
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /work
+    volumes:
+      - ./:/work
+    environment:
+      DB_DSN: oracle:1521/XE
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      PYTHONPATH: /work/server
+    depends_on:
+      oracle:
+        condition: service_healthy
+
+volumes:
+  oracle-data:
