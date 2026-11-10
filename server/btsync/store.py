@@ -95,8 +95,25 @@ class Store:
         return Catalog(conteos, ubicaciones, productos)
 
     def run_batch(self, origen: str) -> tuple[int, int]:
-        """Se implementa en la Tarea 6 sobre PKG_BATCH."""
-        raise NotImplementedError("run_batch llega con el paquete PL/SQL (Tarea 6)")
+        """Ejecuta PKG_BATCH.PROCESAR_PENDIENTES y devuelve ``(procesados, errores)`` de esa corrida.
+
+        Llamar solo con la sesión ya cerrada: el procedimiento hace COMMIT.
+        """
+        conn = self._connection()
+        cur = conn.cursor()
+        cur.execute("SELECT NVL(MAX(id), 0) FROM log_batch")
+        before = cur.fetchone()[0]
+        cur.callproc("pkg_batch.procesar_pendientes", [origen])
+        # La bitácora de ESTA corrida: posterior a la marca y con nuestro origen (el job usa 'JOB').
+        cur.execute(
+            "SELECT procesados, errores FROM ("
+            "  SELECT procesados, errores FROM log_batch WHERE id > :b AND origen = :o ORDER BY id DESC"
+            ") WHERE ROWNUM = 1",
+            b=before,
+            o=origen,
+        )
+        row = cur.fetchone()
+        return (int(row[0]), int(row[1])) if row else (0, 0)
 
     def open_sync(self, uuid: str) -> int:
         conn = self._connection()
