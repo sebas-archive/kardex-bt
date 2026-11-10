@@ -21,7 +21,9 @@ RUN curl -fsSL -o /tmp/ic.zip "https://download.oracle.com/otn_software/linux/in
 
 # Instala las dependencias declaradas en server/pyproject.toml (extras "dev").
 # En ejecucion, PYTHONPATH=/work/server hace que mande el codigo montado, no esta copia.
+# EXTRAS=dev,bluez agrega dbus-fast (servicio bt-spike).
+ARG EXTRAS=dev
 COPY server /tmp/server
-RUN pip install --no-cache-dir "/tmp/server[dev]" && rm -rf /tmp/server
+RUN pip install --no-cache-dir "/tmp/server[${EXTRAS}]" && rm -rf /tmp/server
 
 WORKDIR /work
