@@ -19,6 +19,10 @@ class Connection(Protocol):
 class Transport(Protocol):
     """Acepta conexiones y se las entrega a ``on_connection``.
 
+    ``serve`` no bloquea: empieza a aceptar y vuelve. ``on_connection`` se llama en un hilo
+    del transporte, una vez por conexión aceptada, y la conexión se cierra cuando retorna.
+    ``stop`` deja de aceptar y corta la conexión activa; después se puede volver a ``serve``.
+
     Contrato (D19): como máximo una conexión activa. Mientras haya una, las demás reciben
     ``frame(["NAK", "0", "OCUPADO"])`` y se cierran.
     """
