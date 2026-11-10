@@ -70,6 +70,9 @@ class TcpTransport:
         """True mientras haya una sincronización en curso."""
         return self._active is not None
 
+    def begin_pairing(self, on_passkey) -> None:
+        """TCP no empareja: no hay código que confirmar."""
+
     def serve(self, on_connection: Callable[[Connection], None]) -> None:
         if self._server is not None:
             raise RuntimeError("el transporte ya está sirviendo")
