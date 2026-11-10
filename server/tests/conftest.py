@@ -36,6 +36,37 @@ def db():
         conn.close()
 
 
+# Los tests que usan Store/Session/e2e escriben con conexiones propias (COMMIT real), así que
+# limpian por prefijo de dispositivo; las filas reales de la app nunca usan estos prefijos.
+TEST_DEVICE_PATTERNS = ("tst-%", "dev-e2e%")
+
+
+def purge_test_rows() -> None:
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        for pattern in TEST_DEVICE_PATTERNS:
+            cur.execute("DELETE FROM sync_sesiones WHERE uuid_dispositivo LIKE :p", p=pattern)
+            cur.execute("DELETE FROM captura_transito WHERE uuid_dispositivo LIKE :p", p=pattern)
+            cur.execute("DELETE FROM dispositivos WHERE uuid LIKE :p", p=pattern)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def store():
+    from btsync.store import Store
+
+    purge_test_rows()
+    s = Store(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
+    try:
+        yield s
+    finally:
+        s.rollback()
+        purge_test_rows()
+
+
 def _job_enabled(conn: oracledb.Connection) -> bool | None:
     """True/False según el estado del job; None si el job aún no existe."""
     cur = conn.cursor()
