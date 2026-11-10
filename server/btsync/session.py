@@ -50,6 +50,10 @@ class Session:
             self._run()
         except oracledb.Error:
             self._db_unavailable()
+        except OSError:
+            # El canal murió al escribir: es un corte. Lo que no tuvo COMMIT se descarta,
+            # para que la siguiente sesión no lo confirme por accidente.
+            self._rollback_quietly()
         finally:
             self._close_sync()
             try:
@@ -154,11 +158,14 @@ class Session:
         self._send(["BYE", str(self.inserted), str(self.rejected)])
         self.on_event("done", {"aceptados": self.inserted, "rechazados": self.rejected})
 
-    def _db_unavailable(self) -> None:
+    def _rollback_quietly(self) -> None:
         try:
             self.store.rollback()
         except oracledb.Error:
             pass
+
+    def _db_unavailable(self) -> None:
+        self._rollback_quietly()
         try:
             self._send(["NAK", str(self.expected), "DB_NO_DISPONIBLE"])
         except OSError:

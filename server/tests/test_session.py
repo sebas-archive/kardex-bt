@@ -163,6 +163,27 @@ def test_connection_cut_after_30_rec_keeps_25(store, db):
     assert rows(db) == 25
 
 
+def test_write_failure_is_treated_as_cut_and_rolls_back(store, db):
+    """Si el socket muere al escribir, la sesión termina como un corte: sin excepción y sin
+    dejar filas a medio confirmar que la siguiente sesión pudiera confirmar por accidente."""
+
+    class DiesOnNak(FakeConnection):
+        def write(self, data: bytes) -> None:
+            if data.startswith(b"NAK"):
+                raise BrokenPipeError("el teléfono se fue")
+            super().write(data)
+
+    good = rec(11)
+    bad = good[:-2] + (b"0" if good[-2:-1] != b"0" else b"1") + b"\n"
+    conn = DiesOnNak([hello()] + [rec(i) for i in range(1, 11)] + [bad])
+    Session(conn, store, lambda *a: None, now_ms=lambda: NOW).run()  # no debe lanzar
+
+    assert rows(db) == 0
+    again, _ = run(store, [hello(), end(0)])
+    assert sent(again)[0].fields == ["0", str(NOW)]
+    assert rows(db) == 0
+
+
 def test_oracle_down_replies_nak_db_unavailable(db):
     class DownStore(Store):
         def insert_staging(self, uuid, seq, raw):
