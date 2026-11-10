@@ -1,4 +1,5 @@
--- Batch de inventario: pasa las lecturas del staging (CAPTURA_TRANSITO) a REGISTROS_PROCESADOS.
+-- Batch de inventario: pasa las lecturas del staging (CAPTURA_TRANSITO) a REGISTROS_PROCESADOS
+-- y concilia lo contado contra el stock del sistema (CONCILIACION).
 -- El contenedor ejecuta este script como SYS; el paquete vive en el esquema APP.
 WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 SET DEFINE OFF
@@ -12,6 +13,12 @@ CREATE OR REPLACE PACKAGE pkg_batch AS
         p_timeout_min IN NUMBER   DEFAULT 5
     );
 
+    -- Recalcula CONCILIACION de un conteo (idempotente; hace COMMIT).
+    PROCEDURE conciliar(p_id_conteo IN VARCHAR2);
+
+    -- Procesa lo pendiente, cierra el conteo y lo concilia: lo que nadie conto pasa a contado 0.
+    PROCEDURE cerrar_conteo(p_id_conteo IN VARCHAR2);
+
     -- Devuelve a PENDIENTE las filas en ERROR (de un conteo, o todas) y las vuelve a procesar.
     PROCEDURE reprocesar_errores(p_id_conteo IN VARCHAR2 DEFAULT NULL);
 
@@ -24,6 +31,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
 
     e_validacion EXCEPTION;
     g_error      VARCHAR2(40);   -- codigo de la ultima validacion fallida
+
+    TYPE t_conteos IS TABLE OF BOOLEAN INDEX BY VARCHAR2(120);
+    g_conteos    t_conteos;      -- conteos que recibieron lecturas en la corrida actual
 
     PROCEDURE fallar(p_codigo IN VARCHAR2) IS
     BEGIN
@@ -117,7 +127,61 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
              'N');
 
         recalcular_vigente(l_conteo, l_ubic, l_sku);
+        g_conteos(l_conteo) := TRUE;
     END procesar_fila;
+
+    -- Reglas de conciliacion (por SKU del conteo):
+    --   * Entran los SKU de la foto de stock y los que tienen lecturas vigentes (sin foto: sistema 0).
+    --   * contada = suma de las lecturas vigentes; DIFERENCIA = contada - sistema.
+    --   * OK si |DIFERENCIA| <= sistema x TOLERANCIA_PCT / 100 (limite inclusivo);
+    --     si no, FALTANTE (contada < sistema) o SOBRANTE.
+    --   * Sin lecturas: SIN_CONTAR mientras el conteo esta ABIERTO; al cerrarlo cuenta como 0.
+    PROCEDURE conciliar_interno(p_id_conteo IN VARCHAR2) IS
+        l_abierto PLS_INTEGER;
+    BEGIN
+        -- Serializa conciliaciones simultaneas (dos corridas, o corrida + cierre).
+        LOCK TABLE conciliacion IN EXCLUSIVE MODE;
+
+        SELECT COUNT(*) INTO l_abierto
+          FROM conteos WHERE id_conteo = p_id_conteo AND estado = 'ABIERTO';
+
+        DELETE FROM conciliacion WHERE id_conteo = p_id_conteo;
+
+        INSERT INTO conciliacion
+            (id_conteo, sku, cant_sistema, cant_contada, diferencia, diferencia_pct,
+             valor_diferencia, clasificacion, fecha_calculo)
+        SELECT p_id_conteo, x.sku, x.sistema, x.contada,
+               CASE WHEN x.sin_contar = 1 THEN NULL ELSE x.contada - x.sistema END,
+               CASE WHEN x.sin_contar = 1 OR x.sistema = 0 THEN NULL
+                    ELSE GREATEST(-99999999.99,
+                         LEAST(99999999.99, ROUND((x.contada - x.sistema) / x.sistema * 100, 2)))
+               END,
+               CASE WHEN x.sin_contar = 1 THEN NULL
+                    ELSE ROUND((x.contada - x.sistema) * p.costo_unit, 2)
+               END,
+               CASE WHEN x.sin_contar = 1 THEN 'SIN_CONTAR'
+                    WHEN ABS(x.contada - x.sistema) <= x.sistema * p.tolerancia_pct / 100 THEN 'OK'
+                    WHEN x.contada < x.sistema THEN 'FALTANTE'
+                    ELSE 'SOBRANTE'
+               END,
+               SYSTIMESTAMP
+          FROM (SELECT k.sku,
+                       NVL(s.cantidad_sistema, 0) AS sistema,
+                       NVL(c.contada, 0)          AS contada,
+                       CASE WHEN c.sku IS NULL AND l_abierto = 1 THEN 1 ELSE 0 END AS sin_contar
+                  FROM (SELECT sku FROM stock_sistema WHERE id_conteo = p_id_conteo
+                        UNION
+                        SELECT sku FROM registros_procesados
+                         WHERE id_conteo = p_id_conteo AND vigente = 'S') k
+                  LEFT JOIN stock_sistema s
+                         ON s.id_conteo = p_id_conteo AND s.sku = k.sku
+                  LEFT JOIN (SELECT sku, SUM(cantidad) AS contada
+                               FROM registros_procesados
+                              WHERE id_conteo = p_id_conteo AND vigente = 'S'
+                              GROUP BY sku) c
+                         ON c.sku = k.sku) x
+          JOIN productos p ON p.sku = x.sku;
+    END conciliar_interno;
 
     PROCEDURE procesar_pendientes(
         p_origen      IN VARCHAR2 DEFAULT 'MANUAL',
@@ -130,7 +194,10 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         l_msg     VARCHAR2(400);
         l_ok      PLS_INTEGER := 0;
         l_err     PLS_INTEGER := 0;
+        l_conteo  VARCHAR2(120);
     BEGIN
+        g_conteos.DELETE;
+
         -- 1. Recuperar huerfanas: una corrida anterior las reclamo y no termino.
         UPDATE captura_transito
            SET estado = 'PENDIENTE', fecha_reclamo = NULL
@@ -195,11 +262,47 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
             END IF;
         END LOOP;
 
-        -- 5. Bitacora de la corrida.
+        -- 4. Bitacora de la corrida. Lo procesado queda confirmado aqui: un fallo al
+        --    conciliar no debe devolver las filas a PROCESANDO.
         INSERT INTO log_batch (inicio, fin, procesados, errores, origen)
         VALUES (l_inicio, SYSTIMESTAMP, l_ok, l_err, SUBSTR(p_origen, 1, 20));
         COMMIT;
+
+        -- 5. Conciliar cada conteo que recibio lecturas.
+        l_conteo := g_conteos.FIRST;
+        WHILE l_conteo IS NOT NULL LOOP
+            conciliar_interno(l_conteo);
+            l_conteo := g_conteos.NEXT(l_conteo);
+        END LOOP;
+        COMMIT;
     END procesar_pendientes;
+
+    PROCEDURE conciliar(p_id_conteo IN VARCHAR2) IS
+    BEGIN
+        conciliar_interno(p_id_conteo);
+        COMMIT;
+    END conciliar;
+
+    PROCEDURE cerrar_conteo(p_id_conteo IN VARCHAR2) IS
+        l_existe PLS_INTEGER;
+    BEGIN
+        SELECT COUNT(*) INTO l_existe FROM conteos WHERE id_conteo = p_id_conteo;
+        IF l_existe = 0 THEN
+            RAISE_APPLICATION_ERROR(-20002, 'CONTEO_INEXISTENTE: ' || p_id_conteo);
+        END IF;
+
+        -- Lo recibido y aun sin procesar entra al conteo antes de cerrarlo;
+        -- despues del cierre quedaria en ERROR (CONTEO_NO_ABIERTO).
+        procesar_pendientes('CIERRE');
+
+        -- Mismo bloqueo que el batch: ninguna corrida inserta lecturas mientras se cierra.
+        LOCK TABLE registros_procesados IN EXCLUSIVE MODE;
+        UPDATE conteos
+           SET estado = 'CERRADO', fecha_cierre = SYSTIMESTAMP
+         WHERE id_conteo = p_id_conteo AND estado = 'ABIERTO';
+        conciliar_interno(p_id_conteo);
+        COMMIT;
+    END cerrar_conteo;
 
     PROCEDURE reprocesar_errores(p_id_conteo IN VARCHAR2 DEFAULT NULL) IS
     BEGIN
@@ -241,5 +344,13 @@ BEGIN
     IF l_errores > 0 THEN
         RAISE_APPLICATION_ERROR(-20000, 'PKG_BATCH no compila: ' || l_detalle);
     END IF;
+END;
+/
+
+-- Estado inicial: cada conteo existente queda conciliado (todo SIN_CONTAR hasta la primera lectura).
+BEGIN
+    FOR c IN (SELECT id_conteo FROM conteos) LOOP
+        pkg_batch.conciliar(c.id_conteo);
+    END LOOP;
 END;
 /
