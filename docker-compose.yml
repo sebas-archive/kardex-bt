@@ -38,5 +38,31 @@ services:
       oracle:
         condition: service_healthy
 
+  # SPIKE desechable (Tarea 8): Bluetooth del host desde un contenedor. Perfil "spike".
+  # bluetoothd sigue en el host; el contenedor le habla por el bus de sistema D-Bus.
+  # Resultado y flags finales: docs/spikes/bluez.md
+  bt-spike:
+    profiles: ["spike"]
+    build:
+      context: .
+      dockerfile: docker/pybase/Dockerfile
+      args:
+        EXTRAS: "dev,bluez"
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /work
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./:/work
+      - /var/run/dbus:/var/run/dbus
+    environment:
+      # Con network_mode: host no existe el nombre "oracle": se usa el puerto publicado en loopback.
+      DB_DSN: 127.0.0.1:1521/XE
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      PYTHONPATH: /work/server
+
 volumes:
   oracle-data:
