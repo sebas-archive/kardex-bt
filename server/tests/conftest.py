@@ -4,11 +4,14 @@ La conexión se toma de DB_DSN, DB_USER y DB_PASSWORD (las define el servicio `p
 """
 
 import os
+from pathlib import Path
+from types import SimpleNamespace
 
 import oracledb
 import pytest
 
 SCHEDULER_JOB = "JOB_PROCESAR_CAPTURAS"
+FIXTURES = Path(__file__).parent / "fixtures"
 
 _client_ready = False
 
@@ -67,6 +70,68 @@ def store():
         purge_test_rows()
 
 
+def _sql_sections(path: Path) -> dict[str, list[str]]:
+    """Lee un .sql con secciones '-- @nombre' y devuelve sus sentencias (separadas por ';')."""
+    lines: dict[str, list[str]] = {}
+    current = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("-- @"):
+            current = stripped[4:].strip()
+            lines[current] = []
+        elif stripped and not stripped.startswith("--") and current is not None:
+            lines[current].append(line)
+    return {
+        name: [stmt.strip() for stmt in "\n".join(body).split(";") if stmt.strip()]
+        for name, body in lines.items()
+    }
+
+
+@pytest.fixture
+def escenario():
+    """Carga el escenario fijo de conciliación (conteo T-01) y lo borra al terminar.
+
+    ``escenario.cargar_lecturas()`` deja las 5 lecturas de la tabla como staging PENDIENTE.
+    """
+    sections = _sql_sections(FIXTURES / "escenario_conciliacion.sql")
+    conn = connect()
+    cur = conn.cursor()
+
+    def run(name: str) -> None:
+        for stmt in sections[name]:
+            cur.execute(stmt)
+        conn.commit()
+
+    cur.execute("SELECT NVL(MAX(id), 0) FROM log_batch")
+    log_mark = cur.fetchone()[0]
+    run("cleanup")
+    run("setup")
+    try:
+        yield SimpleNamespace(cargar_lecturas=lambda: run("lecturas"), log_mark=log_mark)
+    finally:
+        conn.rollback()
+        run("cleanup")
+        cur.execute("DELETE FROM log_batch WHERE id > :m", m=log_mark)
+        conn.commit()
+        conn.close()
+
+
+def staging(conn, uuid, seq, ts_ms, conteo, ubic, sku, cant, operador="Ana", nota="") -> int:
+    """Inserta (con COMMIT) una línea REC sin CRC en CAPTURA_TRANSITO y devuelve su ID_TRANSITO."""
+    from btsync.protocol import Rec
+
+    raw = Rec(seq, ts_ms, conteo, ubic, sku, str(cant), operador, nota).to_raw()
+    cur = conn.cursor()
+    out = cur.var(int)
+    cur.execute(
+        "INSERT INTO captura_transito (uuid_dispositivo, seq, datos_raw) "
+        "VALUES (:u, :s, :r) RETURNING id_transito INTO :id",
+        u=uuid, s=seq, r=raw, id=out,
+    )
+    conn.commit()
+    return int(out.getvalue()[0])
+
+
 def _job_enabled(conn: oracledb.Connection) -> bool | None:
     """True/False según el estado del job; None si el job aún no existe."""
     cur = conn.cursor()
@@ -91,7 +156,9 @@ def scheduler_off():
     try:
         was_enabled = _job_enabled(conn) is True
         if was_enabled:
-            conn.cursor().callproc("DBMS_SCHEDULER.DISABLE", [SCHEDULER_JOB])
+            conn.cursor().execute(
+                "BEGIN DBMS_SCHEDULER.DISABLE(:j, force => TRUE); END;", j=SCHEDULER_JOB
+            )
         try:
             yield
         finally:
