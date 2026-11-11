@@ -25,6 +25,8 @@ services:
     build:
       context: .
       dockerfile: docker/pybase/Dockerfile
+      args:
+        EXTRAS: "dev,bluez"   # dbus-fast: las pruebas de BluezTransport corren aquí (con un bus falso)
     user: "${PUID:-1000}:${PGID:-1000}"
     working_dir: /work
     volumes:

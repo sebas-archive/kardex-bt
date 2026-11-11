@@ -181,3 +181,68 @@ docker compose --profile spike run --rm bt-spike python server/spikes/bluez_echo
 
 Opciones del script: `--check` (solo D-Bus), `--yes` (acepta el código sin preguntar),
 `--no-spp` (registra solo el UUID del proyecto), `--log RUTA`.
+
+---
+
+# Tarea 9: `BluezTransport` (código de producción)
+
+`server/btsync/transports/bluez.py` implementa el contrato `Transport` con lo que este spike
+demostró. Qué hizo con cada hallazgo:
+
+| Hallazgo | Decisión en `BluezTransport` |
+|---|---|
+| 1. `Channel` obligatorio | Canal 22 para el UUID propio; el SPP usa el canal por defecto de BlueZ |
+| 2. Las apps de terminal solo usan SPP | El transporte registra **un** UUID (`service_uuid`). Producción: el propio. La prueba manual usa `controller_cli.py --spp` |
+| 3 y 4. `AuthorizeService` de todos los perfiles, en cada conexión | Solo se autoriza el UUID propio y solo a dispositivos emparejados; lo demás (manos libres, A2DP…) se rechaza con `org.bluez.Error.Rejected`. El dispositivo **no** se marca `Trusted` |
+| 5. El código puede empezar por cero | `f"{passkey:06d}"` |
+| 6. `DiscoverableTimeout` no cierra el emparejamiento | `stop()` retira perfil y agente y deja `Discoverable`, `DiscoverableTimeout` y `Pairable` como estaban; lo llama el controlador al vencer el plazo |
+| 7. La app de terminal envía `\r\n` | La conexión convierte `\r\n` en `\n`: no hace falta configurar la app |
+| 9. rfkill | `BluetoothUnavailable` con el mensaje «…ejecuta: rfkill unblock bluetooth». El transporte **no** enciende el adaptador |
+| 11. El descriptor | `dbus-fast` 5.2.0 nunca cierra los descriptores recibidos (se revisó su código): el transporte se adueña del `fd` sin duplicarlo. El `os.dup` del spike dejaba uno abierto por conexión |
+
+Además: una segunda conexión mientras hay una activa recibe `NAK|0|OCUPADO` (D19); si el teléfono
+cancela el emparejamiento (`Agent1.Cancel`) el controlador deja de mostrar el código y sigue
+esperando; un emparejamiento sin código (`RequestAuthorization`) se rechaza.
+
+## Verificado
+
+- **Sin hardware** (`docker compose run --rm pybase pytest server/tests/test_bluez.py -v` → 25 passed):
+  con un bus D-Bus falso que hace de `bluetoothd`, incluido el ciclo completo con `SyncController`.
+- **Contra el BlueZ real, con el adaptador bloqueado por rfkill** (2026-11-10, sin celular):
+
+  ```text
+  $ docker compose --profile spike run --rm -T --no-deps bt-spike python server/spikes/controller_cli.py --check
+  00:55:28 ANTES   Discoverable=False DiscoverableTimeout=180 Pairable=True servicio_registrado=False
+  [bluez] ventana cerrada: servicio y agente retirados
+  00:55:28 BLUETOOTH NO DISPONIBLE: El Bluetooth está bloqueado. En el host ejecuta: rfkill unblock bluetooth
+  00:55:28 CERRADO Discoverable=False DiscoverableTimeout=180 Pairable=True servicio_registrado=False
+  ```
+
+## Pendiente: paso 5 con el celular
+
+**Aún no se ha hecho.** Falta abrir la ventana con la radio encendida, emparejar y sincronizar
+de verdad a través de `SyncController` + `BluezTransport`. Pasos:
+
+1. Encender el Bluetooth del PC (o `rfkill unblock bluetooth`) y tener Oracle arriba
+   (`docker compose up -d --wait oracle`).
+2. Comprobación sin celular (el PC es visible menos de un segundo):
+   `docker compose --profile spike run --rm -T bt-spike python server/spikes/controller_cli.py --check --spp`
+   → debe terminar en `--check: OK`.
+3. Para ver el código de 6 dígitos hay que desemparejar antes: `bluetoothctl remove <MAC>` en el PC
+   y «Olvidar» en el celular. Si se deja emparejado, el celular se conecta directo, sin código.
+4. `docker compose --profile spike run --rm bt-spike python server/spikes/controller_cli.py --spp --window 300`
+5. En la app de terminal serial del celular, conectar al PC y enviar estas tres líneas, una por una:
+
+   ```text
+   HELLO|1|p9lite|P9*CDC3CB89
+   REC|1|1794358578881|CONT-2026-11|A-01|7701234000001|5|Ana|*71B76C22
+   END|1*883D1CF6
+   ```
+
+   Resultado esperado: tras `HELLO` llegan `READY|0|…` y el catálogo; tras `END`, `ACK|1` y
+   `BYE|1|0`. El script imprime los estados hasta `LISTO` y la fila de `CAPTURA_TRANSITO` en
+   `PROCESADO`. El registro queda en `.superpowers/paso5-controller.log`.
+
+Si hay que repetirlo, el `seq` 1 de `p9lite` ya estará usado (el servidor responde `READY|1|…`):
+hay que generar líneas nuevas con otro nombre de dispositivo
+(`python -m btsync.protocol --frame HELLO 1 p9lite2 P9`, etc.).
