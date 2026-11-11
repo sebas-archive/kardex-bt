@@ -11,7 +11,8 @@ dependencies = ["oracledb>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-bluez = ["dbus-fast>=2"]
+# BluezTransport se adueña del descriptor que entrega NewConnection: dbus-fast 5.x no lo cierra.
+bluez = ["dbus-fast>=5.2,<6"]
 
 [tool.setuptools.packages.find]
 include = ["btsync*"]

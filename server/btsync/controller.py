@@ -211,7 +211,17 @@ class SyncController:
             self._pending = (loop, future)
             self._set(estado=CONFIRMAR_CODIGO, codigo=str(code))
         self._resolver(anterior, False)
-        return await future
+        try:
+            return await future
+        except asyncio.CancelledError:
+            # El transporte retiró la petición: el teléfono canceló o BlueZ dejó de esperar.
+            # Se deja de mostrar el código y se sigue esperando.
+            with self._lock:
+                if self._pending is not None and self._pending[1] is future:
+                    self._pending = None
+                    if self._estado == CONFIRMAR_CODIGO:
+                        self._set(estado=ESPERANDO_EMPAREJAMIENTO, codigo=None)
+            raise
 
     def _on_connection(self, conn: Connection) -> None:
         """Lo llama el transporte, en un hilo suyo, por cada teléfono que se conecta."""
