@@ -12,7 +12,8 @@ import pytest
 
 from app import db as dbq
 from app.models import fmt_pct
-from app.views.charts import CHART_IDS, ChartsView
+from app.models import fmt_cop
+from app.views.charts import CHART_IDS, ChartsView, _etiqueta_eje, _fmt_corto
 from app.views.perfil import PerfilView
 from conftest import staging, connect
 
@@ -167,3 +168,24 @@ def test_no_query_runs_on_the_ui_thread(qtbot, contado, monkeypatch):
     assert set(hilos) == set(nombres)
     for nombre, conjunto in hilos.items():
         assert threading.main_thread() not in conjunto, f"{nombre} corrió en el hilo de la UI"
+
+
+def test_short_formats_for_crowded_labels():
+    assert _fmt_corto(1029000) == "$ 1,0 M" and _fmt_corto(-155800) == "-$ 156 mil"
+    assert _fmt_corto(9000) == "$ 9.000" and _fmt_corto(-5000) == "-$ 5.000"
+    assert _etiqueta_eje("7701234000037") == "…0037" and _etiqueta_eje("A3") == "A3"
+
+
+def test_crowded_chart_abbreviates_labels_and_skips_tiny_bars(qtbot):
+    """Con 10 SKU de 13 dígitos las etiquetas se encimaban (visto con los datos reales del conteo)."""
+    vista = ChartsView()
+    qtbot.addWidget(vista)
+    datos = [("7701234000037", 1029000.0), ("7701234000036", 155800.0), ("7701234000049", -109200.0)]
+    datos += [(f"770123400{i:04d}", 20000.0 + i) for i in range(7)]
+    vista._dibujar("desvios", datos, fmt_cop)
+    textos = [i.textItem.toPlainText() for i in vista.plots["desvios"].getPlotItem().items
+              if isinstance(i, pg.TextItem)]
+    assert len(textos) == 3                                  # las 7 barras diminutas no llevan etiqueta
+    assert all(("mil" in t) or t.endswith(" M") for t in textos), textos
+    ticks = vista.plots["desvios"].getAxis("bottom")._tickLevels[0]
+    assert [t[1] for t in ticks][:3] == ["…0037", "…0036", "…0049"]
