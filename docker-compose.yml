@@ -89,6 +89,18 @@ services:
       - ./:/work                  # el repo entero: las pruebas leen docs/protocol-vectors.json
       - gradle-home:/gradle-home  # caché de Gradle, ~/.m2 y la llave de firma debug
 
+  # Diagramas UML (Tareas 16-17): PlantUML con la versión fijada. tools/render_uml.sh lo ejecuta.
+  # Fuentes en docs/uml/*.puml; los SVG salen en docs/img/uml/.
+  plantuml:
+    profiles: ["docs"]
+    image: plantuml/plantuml:1.2024.7
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /docs
+    environment:
+      JAVA_TOOL_OPTIONS: -Duser.home=/tmp   # el uid del host no tiene HOME: Java dejaba su caché de fuentes en docs/?/
+    volumes:
+      - ./docs:/docs
+
   # SPIKE desechable (Tarea 8): Bluetooth del host desde un contenedor. Perfil "spike".
   # bluetoothd sigue en el host; el contenedor le habla por el bus de sistema D-Bus.
   # Resultado y flags finales: docs/spikes/bluez.md

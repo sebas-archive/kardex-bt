@@ -1,0 +1,32 @@
+@startuml
+!include estilo.iuml
+title 07 · Despliegue
+
+node "Celular Android (APK)" as cel {
+  artifact "app-debug.apk" as apk
+  database "SQLite (Room): Outbox y catálogo" as sqlite
+}
+
+node "PC host Linux" as pc {
+  component "bluetoothd (BlueZ)" as bluez
+  component "XWayland / servidor X11" as x11
+  component "adb" as adb
+  node "Docker Compose (inventario-bt)" as dk {
+    node "oracle\ngvenzl/oracle-xe:11-slim" as c_ora {
+      database "XE 11g\n(volumen oracle-data)" as xe
+    }
+    node "app\nPython 3.12 + PyQt6 + btsync\n(network_mode: host)" as c_app
+    node "apk-build\nJDK 17 + Android SDK + Gradle\n(perfil build)" as c_apk
+    node "pybase\n(perfil dev: pruebas)" as c_py
+    node "plantuml\n(perfil docs)" as c_uml
+  }
+}
+
+cel -down- bluez : RFCOMM (Bluetooth clásico,\nsocket inseguro, sin emparejar)
+bluez -down- c_app : socket D-Bus\n/var/run/dbus
+x11 -down- c_app : socket X11\n/tmp/.X11-unix
+c_app -right- xe : SQL*Net\n127.0.0.1:1521
+c_py .right. xe
+adb .up.> apk : adb install -r
+c_apk .up.> apk : genera app-debug.apk
+@enduml

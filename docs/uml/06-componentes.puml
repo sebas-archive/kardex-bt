@@ -1,0 +1,56 @@
+@startuml
+!include estilo.iuml
+title 06 · Componentes y sus interfaces
+left to right direction
+
+component "APK Android" as apk {
+  component "Pantallas + CountViewModel" as ui
+  component "SyncClient / SyncRunner" as cliente
+  component "Outbox + catálogo (Room/SQLite)" as room
+}
+
+component "Aplicación de escritorio (un proceso, en Docker)" as desk {
+  component "Vistas PyQt6 + pyqtgraph\n(Sincronización, Conteo, Conciliación,\nGráficas, Perfil, Monitoreo)" as vistas
+  component "SyncBridge" as bridge
+  component "Librería btsync" as btsync {
+    component "SyncController" as ctrl
+    component "Session" as ses
+    component "BluezTransport" as bz
+    component "TcpTransport\n(pruebas / plan B)" as tcp
+    component "Store" as store
+  }
+}
+
+component "Oracle XE 11g (contenedor)" as ora {
+  component "PKG_BATCH" as pkg
+  component "DBMS_SCHEDULER\n(JOB_PROCESAR_CAPTURAS, JOB_PURGA_TRANSITO)" as sch
+  component "Tablas y vistas V_*" as tablas
+}
+
+component "bluetoothd (BlueZ, en el host)" as bluez
+
+interface "RFCOMM\nUUID 7a1c0b52-…" as rfcomm
+interface "D-Bus\n(org.bluez)" as dbus
+interface "SQL*Net :1521" as sqlnet
+interface "Transport" as itransport
+
+cliente -( rfcomm
+bz -- rfcomm
+bz -( dbus
+bluez -- dbus
+bz -up- itransport
+tcp -up- itransport
+ctrl -( itransport
+ctrl --> ses : crea
+ses --> store
+ctrl --> store
+vistas --> bridge
+bridge --> ctrl : start / confirm / cancel / status
+store -( sqlnet
+vistas -( sqlnet : consultas (V_*)
+ora -- sqlnet
+ui --> room
+cliente --> room
+sch --> pkg
+pkg --> tablas
+@enduml

@@ -1,0 +1,63 @@
+@startuml
+!include estilo.iuml
+title 05 · Instantánea de objetos: una lectura del escenario T-01, de la línea REC a la conciliación
+left to right direction
+
+object "Línea REC (por Bluetooth)" as linea {
+  REC|1|1731170400000|T-01|U1|A1|60|Ana|
+  CRC32 al final: *XXXXXXXX
+}
+object "captura_transito (fila 1)" as t1 {
+  uuid_dispositivo = "tst-escenario"
+  seq = 1
+  estado = "PROCESADO"
+  datos_raw = "REC|1|1731170400000|T-01|U1|A1|60|Ana|"
+}
+object "captura_transito (fila 2)" as t2 {
+  uuid_dispositivo = "tst-escenario"
+  seq = 2
+  estado = "PROCESADO"
+  datos_raw = "REC|2|1731170401000|T-01|U2|A1|41|Luis|"
+}
+object "registros_procesados (U1, A1)" as r1 {
+  id_conteo = "T-01"
+  cod_ubicacion = "U1"
+  sku = "A1"
+  cantidad = 60
+  operador = "Ana"
+  fecha_captura = 2024-11-09 16:40:00 UTC
+  vigente = "S"
+}
+object "registros_procesados (U2, A1)" as r2 {
+  id_conteo = "T-01"
+  cod_ubicacion = "U2"
+  sku = "A1"
+  cantidad = 41
+  operador = "Luis"
+  fecha_captura = 2024-11-09 16:40:01 UTC
+  vigente = "S"
+}
+object "stock_sistema (T-01, A1)" as st {
+  cantidad_sistema = 100
+}
+object "conciliacion (T-01, A1)" as c {
+  cant_sistema = 100
+  cant_contada = 101
+  diferencia = +1
+  diferencia_pct = 1,00
+  valor_diferencia = +2000
+  clasificacion = "OK"
+}
+note bottom of c
+  Producto A1: costo 2000, tolerancia 2 %.
+  |+1| ≤ 100 × 2 / 100 → OK.
+  Dos ubicaciones del mismo SKU se suman (D13).
+end note
+
+linea --> t1 : insert_staging
+t1 --> r1 : PKG_BATCH.procesar_pendientes
+t2 --> r2 : PKG_BATCH.procesar_pendientes
+r1 --> c : Σ cantidad vigente
+r2 --> c : Σ cantidad vigente
+st --> c : cant_sistema
+@enduml
