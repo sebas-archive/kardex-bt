@@ -1,0 +1,102 @@
+"""Piezas falsas para probar la sincronización sin Bluetooth ni Oracle (equivalentes a las del servidor)."""
+
+import asyncio
+import queue
+import threading
+
+from btsync.protocol import frame
+from btsync.store import Catalog
+
+NOW = 1731170400000
+
+
+class FakeStore:
+    """Store en memoria: lo justo para que una Session real funcione, y espía de run_batch."""
+
+    def __init__(self):
+        self.rows, self.batch_calls = [], []
+
+    def register_device(self, uuid, name): pass
+    def open_sync(self, uuid): return 1
+    def close_sync(self, id, recibidos, aceptados): pass
+    def last_seq(self, uuid): return len(self.rows)
+    def catalog(self): return Catalog()
+    def commit(self): pass
+    def rollback(self): pass
+
+    def insert_staging(self, uuid, seq, raw):
+        self.rows.append((uuid, seq, raw))
+        return True
+
+    def run_batch(self, origen):
+        self.batch_calls.append(origen)
+        return (len(self.rows), 0)
+
+
+class FakeConnection:
+    """El test alimenta las líneas con ``feed``; ``cut`` simula que el teléfono se va."""
+
+    def __init__(self):
+        self._in, self.out = queue.Queue(), []
+
+    def feed(self, *lines):
+        for line in lines:
+            self._in.put(line)
+
+    def cut(self):
+        self._in.put(None)
+
+    def readline(self): return self._in.get(timeout=10)
+    def write(self, data): self.out.append(data)
+    def close(self): pass
+
+
+class FakeTransport:
+    def __init__(self, fail_with=None):
+        self.fail_with = fail_with
+        self.on_passkey = self.on_connection = None
+        self.serving = False
+        self.pairing_calls = self.serve_calls = self.stops = 0
+        self.connections = []
+
+    def begin_pairing(self, on_passkey):
+        self.pairing_calls += 1
+        if self.fail_with:
+            raise self.fail_with
+        self.on_passkey = on_passkey
+
+    def serve(self, on_connection):
+        self.serve_calls += 1
+        self.on_connection, self.serving = on_connection, True
+
+    def stop(self):
+        self.stops += 1
+        self.serving = False
+        for conn in self.connections:
+            conn.cut()
+
+    def pair(self, code):
+        """BlueZ pide confirmar un código; ``result`` se llena cuando el usuario decide."""
+        result = {}
+        thread = threading.Thread(
+            target=lambda: result.update(accepted=asyncio.run(self.on_passkey(code))), daemon=True)
+        thread.start()
+        return thread, result
+
+    def connect(self):
+        conn = FakeConnection()
+        self.connections.append(conn)
+        threading.Thread(target=self.on_connection, args=(conn,), daemon=True).start()
+        return conn
+
+
+def hello(uuid="tst-gui"):
+    return frame(["HELLO", "1", uuid, "Teléfono de prueba"])
+
+
+def rec(seq, conteo="T-01", ubic="U1", sku="A1", cant="1", operador="Ana"):
+    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, ubic, sku, cant, operador, ""])
+
+
+def end(n):
+    return frame(["END", str(n)])
