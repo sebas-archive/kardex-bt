@@ -4,9 +4,18 @@
 (``/var/run/dbus`` montado). No se crea ningún socket Bluetooth aquí: BlueZ entrega cada conexión
 RFCOMM ya aceptada como un descriptor de archivo. Diseño y evidencias: docs/spikes/bluez.md.
 
+Dos modos (``require_pairing``):
+
+* **Sin claves** (por defecto, D22): el servicio no exige autenticación ni autorización. Un teléfono
+  que nunca se emparejó puede conectarse (Android: ``createInsecureRfcommSocketToServiceRecord``);
+  no hay código ni agente propio. La protección es que el PC solo acepta mientras la ventana está
+  abierta y de a una conexión.
+* **Con emparejamiento** (``require_pairing=True``, D5/D8): el PC registra un agente que muestra el
+  código de 6 dígitos y solo acepta dispositivos emparejados, y solo para el servicio propio.
+
 Ciclo de vida (lo maneja ``SyncController``)::
 
-    begin_pairing  →  conecta al bus, registra el agente (el que recibe el código de 6 dígitos),
+    begin_pairing  →  conecta al bus, (con emparejamiento: registra el agente del código),
                       le pone al adaptador el nombre de la aplicación y lo hace visible y emparejable
     serve          →  registra el servicio RFCOMM (perfil) y empieza a recibir conexiones
     stop           →  rechaza lo pendiente, corta la conexión activa, retira perfil y agente,
@@ -230,11 +239,13 @@ class BluezTransport:
         service_uuid: str = SERVICE_UUID,
         discoverable_s: int = 120,
         alias: str = BLUETOOTH_NAME,
+        require_pairing: bool = False,
     ) -> None:
         self.adapter = adapter
         self.service_uuid = service_uuid.lower()
         self.discoverable_s = discoverable_s
         self.alias = alias
+        self.require_pairing = require_pairing
         self._adapter_path = f"/org/bluez/{adapter}"
         self._op_lock = threading.RLock()    # begin_pairing / serve / stop, de a uno
         self._conn_lock = threading.Lock()   # protege _active
@@ -344,13 +355,14 @@ class BluezTransport:
                 _log("el adaptador quedó con el nombre de la aplicación: se restaurará a los valores por defecto")
                 self._original.update({"Discoverable": False, "DiscoverableTimeout": 180, "Alias": ""})
 
-            # Primero el agente: cuando el PC sea visible ya debe haber quien reciba el código.
-            self._bus.export(AGENT_PATH, _Agent(self))
-            await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RegisterAgent", "os",
-                        [AGENT_PATH, "DisplayYesNo"])
-            self._agent_registered = True
-            # Por defecto: es el teléfono quien inicia el emparejamiento.
-            await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RequestDefaultAgent", "o", [AGENT_PATH])
+            if self.require_pairing:
+                # Primero el agente: cuando el PC sea visible ya debe haber quien reciba el código.
+                self._bus.export(AGENT_PATH, _Agent(self))
+                await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RegisterAgent", "os",
+                            [AGENT_PATH, "DisplayYesNo"])
+                self._agent_registered = True
+                # Por defecto: es el teléfono quien inicia el emparejamiento.
+                await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RequestDefaultAgent", "o", [AGENT_PATH])
 
             self._visible = True
             await self._set_adapter("Alias", "s", self.alias)  # antes de hacerse visible
@@ -363,7 +375,8 @@ class BluezTransport:
         except DBusError as exc:
             await self._shutdown()
             raise BluetoothUnavailable(f"BlueZ rechazó la operación ({exc.type}: {exc.text})") from exc
-        _log(f"visible como «{self.alias}» y emparejable durante {self.discoverable_s} s ({self.adapter})")
+        modo = "con emparejamiento" if self.require_pairing else "sin claves"
+        _log(f"visible como «{self.alias}» ({modo}) durante {self.discoverable_s} s ({self.adapter})")
 
     async def _read_adapter(self) -> dict:
         try:
@@ -383,7 +396,9 @@ class BluezTransport:
         options = {
             "Name": Variant("s", "InventarioBT"),
             "Role": Variant("s", "server"),
-            "RequireAuthentication": Variant("b", True),  # D8: solo dispositivos emparejados
+            # Sin claves (D22): ni autenticación ni autorización; con emparejamiento (D8): las dos.
+            "RequireAuthentication": Variant("b", self.require_pairing),
+            "RequireAuthorization": Variant("b", self.require_pairing),
         }
         if self.service_uuid != SPP_UUID:
             options["Channel"] = Variant("q", RFCOMM_CHANNEL)
@@ -496,7 +511,7 @@ class BluezTransport:
 
     async def _new_connection(self, device: str, fd: int) -> None:
         """Llega una conexión RFCOMM ya aceptada. dbus-fast no cierra ``fd``: es nuestro."""
-        paired = await self._is_paired(device)
+        paired = (not self.require_pairing) or await self._is_paired(device)
         conn = None
         with self._conn_lock:
             busy = self._active is not None

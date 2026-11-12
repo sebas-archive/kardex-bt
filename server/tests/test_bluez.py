@@ -143,6 +143,7 @@ async def accept_any(code):
 
 
 def opened(fake, on_passkey=accept_any, on_connection=lambda conn: None, **kwargs):
+    kwargs.setdefault("require_pairing", True)  # el modo por defecto (sin claves) se prueba aparte
     transport = fake.make(**kwargs)
     transport.begin_pairing(on_passkey)
     transport.serve(on_connection)
@@ -179,7 +180,8 @@ def test_begin_and_serve_register_agent_profile_and_make_visible(fake):
     assert (path, uuid) == (PROFILE_PATH, SERVICE_UUID)
     assert {k: v.value for k, v in options.items()} == {
         "Name": "InventarioBT", "Role": "server",
-        "RequireAuthentication": True, "Channel": RFCOMM_CHANNEL,
+        "RequireAuthentication": True, "RequireAuthorization": True,  # BlueZ ya lo exigía por defecto
+        "Channel": RFCOMM_CHANNEL,
     }
     assert options["Channel"].signature == "q" and RFCOMM_CHANNEL == 22
     assert set(bus.exported) == {AGENT_PATH, PROFILE_PATH}
@@ -280,14 +282,14 @@ def test_no_system_bus_mentions_the_dbus_mount(fake):
 def test_failure_halfway_rolls_back_what_was_registered(fake):
     fake.fail = {"RequestDefaultAgent": ("org.bluez.Error.DoesNotExist", "Does Not Exist")}
     with pytest.raises(BluetoothUnavailable, match="DoesNotExist"):
-        fake.make().begin_pairing(accept_any)
+        fake.make(require_pairing=True).begin_pairing(accept_any)
     assert fake.bus.members()[-1] == "UnregisterAgent"
     assert fake.bus.adapter["Discoverable"] is False and fake.bus.disconnected
 
 
 def test_profile_rejected_by_bluez_is_bluetooth_unavailable(fake):
     fake.fail = {"RegisterProfile": ("org.bluez.Error.AlreadyExists", "UUID already registered")}
-    transport = fake.make()
+    transport = fake.make(require_pairing=True)
     transport.begin_pairing(accept_any)
     with pytest.raises(BluetoothUnavailable, match="AlreadyExists"):
         transport.serve(lambda conn: None)
@@ -453,8 +455,8 @@ def test_connection_write_to_a_gone_phone_raises_oserror():
 
 
 # ------------------------------------------------- con el controlador de verdad
-def started(fake, **kwargs):
-    transport = fake.make()
+def started(fake, require_pairing=True, **kwargs):
+    transport = fake.make(require_pairing=require_pairing)
     store = FakeStore()
     changes = []
     controller = SyncController(transport, store, changes.append, **kwargs)
@@ -514,3 +516,73 @@ def test_bluez_cancel_returns_the_controller_to_waiting(fake):
     controller.confirm(True)  # un clic tardío ya no hace nada
     assert controller.status()["estado"] == ESPERANDO_EMPAREJAMIENTO
     controller.cancel()
+
+
+# ------------------------------------------- modo sin claves (D22, el predeterminado)
+def test_default_is_open_mode_without_pairing():
+    assert BluezTransport().require_pairing is False
+    assert BluezTransport(require_pairing=True).require_pairing is True
+
+
+def test_open_mode_has_no_agent_and_the_profile_needs_no_authentication(fake):
+    transport = opened(fake, require_pairing=False)
+    bus = fake.bus
+    members = bus.members()
+    assert "RegisterAgent" not in members and "RequestDefaultAgent" not in members
+    assert set(bus.exported) == {PROFILE_PATH}  # el agente del sistema (KDE) queda intacto
+    options = bus.last("RegisterProfile").body[2]
+    assert options["RequireAuthentication"].value is False
+    assert options["RequireAuthorization"].value is False
+    # Sigue anunciándose, para que el teléfono lo encuentre la primera vez.
+    assert bus.adapter["Alias"] == "gestion_inventario" and bus.adapter["Discoverable"] is True
+    transport.stop()
+    assert "UnregisterAgent" not in bus.members() and "UnregisterProfile" in bus.members()
+    assert bus.adapter["Alias"] == "PC de prueba" and bus.adapter["Discoverable"] is False
+    assert bus.exported == {} and bus.disconnected
+
+
+def test_pairing_mode_still_requires_authentication_and_authorization(fake):
+    opened(fake)  # el helper usa require_pairing=True
+    options = fake.bus.last("RegisterProfile").body[2]
+    assert options["RequireAuthentication"].value is True
+    assert options["RequireAuthorization"].value is True
+
+
+def test_open_mode_accepts_a_device_that_never_paired(fake):
+    got = []
+    transport = opened(fake, require_pairing=False, on_connection=lambda conn: got.append(conn.readline()))
+    phone, fd = phone_socket()
+    on_loop(transport, transport._new_connection(STRANGER, fd)).result(5)  # STRANGER: Paired=False
+    phone.sendall(b"HELLO|1|x|y*00000000\n")
+    wait_for(lambda: got == [b"HELLO|1|x|y*00000000\n"], what="que el manejador lea la línea")
+    phone.close()
+    wait_for(lambda: not transport.busy, what="que el transporte quede libre")
+
+
+def test_open_mode_second_connection_is_still_busy(fake):
+    release = threading.Event()
+    transport = opened(fake, require_pairing=False, on_connection=lambda conn: release.wait(10))
+    first_phone, fd1 = phone_socket()
+    on_loop(transport, transport._new_connection(STRANGER, fd1)).result(5)
+    wait_for(lambda: transport.busy, what="la primera conexión")
+    second_phone, fd2 = phone_socket()
+    on_loop(transport, transport._new_connection(STRANGER, fd2)).result(5)
+    assert second_phone.makefile("rb").readline() == b"NAK|0|OCUPADO*2C549C0A\n"
+    release.set()
+    wait_for(lambda: not transport.busy, what="que termine la primera")
+    first_phone.close()
+    second_phone.close()
+
+
+def test_open_mode_never_asks_for_a_code_and_a_full_sync_works(fake):
+    controller, transport, store, changes = started(fake, require_pairing=False)
+    phone, fd = phone_socket()
+    on_loop(transport, transport._new_connection(STRANGER, fd)).result(5)
+    phone.sendall(hello() + rec(1) + rec(2) + end(2))
+    replies, kinds = phone.makefile("rb"), []
+    while not kinds or kinds[-1] != "BYE":
+        kinds.append(parse(replies.readline()).kind)
+    wait_for(lambda: controller.status()["estado"] == LISTO, what="LISTO")
+    phone.close()
+    assert CONFIRMAR_CODIGO not in [c["estado"] for c in changes]
+    assert store.batch_calls == ["SYNC"] and len(store.rows) == 2

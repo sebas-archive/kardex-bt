@@ -61,7 +61,8 @@ def check(args, uuid: str) -> int:
     async def nobody(code):
         return False
 
-    transport = BluezTransport(args.adapter, uuid, discoverable_s=args.window, alias=args.name)
+    transport = BluezTransport(args.adapter, uuid, discoverable_s=args.window, alias=args.name,
+                               require_pairing=args.con_clave)
     try:
         transport.begin_pairing(nobody)
         transport.serve(lambda conn: None)
@@ -131,6 +132,8 @@ def main() -> int:
     parser.add_argument("--adapter", default="hci0")
     parser.add_argument("--spp", action="store_true", help="usar el UUID de puerto serie (apps de terminal)")
     parser.add_argument("--yes", action="store_true", help="aceptar el código sin preguntar")
+    parser.add_argument("--con-clave", action="store_true",
+                        help="exigir emparejamiento con código de 6 dígitos (por defecto: sin claves)")
     parser.add_argument("--window", type=int, default=120, help="segundos visible y esperando")
     parser.add_argument("--name", default=BLUETOOTH_NAME, help="nombre Bluetooth visible para el teléfono")
     parser.add_argument("--check", action="store_true", help="abrir y cerrar contra BlueZ, sin teléfono")
@@ -161,7 +164,8 @@ def main() -> int:
         changes.put(status)
 
     controller = SyncController(
-        BluezTransport(args.adapter, uuid, discoverable_s=args.window, alias=args.name), store, on_change,
+        BluezTransport(args.adapter, uuid, discoverable_s=args.window, alias=args.name,
+                       require_pairing=args.con_clave), store, on_change,
         discoverable_s=args.window,
     )
     controller.start()
