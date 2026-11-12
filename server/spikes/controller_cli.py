@@ -24,7 +24,7 @@ from btsync.controller import CONFIRMAR_CODIGO, ERROR, IDLE, LISTO, SyncControll
 from btsync.store import Store
 from btsync.transports import bluez
 from btsync.transports.base import BluetoothUnavailable
-from btsync.transports.bluez import SERVICE_UUID, SPP_UUID, BluezTransport
+from btsync.transports.bluez import BLUETOOTH_NAME, SERVICE_UUID, SPP_UUID, BluezTransport
 
 _log_file = None
 
@@ -47,7 +47,8 @@ async def adapter_now(adapter: str) -> dict:
 
 
 def summary(a: dict, uuid: str) -> str:
-    return (f"Discoverable={a.get('Discoverable')} DiscoverableTimeout={a.get('DiscoverableTimeout')} "
+    return (f"Alias={a.get('Alias')!r} Discoverable={a.get('Discoverable')} "
+            f"DiscoverableTimeout={a.get('DiscoverableTimeout')} "
             f"Pairable={a.get('Pairable')} servicio_registrado={uuid in a.get('UUIDs', [])}")
 
 
@@ -59,7 +60,7 @@ def check(args, uuid: str) -> int:
     async def nobody(code):
         return False
 
-    transport = BluezTransport(args.adapter, uuid, discoverable_s=args.window)
+    transport = BluezTransport(args.adapter, uuid, discoverable_s=args.window, alias=args.name)
     try:
         transport.begin_pairing(nobody)
         transport.serve(lambda conn: None)
@@ -72,12 +73,19 @@ def check(args, uuid: str) -> int:
     during = asyncio.run(adapter_now(args.adapter))
     log(f"ABIERTO {summary(during, uuid)}")
     transport.stop()
-    after = asyncio.run(adapter_now(args.adapter))
+    keys = ("Discoverable", "DiscoverableTimeout", "Pairable", "Alias")
+    # BlueZ aplica el cambio de nombre de forma asíncrona: se espera a que el adaptador se asiente.
+    deadline = time.monotonic() + 5
+    while True:
+        after = asyncio.run(adapter_now(args.adapter))
+        if all(after.get(k) == before.get(k) for k in keys) or time.monotonic() > deadline:
+            break
+        time.sleep(0.2)
     log(f"CERRADO {summary(after, uuid)}")
 
-    keys = ("Discoverable", "DiscoverableTimeout", "Pairable")
     ok = (
         during.get("Discoverable") is True
+        and during.get("Alias") == args.name
         and during.get("DiscoverableTimeout") == args.window
         and uuid in during.get("UUIDs", [])
         and uuid not in after.get("UUIDs", [])
@@ -113,6 +121,7 @@ def main() -> int:
     parser.add_argument("--spp", action="store_true", help="usar el UUID de puerto serie (apps de terminal)")
     parser.add_argument("--yes", action="store_true", help="aceptar el código sin preguntar")
     parser.add_argument("--window", type=int, default=120, help="segundos visible y esperando")
+    parser.add_argument("--name", default=BLUETOOTH_NAME, help="nombre Bluetooth visible para el teléfono")
     parser.add_argument("--check", action="store_true", help="abrir y cerrar contra BlueZ, sin teléfono")
     parser.add_argument("--log", default=".superpowers/paso5-controller.log")
     args = parser.parse_args()
@@ -133,7 +142,7 @@ def main() -> int:
         changes.put(status)
 
     controller = SyncController(
-        BluezTransport(args.adapter, uuid, discoverable_s=args.window), store, on_change,
+        BluezTransport(args.adapter, uuid, discoverable_s=args.window, alias=args.name), store, on_change,
         discoverable_s=args.window,
     )
     controller.start()

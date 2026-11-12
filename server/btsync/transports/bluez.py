@@ -6,11 +6,11 @@ RFCOMM ya aceptada como un descriptor de archivo. Diseño y evidencias: docs/spi
 
 Ciclo de vida (lo maneja ``SyncController``)::
 
-    begin_pairing  →  conecta al bus, registra el agente (el que recibe el código de 6 dígitos)
-                      y hace visible y emparejable el adaptador
+    begin_pairing  →  conecta al bus, registra el agente (el que recibe el código de 6 dígitos),
+                      le pone al adaptador el nombre de la aplicación y lo hace visible y emparejable
     serve          →  registra el servicio RFCOMM (perfil) y empieza a recibir conexiones
     stop           →  rechaza lo pendiente, corta la conexión activa, retira perfil y agente,
-                      y deja el adaptador como estaba
+                      y deja el adaptador como estaba (también su nombre)
 
 Todo lo que toca D-Bus corre en un bucle asyncio propio, en un hilo aparte. Cada conexión se
 atiende en otro hilo, uno a la vez (D19).
@@ -36,6 +36,8 @@ SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"      # puerto serie estándar 
 # Para un UUID que BlueZ no conoce hay que fijar el canal: sin él registra el servicio pero no
 # abre ningún listener RFCOMM. El perfil serie estándar ya trae el suyo.
 RFCOMM_CHANNEL = 22
+# Nombre Bluetooth con el que el PC aparece en el teléfono mientras la ventana está abierta.
+BLUETOOTH_NAME = "gestion_inventario"
 
 AGENT_PATH = "/com/sebasarchive/kardex/agent"
 PROFILE_PATH = "/com/sebasarchive/kardex/profile"
@@ -227,10 +229,12 @@ class BluezTransport:
         adapter: str = "hci0",
         service_uuid: str = SERVICE_UUID,
         discoverable_s: int = 120,
+        alias: str = BLUETOOTH_NAME,
     ) -> None:
         self.adapter = adapter
         self.service_uuid = service_uuid.lower()
         self.discoverable_s = discoverable_s
+        self.alias = alias
         self._adapter_path = f"/org/bluez/{adapter}"
         self._op_lock = threading.RLock()    # begin_pairing / serve / stop, de a uno
         self._conn_lock = threading.Lock()   # protege _active
@@ -330,7 +334,7 @@ class BluezTransport:
                 raise BluetoothUnavailable("El Bluetooth está apagado. Enciéndelo y vuelve a intentar.")
             self._original = {
                 name: adapter[name]
-                for name in ("Discoverable", "DiscoverableTimeout", "Pairable")
+                for name in ("Discoverable", "DiscoverableTimeout", "Pairable", "Alias")
                 if name in adapter
             }
 
@@ -343,6 +347,7 @@ class BluezTransport:
             await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RequestDefaultAgent", "o", [AGENT_PATH])
 
             self._visible = True
+            await self._set_adapter("Alias", "s", self.alias)  # antes de hacerse visible
             await self._set_adapter("Pairable", "b", True)
             await self._set_adapter("DiscoverableTimeout", "u", self.discoverable_s)
             await self._set_adapter("Discoverable", "b", True)
@@ -352,7 +357,7 @@ class BluezTransport:
         except DBusError as exc:
             await self._shutdown()
             raise BluetoothUnavailable(f"BlueZ rechazó la operación ({exc.type}: {exc.text})") from exc
-        _log(f"visible y emparejable durante {self.discoverable_s} s ({self.adapter})")
+        _log(f"visible como «{self.alias}» y emparejable durante {self.discoverable_s} s ({self.adapter})")
 
     async def _read_adapter(self) -> dict:
         try:
@@ -420,7 +425,11 @@ class BluezTransport:
         if self._visible:
             self._visible = False
             restore = {"Discoverable": False, "DiscoverableTimeout": 180, "Pairable": True, **self._original}
-            for name, signature in (("Discoverable", "b"), ("DiscoverableTimeout", "u"), ("Pairable", "b")):
+            for name, signature in (
+                ("Discoverable", "b"), ("DiscoverableTimeout", "u"), ("Pairable", "b"), ("Alias", "s"),
+            ):
+                if name not in restore:
+                    continue  # sin nombre original conocido no se toca
                 await quiet(f"restaurar {name}", _call(
                     bus, self._adapter_path, _PROPS, "Set", "ssv",
                     [_ADAPTER, name, Variant(signature, restore[name])]))

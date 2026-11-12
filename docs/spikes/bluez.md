@@ -200,6 +200,10 @@ demostró. Qué hizo con cada hallazgo:
 | 9. rfkill | `BluetoothUnavailable` con el mensaje «…ejecuta: rfkill unblock bluetooth». El transporte **no** enciende el adaptador |
 | 11. El descriptor | `dbus-fast` 5.2.0 nunca cierra los descriptores recibidos (se revisó su código): el transporte se adueña del `fd` sin duplicarlo. El `os.dup` del spike dejaba uno abierto por conexión |
 
+**Nombre Bluetooth (D21):** mientras la ventana está abierta el adaptador se llama
+`gestion_inventario` (`Adapter1.Alias`); al cerrar recupera su nombre. BlueZ aplica el cambio de
+nombre de forma asíncrona: justo después de `stop()` todavía puede leerse el nombre anterior.
+
 Además: una segunda conexión mientras hay una activa recibe `NAK|0|OCUPADO` (D19); si el teléfono
 cancela el emparejamiento (`Agent1.Cancel`) el controlador deja de mostrar el código y sigue
 esperando; un emparejamiento sin código (`RequestAuthorization`) se rechaza.
@@ -218,10 +222,25 @@ esperando; un emparejamiento sin código (`RequestAuthorization`) se rechaza.
   00:55:28 CERRADO Discoverable=False DiscoverableTimeout=180 Pairable=True servicio_registrado=False
   ```
 
+- **Contra el BlueZ real, con la radio encendida y sin celular** (2026-11-10):
+
+  ```text
+  $ docker compose --profile spike run --rm -T --no-deps bt-spike python server/spikes/controller_cli.py --check --spp
+  01:45:28 ANTES   Alias='T0poL' Discoverable=False DiscoverableTimeout=180 Pairable=True servicio_registrado=False
+  01:45:28 ABIERTO Alias='gestion_inventario' Discoverable=True DiscoverableTimeout=120 Pairable=True servicio_registrado=True
+  01:45:28 CERRADO Alias='T0poL' Discoverable=False DiscoverableTimeout=180 Pairable=True servicio_registrado=False
+  01:45:28 --check: OK, la ventana se abre y todo vuelve a quedar como estaba
+  ```
+
+  Lo mismo sin `--spp` (UUID propio, canal 22): `servicio_registrado=True` con la ventana abierta.
+- **Cierre por tiempo en el BlueZ real**: una ventana de 300 s sin conexiones terminó sola en
+  `IDLE` con `TIEMPO_AGOTADO: nadie se conectó en 300 s`, y el adaptador quedó no visible y sin
+  el servicio (hallazgo 6 del spike, resuelto).
+
 ## Pendiente: paso 5 con el celular
 
-**Aún no se ha hecho.** Falta abrir la ventana con la radio encendida, emparejar y sincronizar
-de verdad a través de `SyncController` + `BluezTransport`. Pasos:
+**Aún no se ha hecho.** Falta emparejar y sincronizar de verdad a través de `SyncController` +
+`BluezTransport`: el código de 6 dígitos, `AuthorizeService`, `NewConnection` y los datos. Pasos:
 
 1. Encender el Bluetooth del PC (o `rfkill unblock bluetooth`) y tener Oracle arriba
    (`docker compose up -d --wait oracle`).
@@ -231,7 +250,9 @@ de verdad a través de `SyncController` + `BluezTransport`. Pasos:
 3. Para ver el código de 6 dígitos hay que desemparejar antes: `bluetoothctl remove <MAC>` en el PC
    y «Olvidar» en el celular. Si se deja emparejado, el celular se conecta directo, sin código.
 4. `docker compose --profile spike run --rm bt-spike python server/spikes/controller_cli.py --spp --window 300`
-5. En la app de terminal serial del celular, conectar al PC y enviar estas tres líneas, una por una:
+5. En la app de terminal serial del celular, conectar al PC (aparece como `gestion_inventario`;
+   si ya estaba emparejado puede seguir saliendo con el nombre anterior) y enviar estas tres
+   líneas, una por una:
 
    ```text
    HELLO|1|p9lite|P9*CDC3CB89
