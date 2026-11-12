@@ -280,14 +280,20 @@ imprimían solo en la terminal); desde ahora `controller_cli.py` las guarda tamb
 
 A pedido del usuario el modo por defecto **no empareja ni usa claves**: `BluezTransport(require_pairing=False)`.
 
-- El perfil se registra con `RequireAuthentication=False` y `RequireAuthorization=False`; no se registra
-  agente (el agente del sistema, KDE, queda intacto) y se acepta la conexión de un dispositivo que nunca se
-  emparejó. El PC sigue anunciándose como `gestion_inventario` mientras la ventana está abierta.
+- El perfil se registra con `RequireAuthentication=False` y `RequireAuthorization=False` y se acepta la
+  conexión de un dispositivo que nunca se emparejó. El PC sigue anunciándose como `gestion_inventario`
+  mientras la ventana está abierta.
+- **Agente silencioso.** Se registra un agente `NoInputNoOutput` ("Just Works") como agente por defecto
+  mientras la ventana está abierta: acepta el emparejamiento sin código, no pide permisos y solo autoriza el
+  servicio propio (rechaza en silencio manos libres, audio, etc.). **Sin él**, en la primera prueba sin claves
+  (2026-11-11) atendió el agente de KDE: mostró un PIN y pidió un permiso por cada servicio, y el celular quedó
+  `Paired`, `Bonded` y `Trusted`, aunque nuestro programa nunca pidió código. Al cerrar la ventana se retira y
+  KDE recupera el mando.
 - Del lado del teléfono tiene que usarse un socket **inseguro** (Android:
   `createInsecureRfcommSocketToServiceRecord`); con uno seguro Android fuerza el emparejamiento y el PC
   volvería a mostrar un código (ahora el del sistema, no el nuestro). Muchas apps de terminal serial solo
   ofrecen el socket seguro: por eso esta ruta se prueba de verdad con la APK (Tareas 14 y 15).
-- `controller_cli.py --con-clave` restaura el modo anterior (código de 6 dígitos y solo dispositivos emparejados).
+- `controller_cli.py --con-clave` restaura el modo con código (código de 6 dígitos y solo dispositivos emparejados).
 - Verificado contra el BlueZ real sin celular (`--check`, con y sin `--con-clave`): BlueZ acepta el registro del
   servicio sin autenticación, la ventana se abre y todo queda como estaba. **No verificado:** una conexión real
   de un teléfono sin emparejar (hace falta un socket inseguro en el teléfono).
