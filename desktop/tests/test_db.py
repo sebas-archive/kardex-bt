@@ -4,6 +4,9 @@ Lecturas: U1 A1 60 Ana, U2 A1 41 Luis, U1 A2 45 Ana, U1 A3 23 Ana, U2 A5 4 Luis;
 stock A1 100, A2 50, A3 20, A4 10 (A5 no está en la foto). Ver server/tests/fixtures.
 """
 
+import threading
+
+import oracledb
 import pytest
 
 from app import db as dbq
@@ -139,3 +142,60 @@ def test_fetch_estado_batch_counts_pendientes_and_errores(contado):
     assert ahora.pendientes - antes.pendientes == 1
     assert ahora.errores - antes.errores == 1
     assert ahora.ultimo_run is not None and ahora.ultimo_origen == "MANUAL"
+
+
+# ------------------------------------------------- una conexión por hilo (no una por consulta)
+# Una consulta por conexión nueva llegó a 5.938 conexiones en pocos minutos de pruebas y la XE 11g
+# respondió a veces ORA-12516 (el listener no encuentra manejador libre).
+def test_connection_is_reused_in_the_same_thread(contado):
+    dbq.fetch_conteos()
+    primera = dbq._local.conn
+    dbq.fetch_resumen(C)
+    dbq.fetch_dif_por_categoria(C)
+    assert dbq._local.conn is primera
+    dbq.liberar_conexion()
+    assert getattr(dbq._local, "conn", None) is None
+
+
+def test_a_dead_connection_is_replaced_transparently(contado):
+    dbq.fetch_conteos()
+    muerta = dbq._local.conn
+    muerta.close()                                    # p. ej. Oracle la cortó por inactividad
+    assert dbq.fetch_resumen(C) is not None           # el ping falla y se reconecta sola
+    assert dbq._local.conn is not muerta
+
+
+def test_a_failure_discards_the_connection_and_changing_the_dsn_never_reuses_it(contado, monkeypatch):
+    dbq.fetch_conteos()
+    vieja = dbq._local.conn
+    monkeypatch.setenv("DB_DSN", "127.0.0.1:1/XE")    # otro destino: nunca se reutiliza la conexión vieja
+    with pytest.raises(oracledb.DatabaseError):
+        dbq.fetch_conteos()
+    assert getattr(dbq._local, "conn", None) is None
+    monkeypatch.undo()
+    assert dbq.fetch_resumen(C) is not None
+    assert dbq._local.conn is not vieja
+
+
+def test_many_threads_share_one_connection_each(contado, monkeypatch):
+    conectadas = []
+    original = dbq.connect_oracle
+    monkeypatch.setattr(dbq, "connect_oracle", lambda *a: (conectadas.append(1), original(*a))[1])
+    errores = []
+
+    def trabajador():
+        try:
+            for _ in range(25):
+                assert dbq.fetch_resumen(C).skus_totales == 5
+        except Exception as exc:
+            errores.append(exc)
+        finally:
+            dbq.liberar_conexion()
+
+    hilos = [threading.Thread(target=trabajador) for _ in range(8)]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join(timeout=60)
+    assert errores == []
+    assert len(conectadas) == 8      # una por hilo, no una por consulta (eran 200)

@@ -2,32 +2,79 @@
 
 Los agregados salen de las vistas de Oracle (``V_*``): nunca se traen filas a Python para sumar.
 Lo que no tiene vista (filas de conciliación, detalle por ubicación, errores, conteos) se lee de
-las tablas. Cada función abre su propia conexión y la cierra, así que se puede llamar desde
-cualquier hilo de trabajo. **Ninguna se debe llamar desde el hilo de la interfaz** (usar
-``QueryWorker``).
+las tablas. **Ninguna función se debe llamar desde el hilo de la interfaz** (usar ``QueryWorker``).
 
-Toda conexión pasa por ``btsync.store.connect_oracle``: varios hilos llamando a
-``oracledb.connect`` a la vez abortan el Instant Client.
+Conexiones: **una por hilo**, reutilizada entre consultas. Abrir una por consulta llegó a miles de
+conexiones en pocos minutos y la XE 11g respondía a veces ``ORA-12516``. Antes de reutilizarla se
+hace ``ping``; si falla, o cambian el DSN o las credenciales, se abre otra; tras cualquier error se
+descarta (puede haber quedado con una transacción a medias). Se abren siempre con
+``btsync.store.connect_oracle``: varios hilos llamando a ``oracledb.connect`` a la vez abortan el
+Instant Client.
 """
 
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 
 from btsync.store import connect_oracle
 
-from .models import Conteo, ErrorFila, EstadoBatch, FilaConciliacion, Lectura, ResumenConteo
+from .models import (
+    Conteo,
+    ErrorFila,
+    EstadoBatch,
+    FilaConciliacion,
+    Lectura,
+    PerfilDatos,
+    ResumenConteo,
+)
+
+
+_local = threading.local()  # .conn y .clave de ESTE hilo
+
+
+def _cerrar(conn) -> None:
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def liberar_conexion() -> None:
+    """Cierra la conexión de este hilo (la próxima consulta abrirá otra)."""
+    conn = getattr(_local, "conn", None)
+    _local.conn = None
+    if conn is not None:
+        _cerrar(conn)
+
+
+def _obtener():
+    clave = (os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        try:
+            if getattr(_local, "clave", None) != clave:
+                raise ValueError("otro destino")
+            conn.ping()
+        except Exception:
+            liberar_conexion()
+            conn = None
+    if conn is None:
+        conn = connect_oracle(*clave)
+        _local.conn, _local.clave = conn, clave
+    return conn
 
 
 @contextmanager
 def _conexion():
-    conn = connect_oracle(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
+    conn = _obtener()
     try:
         yield conn
-    finally:
-        conn.close()
+    except BaseException:
+        liberar_conexion()  # tras un error la conexión puede quedar inutilizable o con una transacción abierta
+        raise
 
 
 def _f(valor) -> float | None:
@@ -209,3 +256,44 @@ def reprocesar_errores(id_conteo: str | None = None) -> None:
 def procesar_ahora() -> None:
     with _conexion() as conn:
         conn.cursor().callproc("pkg_batch.procesar_pendientes", ["MANUAL"])
+
+
+def fetch_tolerancias() -> list[tuple[str, float, float, int]]:
+    """(categoría, tolerancia mínima %, tolerancia máxima %, SKU) del catálogo de productos."""
+    with _conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT categoria, MIN(tolerancia_pct), MAX(tolerancia_pct), COUNT(*) FROM productos "
+            "GROUP BY categoria ORDER BY categoria"
+        )
+        return [(r[0], float(r[1]), float(r[2]), int(r[3])) for r in cur]
+
+
+def fetch_perfil(id_conteo: str) -> PerfilDatos:
+    """Volumen y calidad de la información de un conteo."""
+    with _conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*), COUNT(CASE WHEN vigente = 'S' THEN 1 END), MIN(fecha_captura), MAX(fecha_captura) "
+            "FROM registros_procesados WHERE id_conteo = :c",
+            c=id_conteo,
+        )
+        total, vigentes, fecha_min, fecha_max = cur.fetchone()
+        cur.execute(
+            "SELECT operador, SUM(registros) FROM v_actividad WHERE id_conteo = :c "
+            "GROUP BY operador ORDER BY 2 DESC, 1",
+            c=id_conteo,
+        )
+        por_operador = [(r[0], int(r[1])) for r in cur]
+        # Por dispositivo: solo las filas cuyo tránsito aún no se purgó (la purga lo deja en NULL).
+        cur.execute(
+            "SELECT t.uuid_dispositivo, COUNT(*) FROM registros_procesados r "
+            "JOIN captura_transito t ON t.id_transito = r.id_transito WHERE r.id_conteo = :c "
+            "GROUP BY t.uuid_dispositivo ORDER BY 2 DESC, 1",
+            c=id_conteo,
+        )
+        por_dispositivo = [(r[0], int(r[1])) for r in cur]
+        cur.execute("SELECT procesados, errores FROM v_estado_batch")
+        procesados, errores = cur.fetchone()
+    return PerfilDatos(int(total), int(vigentes), por_operador, por_dispositivo, int(errores),
+                       int(procesados) + int(errores), fecha_min, fecha_max)

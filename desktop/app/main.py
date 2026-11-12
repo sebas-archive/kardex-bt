@@ -21,8 +21,10 @@ from PyQt6.QtWidgets import (
 from . import db
 from .models import Conteo
 from .views.base import ESTILO, QueryRunner, StateBanner
+from .views.charts import ChartsView
 from .views.conciliacion import ConciliacionView
 from .views.conteo import ConteoView
+from .views.perfil import PerfilView
 
 
 class MainWindow(QMainWindow):
@@ -148,6 +150,8 @@ def main() -> int:
     conteo = ConteoView()
     ventana.add_view(conteo, "Conteo")
     ventana.add_view(ConciliacionView(), "Conciliación")
+    ventana.add_view(ChartsView(), "Gráficas")
+    ventana.add_view(PerfilView(), "Perfil")
     conteo.conteo_cerrado.connect(lambda _: ventana.refresh_requested.emit())
     ventana.show()
     return app.exec()
