@@ -34,6 +34,7 @@
 | D18 | **Identidad del dispositivo = UUID de instalación**, generado en el primer arranque, guardado en el almacenamiento privado de la app con `allowBackup="false"`. Reinstalar crea un dispositivo nuevo con `seq` desde 1. | No hay MAC propia accesible en Android. Si tras reinstalar se vuelve a enviar un conteo ya cargado, D13 lo **reemplaza** en vez de duplicarlo. El README advierte no desinstalar con lecturas pendientes (la `Outbox` se pierde). |
 | D19 | **Una sincronización a la vez**: el transporte acepta una sola conexión activa; las demás reciben `NAK\|0\|OCUPADO` y se cierran. `SyncController.status()` es único. | Evita que un segundo teléfono pise el estado y la barra de progreso del primero. La demo con dos celulares se hace en serie. |
 | D20 | **Operador y notas**: el operador se captura en una pantalla del móvil (obligatorio antes de guardar, máx. 60 caracteres, se recuerda); la nota tiene máx. 255 caracteres. El batch **trunca** a 60 y 255 caracteres sin marcar error. | Es lo que el modelo de datos soporta; el truncado es una red de seguridad, el móvil ya limita. |
+| D21 | **Nombre Bluetooth visible: `gestion_inventario`** (a pedido del usuario). Mientras la ventana de sincronización está abierta el adaptador usa ese nombre (`Adapter1.Alias`); al cerrarla recupera el del PC. | El operario busca la aplicación, no el nombre del equipo. No se cambia de forma permanente el nombre Bluetooth del PC. Un teléfono ya emparejado puede seguir mostrando el nombre anterior hasta que se vuelva a emparejar. |
 
 ## Constraints globales
 

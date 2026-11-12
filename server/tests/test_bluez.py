@@ -171,6 +171,10 @@ def test_begin_and_serve_register_agent_profile_and_make_visible(fake):
     assert bus.last("RequestDefaultAgent").body == [AGENT_PATH]
     assert bus.adapter["Discoverable"] is True and bus.adapter["Pairable"] is True
     assert bus.adapter["DiscoverableTimeout"] == 120
+    assert bus.adapter["Alias"] == "gestion_inventario"  # el nombre que ve el teléfono
+    # El nombre ya está puesto cuando el PC se hace visible.
+    sets = [c.body[1] for c in bus.calls if c.member == "Set"]
+    assert sets.index("Alias") < sets.index("Discoverable")
     path, uuid, options = bus.last("RegisterProfile").body
     assert (path, uuid) == (PROFILE_PATH, SERVICE_UUID)
     assert {k: v.value for k, v in options.items()} == {
@@ -196,9 +200,12 @@ def test_stop_restores_adapter_unregisters_and_can_reopen(fake):
     transport = opened(fake)
     first = fake.bus
     transport.stop()
-    assert first.members()[-5:] == ["UnregisterProfile", "Set", "Set", "Set", "UnregisterAgent"]
+    assert first.members()[-6:] == ["UnregisterProfile", "Set", "Set", "Set", "Set", "UnregisterAgent"]
     assert (first.adapter["Discoverable"], first.adapter["DiscoverableTimeout"], first.adapter["Pairable"]) == (
         False, 180, False)
+    assert first.adapter["Alias"] == "PC de prueba"  # el PC recupera su nombre
+    restored = [c.body[1] for c in first.calls if c.member == "Set"][-4:]
+    assert restored.index("Discoverable") < restored.index("Alias")  # primero deja de ser visible
     assert first.exported == {} and first.disconnected
     transport.stop()  # idempotente
     assert first.members().count("UnregisterAgent") == 1
@@ -206,6 +213,11 @@ def test_stop_restores_adapter_unregisters_and_can_reopen(fake):
     transport.begin_pairing(accept_any)
     transport.serve(lambda conn: None)
     assert fake.bus is not first and fake.bus.adapter["Discoverable"] is True
+
+
+def test_bluetooth_name_is_configurable(fake):
+    opened(fake, alias="bodega_norte")
+    assert fake.bus.adapter["Alias"] == "bodega_norte"
 
 
 def test_serve_before_begin_pairing_is_a_programming_error(fake):
