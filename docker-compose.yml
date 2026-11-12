@@ -76,6 +76,19 @@ services:
         condition: service_healthy
     command: ["python", "-m", "app.main"]
 
+  # Compila y prueba la APK (Tareas 14-15). Perfil "build":
+  #   docker compose --profile build run --rm apk-build ./gradlew testDebugUnitTest
+  apk-build:
+    profiles: ["build"]
+    build:
+      context: ./mobile
+    user: "${PUID:-1000}:${PGID:-1000}"
+    network_mode: host            # Gradle descarga dependencias; la red bridge puede no tener salida (firewall del host)
+    working_dir: /work/mobile
+    volumes:
+      - ./:/work                  # el repo entero: las pruebas leen docs/protocol-vectors.json
+      - gradle-home:/gradle-home  # caché de Gradle, ~/.m2 y la llave de firma debug
+
   # SPIKE desechable (Tarea 8): Bluetooth del host desde un contenedor. Perfil "spike".
   # bluetoothd sigue en el host; el contenedor le habla por el bus de sistema D-Bus.
   # Resultado y flags finales: docs/spikes/bluez.md
@@ -104,3 +117,4 @@ services:
 
 volumes:
   oracle-data:
+  gradle-home:
