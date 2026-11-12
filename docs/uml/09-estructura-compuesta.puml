@@ -1,0 +1,41 @@
+@startuml
+!include estilo.iuml
+title 09 · Estructura compuesta: interior de SyncController
+left to right direction
+
+component "SyncBridge\n(señales Qt)" as bridge
+component "Transport\n(BluezTransport | TcpTransport)" as transporte
+component "Store\n(Oracle)" as repo
+
+component "SyncController" as ctrl {
+  portin "API\nstart / confirm / cancel / status" as p_api
+  portout "on_change(status)" as p_gui
+  portout "begin_pairing · serve · stop" as p_tr
+  portin "on_passkey · on_connection" as p_tr_in
+  portout "run_batch('SYNC')" as p_store
+
+  component "Estado y candado\n(_estado, _gen, _lock)" as estado
+  component "Apertura\n(_abrir: hilo)" as apertura
+  component "Plazo\n(_vigilar: temporizador 120 s)" as plazo
+  component "Agente de emparejamiento\n(_on_passkey, solo con código)" as agente
+  component "Session\n(una por conexión)" as sesion
+}
+
+bridge --> p_api
+p_gui --> bridge
+p_api --> estado
+estado --> p_gui
+estado --> apertura
+estado --> plazo
+apertura --> p_tr
+p_tr --> transporte
+transporte --> p_tr_in
+p_tr_in --> agente
+p_tr_in --> sesion
+agente --> estado : CONFIRMAR_CODIGO
+plazo --> estado : IDLE al vencer
+sesion --> estado : hello · progress · done
+sesion --> repo : staging
+estado --> p_store : al terminar (D9)
+p_store --> repo
+@enduml

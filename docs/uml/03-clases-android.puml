@@ -1,0 +1,165 @@
+@startuml
+!include estilo.iuml
+' @code: mobile/app/src/main
+title 03 · Clases de la APK Android (MVVM)
+left to right direction
+
+package "ui (vista y modelo de vista)" {
+  class HomeActivity
+  class ContarActivity
+  class SincronizarActivity
+  class PantallaActivity
+  class CountViewModel {
+    +operador : StateFlow<String>
+    +conteo : StateFlow<String?>
+    +ubicacion : StateFlow<String?>
+    +guardar(ubicacion, sku, cantidad, nota) : SaveResult
+    +ultimaLectura(ubicacion, sku) : LecturaEntity?
+    +setOperador(nombre)
+    +lecturasDe(ubicacion) : List<LecturaEntity>
+  }
+  class SaveResult <<sealed>> {
+    Guardada(seq, reemplazo, skuDesconocido)
+    OperadorFaltante · SinConteo · UbicacionFaltante
+    SkuFaltante · CantidadInvalida · NotaLarga
+  }
+  class SyncViewModel {
+    +estado : StateFlow<SyncEstado?>
+    +iniciar(direccion)
+    +cancelar()
+  }
+  class SyncRunner {
+    +ejecutar() : Flow<SyncEstado>
+  }
+  class SyncEstado <<sealed>> {
+    Conectando · Sincronizando · Reintentando · Listo
+    Ocupado · Rechazado · PcNoDisponible · Cortado
+  }
+  class SettingsStore {
+    +operador
+    +conteo
+    +ubicacion
+    +pcDireccion
+  }
+  class Servicios
+}
+
+package "sync" {
+  class SyncClient {
+    +sync(socket : BluetoothSocketLike) : Flow<SyncProgress>
+  }
+  class SyncProgress <<sealed>> {
+    Connected(ultimoSeqServidor, porEnviar)
+    Progress(confirmadoHasta, total)
+    Done(aceptados, rechazados, pendientes)
+    Busy · Rejected(motivo) · Cut(motivo, pendientes)
+  }
+  interface BluetoothSocketLike {
+    +inputStream
+    +outputStream
+  }
+  class AndroidBluetoothSocket
+  class PcConnector {
+    +conectar(direccion) : BluetoothSocketLike
+  }
+  class LineReader {
+    +readLine() : ByteArray?
+  }
+}
+
+package "protocol" {
+  class Protocol <<object>> {
+    +frame(fields) : ByteArray
+    +parse(line) : Message
+    +encodeText(s) : String
+    +decodeText(s) : String
+  }
+  class Message {
+    +kind : String
+    +fields : List<String>
+  }
+  class Rec {
+    +toRaw() : String
+    +toFrame() : ByteArray
+  }
+  class FrameError {
+    +reason : String
+  }
+}
+
+package "data (Room)" {
+  class AppDatabase
+  class Outbox {
+    +insertar(l) : Long
+    +pendientesDesde(seq)
+    +confirmarHasta(seq)
+    +reemplazar(idConteo, ubicacion, sku, cantidad, ts) : Boolean
+    +tomarParaEnviar(seq)
+    +reconciliar(ultimoSeqServidor)
+  }
+  class LecturaEntity {
+    +seq : Long
+    +tsOriginalMs : Long
+    +idConteo
+    +ubicacion
+    +sku
+    +cantidad
+    +operador
+    +nota
+    +estado
+  }
+  class Estado <<object>> {
+    PENDIENTE · ENVIADO · CONFIRMADO
+  }
+  class CatalogRepository {
+    +reemplazarTodo(c : Catalog)
+    +producto(sku)
+  }
+  class CatalogDao
+  class Catalog
+  class ConteoEntity
+  class UbicacionEntity
+  class ProductoEntity
+}
+
+class DeviceIdentity <<object>> {
+  +get(context) : String
+}
+
+HomeActivity --|> PantallaActivity
+ContarActivity --|> PantallaActivity
+SincronizarActivity --|> PantallaActivity
+ContarActivity --> CountViewModel
+SincronizarActivity --> SyncViewModel
+Servicios *-- CountViewModel
+Servicios *-- SettingsStore
+Servicios *-- PcConnector
+CountViewModel --> Outbox
+CountViewModel --> CatalogRepository
+CountViewModel --> SettingsStore
+CountViewModel ..> SaveResult
+SyncViewModel *-- SyncRunner
+SyncViewModel ..> DeviceIdentity
+SyncRunner --> SyncClient
+SyncRunner ..> SyncEstado
+SyncClient --> Outbox
+SyncClient --> CatalogRepository
+SyncClient --> LineReader
+SyncClient --> Protocol
+SyncClient ..> SyncProgress
+SyncClient ..> BluetoothSocketLike
+BluetoothSocketLike <|.. AndroidBluetoothSocket
+PcConnector ..> AndroidBluetoothSocket : crea
+Protocol ..> Message
+Protocol ..> FrameError
+Rec ..> Protocol
+Outbox "1" o-- "*" LecturaEntity
+LecturaEntity ..> Estado
+AppDatabase *-- Outbox
+AppDatabase *-- CatalogDao
+CatalogRepository --> CatalogDao
+CatalogDao ..> Catalog
+Catalog o-- ConteoEntity
+Catalog o-- UbicacionEntity
+Catalog o-- ProductoEntity
+@enduml

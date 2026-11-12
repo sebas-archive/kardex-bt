@@ -1,0 +1,25 @@
+' Estilo común de todos los diagramas (se incluye con !include estilo.iuml).
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 12
+skinparam ArrowColor #475467
+skinparam BackgroundColor #FFFFFF
+skinparam TitleFontSize 15
+skinparam class {
+  BackgroundColor #F8FAFC
+  BorderColor #475467
+  HeaderBackgroundColor #E0EAFF
+}
+skinparam package {
+  BackgroundColor #FFFFFF
+  BorderColor #98A2B3
+}
+skinparam note {
+  BackgroundColor #FFF8E1
+  BorderColor #F79009
+}
+skinparam sequence {
+  LifeLineBorderColor #98A2B3
+  ParticipantBackgroundColor #E0EAFF
+}

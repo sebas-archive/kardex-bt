@@ -1,0 +1,108 @@
+@startuml
+!include estilo.iuml
+title 04 · Modelo de datos Oracle (entidad-relación)
+hide circle
+skinparam linetype ortho
+
+class conteos <<table>> {
+  * id_conteo : VARCHAR2(30) <<PK>>
+  --
+  nombre : VARCHAR2(100)
+  estado : ABIERTO | CERRADO
+  fecha_inicio : TIMESTAMP
+  fecha_cierre : TIMESTAMP
+}
+class productos <<table>> {
+  * sku : VARCHAR2(30) <<PK>>
+  --
+  nombre
+  categoria
+  unidad
+  costo_unit : NUMBER(12,2)
+  tolerancia_pct : NUMBER(5,2)
+}
+class ubicaciones <<table>> {
+  * cod_ubicacion : VARCHAR2(20) <<PK>>
+  --
+  zona
+  descripcion
+}
+class stock_sistema <<table>> {
+  * id_conteo <<PK, FK>>
+  * sku <<PK, FK>>
+  --
+  cantidad_sistema : NUMBER(12,3)
+}
+class dispositivos <<table>> {
+  * uuid : VARCHAR2(50) <<PK>>
+  --
+  nombre
+  ultima_sync : TIMESTAMP
+}
+class captura_transito <<table>> {
+  * id_transito : NUMBER <<PK>>
+  --
+  uuid_dispositivo <<UK>>
+  seq <<UK>>
+  datos_raw : VARCHAR2(4000 BYTE)
+  estado : PENDIENTE | PROCESANDO | PROCESADO | ERROR
+  mensaje_error
+  fecha_recepcion
+  fecha_reclamo
+}
+class registros_procesados <<table>> {
+  * id_registro : NUMBER <<PK>>
+  --
+  id_transito <<FK, SET NULL>>
+  id_conteo <<FK>>
+  cod_ubicacion <<FK>>
+  sku <<FK>>
+  cantidad : NUMBER(12,3)
+  operador
+  nota
+  fecha_captura : TIMESTAMP (UTC)
+  vigente : S | N
+  fecha_procesado
+}
+class conciliacion <<table>> {
+  * id_conteo <<PK, FK>>
+  * sku <<PK, FK>>
+  --
+  cant_sistema
+  cant_contada
+  diferencia
+  diferencia_pct
+  valor_diferencia
+  clasificacion : OK | FALTANTE | SOBRANTE | SIN_CONTAR
+  fecha_calculo
+}
+class sync_sesiones <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  uuid_dispositivo
+  inicio
+  fin
+  recibidos
+  aceptados
+}
+class log_batch <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  inicio
+  fin
+  procesados
+  errores
+  origen
+}
+
+conteos "1" -- "0..*" stock_sistema
+productos "1" -- "0..*" stock_sistema
+conteos "1" -- "0..*" registros_procesados
+ubicaciones "1" -- "0..*" registros_procesados
+productos "1" -- "0..*" registros_procesados
+captura_transito "1" -- "0..1" registros_procesados : id_transito
+conteos "1" -- "0..*" conciliacion
+productos "1" -- "0..*" conciliacion
+dispositivos "1" .. "0..*" captura_transito : uuid (sin FK)
+dispositivos "1" .. "0..*" sync_sesiones : uuid (sin FK)
+@enduml
