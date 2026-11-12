@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime
 
@@ -18,13 +19,19 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from btsync.store import Store
+from btsync.transports.tcp import TcpTransport
+
 from . import db
 from .models import Conteo
+from .sync_bridge import SyncBridge
 from .views.base import ESTILO, QueryRunner, StateBanner
 from .views.charts import ChartsView
 from .views.conciliacion import ConciliacionView
 from .views.conteo import ConteoView
+from .views.monitor import MonitorView
 from .views.perfil import PerfilView
+from .views.sync import SyncView
 
 
 class MainWindow(QMainWindow):
@@ -36,6 +43,7 @@ class MainWindow(QMainWindow):
     """
 
     refresh_requested = pyqtSignal()
+    cerrando = pyqtSignal()  # la ventana se está cerrando: hay que cortar la sincronización abierta
 
     def __init__(self, auto_refresh_ms: int = 5000, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -50,6 +58,7 @@ class MainWindow(QMainWindow):
 
         self.combo_conteo = QComboBox()
         self.combo_conteo.setMinimumWidth(300)
+        self.combo_conteo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)  # no cortar nombres largos
         self.lbl_actualizado = QLabel("")
         self.lbl_actualizado.setObjectName("subtitulo")
         self.btn_actualizar = QPushButton("Actualizar")
@@ -141,18 +150,45 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, evento) -> None:
         self._timer.stop()
+        self.cerrando.emit()
         super().closeEvent(evento)
 
 
-def main() -> int:
-    app = QApplication(sys.argv)
-    ventana = MainWindow()
-    conteo = ConteoView()
+def build_window(bridge: SyncBridge, auto_refresh_ms: int = 5000) -> MainWindow:
+    """La ventana completa: Sincronización, Conteo, Conciliación, Gráficas, Perfil y Monitoreo."""
+    ventana = MainWindow(auto_refresh_ms=auto_refresh_ms)
+    conteo, monitor = ConteoView(), MonitorView(bridge)
+    ventana.add_view(SyncView(bridge), "Sincronización", index=0)
     ventana.add_view(conteo, "Conteo")
     ventana.add_view(ConciliacionView(), "Conciliación")
     ventana.add_view(ChartsView(), "Gráficas")
     ventana.add_view(PerfilView(), "Perfil")
+    ventana.add_view(monitor, "Monitoreo")
+    bridge.listo.connect(ventana.refresh_requested)                       # llegaron datos nuevos
     conteo.conteo_cerrado.connect(lambda _: ventana.refresh_requested.emit())
+    monitor.datos_cambiados.connect(ventana.refresh_requested)
+    ventana.cerrando.connect(bridge.cancel)
+    return ventana
+
+
+def crear_transporte():
+    """``BT_TRANSPORT=bluez`` (por defecto: Bluetooth real) o ``tcp`` (pruebas y demo de respaldo)."""
+    modo = os.environ.get("BT_TRANSPORT", "bluez").lower()
+    if modo == "tcp":
+        return TcpTransport(os.environ.get("BT_TCP_HOST", "127.0.0.1"), int(os.environ.get("BT_TCP_PORT", "9000")))
+    if modo == "bluez":
+        from btsync.transports.bluez import BluezTransport
+
+        return BluezTransport(require_pairing=os.environ.get("BT_CON_CLAVE") == "1")
+    raise SystemExit(f"BT_TRANSPORT inválido: {modo!r} (usa «bluez» o «tcp»)")
+
+
+def main() -> int:
+    app = QApplication(sys.argv)
+    store = Store(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
+    puente = SyncBridge(crear_transporte(), store)
+    ventana = build_window(puente)
+    app.aboutToQuit.connect(puente.cancel)
     ventana.show()
     return app.exec()
 

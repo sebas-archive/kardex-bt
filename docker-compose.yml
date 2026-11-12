@@ -41,7 +41,9 @@ services:
         condition: service_healthy
 
   # App de escritorio (Tareas 10-13). Con red host: Oracle por el puerto publicado en loopback.
-  # Las pruebas la usan con QT_QPA_PLATFORM=offscreen; Bluetooth y X11 los completa la Tarea 13.
+  # Bluetooth: bluetoothd queda en el host y el contenedor le habla por el bus D-Bus (docs/spikes/bluez.md).
+  # Pantalla: X11 (en Wayland, XWayland) por el socket y la cookie del usuario. Las pruebas la usan con
+  # QT_QPA_PLATFORM=offscreen. BT_TRANSPORT=tcp deja la recepción por TCP (BT_TCP_PORT) en vez de Bluetooth.
   app:
     build:
       context: .
@@ -51,8 +53,12 @@ services:
     user: "${PUID:-1000}:${PGID:-1000}"
     working_dir: /work
     network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
     volumes:
       - ./:/work
+      - /var/run/dbus:/var/run/dbus
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority-host:ro
     environment:
       DB_DSN: 127.0.0.1:1521/XE
       DB_USER: ${DB_USER}
@@ -60,6 +66,11 @@ services:
       PYTHONPATH: /work/server:/work/desktop
       HOME: /tmp                    # el usuario 1000 no tiene HOME: sin esto Qt/fontconfig se quejan
       XDG_CACHE_HOME: /tmp/.cache
+      DISPLAY: ${DISPLAY:-:0}
+      XAUTHORITY: /tmp/.Xauthority-host
+      BT_TRANSPORT: ${BT_TRANSPORT:-bluez}
+      BT_TCP_PORT: ${BT_TCP_PORT:-9000}
+      BT_CON_CLAVE: ${BT_CON_CLAVE:-0}
     depends_on:
       oracle:
         condition: service_healthy
