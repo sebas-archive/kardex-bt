@@ -1,0 +1,51 @@
+@startuml
+!include estilo.iuml
+title 22 · Tiempos: ventana de 120 s y ventana de 50 REC entre ACK
+scale 5 as 40 pixels
+
+robust "SyncController" as C
+analog "REC sin ACK (ventana máx. 50)" between 0 and 50 as W
+
+@0
+C is IDLE
+W is 0
+
+@10
+C is ESPERANDO
+
+@40
+C is CONECTADO
+
+@41
+C is RECIBIENDO
+W is 0
+
+@43
+W is 25
+
+@44
+W is 50
+
+@45
+W is 25
+
+@46
+W is 50
+
+@47
+W is 0
+
+@48
+C is PROCESANDO
+
+@52
+C is LISTO
+
+@130
+C is LISTO
+
+C@10 <-> @130 : plazo de 120 s desde start(); si nadie se conecta → TIEMPO_AGOTADO → IDLE
+W@44 <-> @45 : ventana llena: espera ACK|25
+
+caption Valores del protocolo (ilustrativo): hasta 50 REC sin ACK; el PC hace COMMIT y responde ACK cada 25 insertados; ACK|n libera la ventana.
+@enduml

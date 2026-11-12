@@ -1,0 +1,20 @@
+@startuml
+!include estilo.iuml
+title 20 · Comunicación: colaboración numerada de una sincronización
+left to right direction
+
+rectangle "Session" as ses
+rectangle "Store" as st
+rectangle "SyncController" as ctrl
+rectangle "SyncBridge" as bridge
+rectangle "PKG_BATCH" as pkg
+
+ses -right-> st : 1: insert_staging(uuid, seq, raw)
+ses -right-> st : 2: commit()  [cada 25 y al END]
+ses -down-> ctrl : 3: on_event("progress" | "done")
+ctrl -down-> bridge : 4: on_change(status)  [RECIBIENDO, recibidos = n]
+ctrl -right-> st : 5: run_batch("SYNC")  [PROCESANDO]
+st -right-> pkg : 6: procesar_pendientes('SYNC') · conciliar\n7: respuesta (procesados, errores)
+ctrl -down-> bridge : 8: on_change(status)  [LISTO]
+bridge -up-> bridge : 9: señal listo → refresh_requested
+@enduml

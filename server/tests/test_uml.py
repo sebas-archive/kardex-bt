@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def pumls() -> list[Path]:
 
 def test_every_puml_has_start_end_and_title():
     archivos = pumls()
-    assert len(archivos) >= 9, "faltan diagramas en docs/uml"
+    assert len(archivos) == 22, f"se esperaban 22 diagramas y hay {len(archivos)}"
     for archivo in archivos:
         texto = archivo.read_text(encoding="utf-8")
         assert "@startuml" in texto, f"{archivo.name}: falta @startuml"
@@ -44,3 +45,25 @@ def test_check_classes_reports_a_missing_class(tmp_path):
     )
     assert declared_roots(puml) == [Path("server/btsync")]
     assert check_classes(puml, [ROOT / "server" / "btsync"]) == ["Fantasma"]
+
+
+TIPOS_UML = [
+    "casos de uso", "clases", "objetos", "componentes", "despliegue", "paquetes", "estructura compuesta",
+    "actividad", "secuencia", "comunicación", "máquina de estados", "visión general de interacción", "tiempos",
+]
+
+
+def test_index_lists_every_puml_and_nothing_else():
+    indice = (UML / "README.md").read_text(encoding="utf-8")
+    existentes = {p.name for p in pumls()}
+    citados = set(re.findall(r"\b\d\d-[\w-]+\.puml\b", indice))
+    assert existentes - citados == set(), f"diagramas que el índice no lista: {sorted(existentes - citados)}"
+    assert citados - existentes == set(), f"el índice lista archivos que no existen: {sorted(citados - existentes)}"
+
+
+def test_index_covers_all_applicable_uml_types():
+    indice = (UML / "README.md").read_text(encoding="utf-8").lower()
+    faltan = [t for t in TIPOS_UML if t not in indice]
+    assert faltan == [], f"el índice no menciona estos tipos UML: {faltan}"
+    # El diagrama de perfiles no aplica y el índice lo dice (en la misma línea).
+    assert any("perfil" in l and "no aplica" in l for l in indice.splitlines()), "falta «perfiles: no aplica»"

@@ -1,0 +1,58 @@
+@startuml
+!include estilo.iuml
+title 13 · Secuencia: sincronización completa
+autonumber
+actor Administrador as adm
+participant "SyncView /\nSyncBridge" as gui
+participant SyncController as ctrl
+participant BluezTransport as bz
+participant "bluetoothd" as bluez
+participant "APK\n(SyncClient)" as apk
+participant Session as ses
+participant Store as st
+database "Oracle\n(PKG_BATCH)" as ora
+
+adm -> gui : «Iniciar sincronización»
+gui -> ctrl : start()
+ctrl -> bz : begin_pairing(on_passkey) · serve(on_connection)
+bz -> bluez : Alias = gestion_inventario · Discoverable\nRegisterProfile(UUID 7a1c0b52-…)
+note over ctrl : estado ESPERANDO_EMPAREJAMIENTO\n(ventana de 120 s)
+opt Solo con require_pairing (modo con código)
+  bluez -> bz : RequestConfirmation(passkey)
+  bz -> ctrl : on_passkey(codigo)
+  note over ctrl : estado CONFIRMAR_CODIGO
+  ctrl --> gui : código de 6 dígitos
+  adm -> gui : confirma el código
+  gui -> ctrl : confirm(True)
+end
+apk -> bluez : conectar (socket RFCOMM inseguro, sin emparejar)
+bluez -> bz : NewConnection(fd)
+bz -> ctrl : on_connection(conn)
+note over ctrl : estado CONECTADO
+ctrl -> ses : Session(conn, store).run()
+apk -> ses : HELLO|1|uuid|nombre
+note over ctrl : estado RECIBIENDO
+ses -> st : register_device · open_sync · last_seq(uuid)
+ses -> apk : READY|ultimo_seq|epoch_ms
+ses -> apk : CATCONTEO · CATUBIC · CATPROD … CAT_END
+loop hasta 50 REC sin ACK
+  apk -> ses : REC|seq|ts|conteo|ubicación|sku|cantidad|operador|nota
+  ses -> st : insert_staging(uuid, seq, raw)
+  opt cada 25 insertados
+    ses -> st : commit()
+    ses -> apk : ACK|n
+  end
+end
+apk -> ses : END|n
+ses -> st : commit()
+ses -> apk : ACK|n
+ses -> apk : BYE|aceptados|rechazados
+ses --> ctrl : fin de sesión
+note over ctrl : estado PROCESANDO (D9: el batch corre fuera de la sesión)
+ctrl -> st : run_batch("SYNC")
+st -> ora : PKG_BATCH.procesar_pendientes('SYNC') + conciliar
+ora --> st : procesados, errores
+note over ctrl : estado LISTO
+ctrl --> gui : on_change(status) → señal listo
+gui -> ora : refresco de las vistas V_* (hilos de trabajo)
+@enduml

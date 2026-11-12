@@ -1,0 +1,34 @@
+@startuml
+!include estilo.iuml
+title 15 · Secuencia: fila en ERROR, alta del producto, reprocesar y cerrar el conteo
+autonumber
+actor Administrador as adm
+participant "MonitorView" as mon
+participant "ConteoView" as cv
+participant "QueryWorker\n(hilo de trabajo)" as w
+database "Oracle (PKG_BATCH)" as ora
+
+note over ora : llegó una lectura con SKU «X9»\nque no está en PRODUCTOS
+ora -> ora : procesar_pendientes: fila → ERROR\n(mensaje SKU_DESCONOCIDO)
+mon -> w : fetch_errores()
+w -> ora : SELECT … FROM captura_transito WHERE estado = 'ERROR'
+ora --> mon : la fila con su mensaje
+adm -> ora : da de alta el producto X9\n(catálogo corregido)
+adm -> mon : «Reprocesar errores»
+mon -> w : reprocesar_errores()
+w -> ora : PKG_BATCH.reprocesar_errores
+ora -> ora : ERROR → PENDIENTE · procesar_pendientes('REPROCESO')
+ora -> ora : conciliar el conteo
+ora --> mon : fila PROCESADO
+mon -> mon : datos_cambiados → refresco de todas las vistas
+== Cierre del conteo ==
+adm -> cv : «Cerrar conteo»
+cv -> adm : confirmación (irreversible)
+adm -> cv : Cerrar
+cv -> w : cerrar_conteo(id)
+w -> ora : PKG_BATCH.cerrar_conteo
+ora -> ora : procesar_pendientes('CIERRE') · estado CERRADO
+ora -> ora : conciliar: SIN_CONTAR → FALTANTE (cantidad 0)
+ora --> cv : listo
+cv -> cv : conteo_cerrado → refresca gráficas y resumen
+@enduml

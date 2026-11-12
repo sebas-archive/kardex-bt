@@ -1,0 +1,50 @@
+@startuml
+!include estilo.iuml
+title 12 · Actividad: de la subida al ACK y el batch PKG_BATCH.PROCESAR_PENDIENTES
+|Móvil|
+start
+:HELLO|1|uuid|nombre;
+|App (Session)|
+:READY|ultimo_seq|epoch_ms + catálogo;
+|Móvil|
+:Envía REC|seq|… (hasta 50 sin ACK);
+|App (Session)|
+repeat
+  :Valida longitud, CRC y formato;
+  if (¿Línea válida y seq esperado?) then (sí)
+    :INSERT en captura_transito (PENDIENTE);
+    if (¿25 sin COMMIT?) then (sí)
+      :COMMIT;
+      |Móvil|
+      :Recibe ACK|n;
+      |App (Session)|
+    endif
+  else (no)
+    :Un solo NAK|esperado|motivo\ny se ignora hasta el esperado;
+  endif
+repeat while (¿Llegó END?) is (no) not (sí)
+:COMMIT + ACK|n + BYE|aceptados|rechazados;
+|Móvil|
+:Termina la sesión;
+|App (Controlador)|
+:Estado PROCESANDO;
+:Store.run_batch("SYNC");
+|Oracle|
+:Recuperar huérfanas\n(PROCESANDO > 5 min → PENDIENTE);
+:Reclamar pendientes (PENDIENTE → PROCESANDO);
+while (¿Quedan filas reclamadas?) is (sí)
+  :Parsear la línea REC;
+  if (¿Conteo abierto, ubicación y SKU\nconocidos, cantidad válida?) then (sí)
+    :Insertar en registros_procesados;
+    :Recalcular lectura vigente\n(fecha_captura, luego id_transito);
+    :Marcar PROCESADO;
+  else (no)
+    :Marcar ERROR con mensaje;
+  endif
+endwhile (no)
+:Conciliar los conteos tocados\n(unión sistema + lecturas vigentes);
+:Registrar en log_batch;
+|App (Controlador)|
+:Estado LISTO → refrescar la GUI;
+stop
+@enduml

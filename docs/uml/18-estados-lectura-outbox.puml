@@ -1,0 +1,19 @@
+@startuml
+!include estilo.iuml
+title 18 · Máquina de estados de una lectura en la Outbox del móvil
+hide empty description
+
+[*] --> PENDIENTE : insertar()\n(guardar siempre primero en el teléfono)
+PENDIENTE --> PENDIENTE : reemplazar()\n[recuento de la misma ubicación y SKU\nque aún no salió]
+PENDIENTE --> ENVIADO : tomarParaEnviar(seq)\n(sale hacia el PC)
+ENVIADO --> CONFIRMADO : ACK|n con n ≥ seq\n(confirmarHasta)
+ENVIADO --> PENDIENTE : corte: READY|n con n < seq\n(reconciliar)
+PENDIENTE --> CONFIRMADO : READY|n con n ≥ seq\n(el PC ya la tenía)
+CONFIRMADO --> [*]
+
+note right of ENVIADO
+  Una lectura ENVIADO o CONFIRMADO no se
+  modifica: recontar inserta una fila nueva
+  y el PC se queda con la más reciente (D13).
+end note
+@enduml

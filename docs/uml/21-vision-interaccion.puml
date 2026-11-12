@@ -1,0 +1,27 @@
+@startuml
+!include estilo.iuml
+title 21 · Visión general de interacción (enlaza los diagramas 13, 14 y 15)
+start
+#E0EAFF:ref · Diagrama 13: sincronización completa\n(ventana, HELLO, READY, catálogo, REC, ACK, BYE, batch);
+if (¿Se cortó antes del BYE?) then (sí)
+  #E0EAFF:ref · Diagrama 14: corte y reanudación\n(READY|n y go-back-N);
+  if (¿El teléfono reintenta a tiempo?) then (sí)
+    :Vuelve a sincronizar (13);
+  else (no)
+    :Tiempo agotado → IDLE;
+    stop
+  endif
+else (no)
+endif
+:Batch PROCESANDO → LISTO;
+if (¿Hay filas en ERROR?) then (sí)
+  #E0EAFF:ref · Diagrama 15: alta del producto y\nreprocesar errores;
+else (no)
+endif
+if (¿Terminó el conteo?) then (sí)
+  #E0EAFF:ref · Diagrama 15: cerrar conteo\n(SIN_CONTAR → FALTANTE);
+else (no)
+  :Se sigue contando (11);
+endif
+stop
+@enduml
