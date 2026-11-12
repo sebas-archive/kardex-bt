@@ -48,6 +48,24 @@ FORMATO_EJE = {
 CONTEOS = ("distribucion", "actividad")  # valores enteros: el eje no debe mostrar 0,5 ni 1,5
 
 
+MUCHAS_BARRAS = 6  # con más barras que esto las etiquetas se abrevian para que no se encimen
+
+
+def _fmt_corto(valor: float) -> str:
+    """Pesos en formato corto para etiquetas apretadas: 1029000 → «$ 1,0 M», -155800 → «-$ 156 mil»."""
+    signo, v = ("-" if valor < 0 else ""), abs(valor)
+    if v >= 1_000_000:
+        return f"{signo}$ {v / 1_000_000:.1f}".replace(".", ",") + " M"
+    if v >= 10_000:
+        return f"{signo}$ {v / 1_000:.0f} mil"
+    return fmt_cop(valor)
+
+
+def _etiqueta_eje(etiqueta: str) -> str:
+    """Un código de barras de 13 dígitos no cabe bajo una barra: se deja el final, «…0037»."""
+    return etiqueta if len(etiqueta) <= 8 else "…" + etiqueta[-4:]
+
+
 def _cargar(id_conteo: str) -> dict[str, list[tuple[str, float]]]:
     """Corre en un hilo de trabajo: los datos de las cinco gráficas."""
     categoria = db.fetch_dif_por_categoria(id_conteo)
@@ -169,12 +187,19 @@ class ChartsView(QWidget):
             x=xs, height=[v for _, v in datos], width=0.6,
             brushes=[pg.mkBrush(self._color(chart_id, e, v)) for e, v in datos], pen=pg.mkPen(None),
         ))
+        muchas = len(datos) > MUCHAS_BARRAS
+        mayor = max(abs(v) for _, v in datos) or 1.0
         for x, (_, valor) in zip(xs, datos):
-            texto = pg.TextItem(formato(valor), color="#1f2933", anchor=(0.5, 1.0 if valor >= 0 else 0.0))
+            if muchas and abs(valor) < 0.06 * mayor:
+                continue  # barra diminuta: la etiqueta se encimaría con las vecinas
+            texto = pg.TextItem(
+                (_fmt_corto(valor) if muchas and chart_id in ("categoria", "desvios") else formato(valor)),
+                color="#1f2933", anchor=(0.5, 1.0 if valor >= 0 else 0.0))
             texto.setPos(x, valor)
             plot.addItem(texto)
-        eje.setTicks([[(x, etiqueta) for x, (etiqueta, _) in zip(xs, datos)]])
-        plot.setXRange(-0.7, len(datos) - 0.3, padding=0)
+        eje.setTicks([[(x, _etiqueta_eje(etiqueta) if muchas else etiqueta)
+                       for x, (etiqueta, _) in zip(xs, datos)]])
+        plot.setXRange(-0.8, len(datos) - 0.2, padding=0)
         # Margen para las etiquetas de valor: arriba de las barras positivas y debajo de las negativas.
         valores = [v for _, v in datos]
         minimo, maximo = min(0.0, *valores), max(0.0, *valores)
