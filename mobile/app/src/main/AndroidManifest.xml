@@ -2,9 +2,35 @@
 <!-- allowBackup="false": la identidad del dispositivo y la Outbox no deben restaurarse en otra instalación (D18). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Bluetooth clásico (RFCOMM). Android 12+ pide CONNECT/SCAN en ejecución; hasta Android 11 buscar dispositivos exige ubicación. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <!-- Escáner de códigos de barras; sin cámara se puede digitar el SKU. No hay permiso de INTERNET: la app no usa red. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
+
     <application
         android:allowBackup="false"
         android:label="Inventario"
-        android:supportsRtl="true" />
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+
+        <activity android:name=".ui.HomeActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.OperadorActivity" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.ElegirActivity" />
+        <activity android:name=".ui.ContarActivity" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.LecturasActivity" />
+        <activity android:name=".ui.PendientesActivity" />
+        <activity android:name=".ui.SincronizarActivity" />
+    </application>
 
 </manifest>

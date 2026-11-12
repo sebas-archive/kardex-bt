@@ -58,6 +58,20 @@ abstract class Outbox {
     @Query("SELECT * FROM lecturas ORDER BY seq")
     abstract fun todas(): List<LecturaEntity>
 
+    /** La lectura más reciente de esa ubicación y SKU, en cualquier estado (es la que vale para el PC, D13). */
+    @Query(
+        "SELECT * FROM lecturas WHERE idConteo = :idConteo AND ubicacion = :ubicacion AND sku = :sku " +
+            "ORDER BY seq DESC LIMIT 1"
+    )
+    abstract fun ultimaDe(idConteo: String, ubicacion: String, sku: String): LecturaEntity?
+
+    /** Lo contado en una ubicación: la lectura más reciente de cada SKU. */
+    @Query(
+        "SELECT * FROM lecturas WHERE seq IN (SELECT MAX(seq) FROM lecturas " +
+            "WHERE idConteo = :idConteo AND ubicacion = :ubicacion GROUP BY sku) ORDER BY seq"
+    )
+    abstract fun vigentesEn(idConteo: String, ubicacion: String): List<LecturaEntity>
+
     @Query("SELECT * FROM lecturas WHERE seq = :seq")
     protected abstract fun porSeq(seq: Long): LecturaEntity?
 
