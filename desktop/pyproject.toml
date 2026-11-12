@@ -1,0 +1,5 @@
+# Solo configura pytest para desktop/tests (la app no se instala: corre con PYTHONPATH=/work/desktop).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"
