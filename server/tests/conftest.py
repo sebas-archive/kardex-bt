@@ -13,20 +13,12 @@ import pytest
 SCHEDULER_JOB = "JOB_PROCESAR_CAPTURAS"
 FIXTURES = Path(__file__).parent / "fixtures"
 
-_client_ready = False
-
 
 def connect() -> oracledb.Connection:
-    """Abre una conexión thick (Oracle 11g exige Instant Client)."""
-    global _client_ready
-    if not _client_ready:
-        oracledb.init_oracle_client()
-        _client_ready = True
-    return oracledb.connect(
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-        dsn=os.environ["DB_DSN"],
-    )
+    """Abre una conexión thick (Oracle 11g exige Instant Client), serializada como en producción."""
+    from btsync.store import connect_oracle
+
+    return connect_oracle(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
 
 
 @pytest.fixture
