@@ -40,6 +40,31 @@ services:
       oracle:
         condition: service_healthy
 
+  # App de escritorio (Tareas 10-13). Con red host: Oracle por el puerto publicado en loopback.
+  # Las pruebas la usan con QT_QPA_PLATFORM=offscreen; Bluetooth y X11 los completa la Tarea 13.
+  app:
+    build:
+      context: .
+      dockerfile: desktop/Dockerfile
+      additional_contexts:
+        pybase: "service:pybase"
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /work
+    network_mode: host
+    volumes:
+      - ./:/work
+    environment:
+      DB_DSN: 127.0.0.1:1521/XE
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      PYTHONPATH: /work/server:/work/desktop
+      HOME: /tmp                    # el usuario 1000 no tiene HOME: sin esto Qt/fontconfig se quejan
+      XDG_CACHE_HOME: /tmp/.cache
+    depends_on:
+      oracle:
+        condition: service_healthy
+    command: ["python", "-m", "app.main"]
+
   # SPIKE desechable (Tarea 8): Bluetooth del host desde un contenedor. Perfil "spike".
   # bluetoothd sigue en el host; el contenedor le habla por el bus de sistema D-Bus.
   # Resultado y flags finales: docs/spikes/bluez.md
