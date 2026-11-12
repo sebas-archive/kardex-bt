@@ -80,3 +80,25 @@ class ErrorFila:
     mensaje_error: str | None
     datos_raw: str
     fecha_recepcion: datetime | None
+
+
+# ---------------------------------------------------------------- formatos es-CO
+def fmt_pct(valor: float) -> str:
+    """80.0 → «80,0 %»."""
+    return f"{valor:.1f}".replace(".", ",") + " %"
+
+
+def fmt_cop(valor: float) -> str:
+    """Pesos sin decimales y con punto de miles: 11800 → «$ 11.800», -5000 → «-$ 5.000»."""
+    entero = int(round(abs(valor)))
+    texto = f"{entero:,}".replace(",", ".")
+    return f"-$ {texto}" if valor < 0 and entero else f"$ {texto}"
+
+
+def fmt_num(valor: float | None) -> str:
+    """Cantidades: 45.0 → «45», 12.5 → «12,5»; sin dato → «—»."""
+    if valor is None:
+        return "—"
+    if float(valor).is_integer():
+        return str(int(valor))
+    return f"{valor:.3f}".rstrip("0").rstrip(".").replace(".", ",")
