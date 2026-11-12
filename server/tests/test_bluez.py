@@ -215,6 +215,19 @@ def test_stop_restores_adapter_unregisters_and_can_reopen(fake):
     assert fake.bus is not first and fake.bus.adapter["Discoverable"] is True
 
 
+def test_leftover_state_from_a_killed_copy_is_not_taken_as_the_original(fake):
+    """Una copia anterior murió sin limpiar (p. ej. `docker stop`): dejó el nombre de la
+    aplicación, el PC visible y un tiempo de 600 s. La siguiente copia no debe darlo por
+    "original" y devolverlo tal cual."""
+    fake.adapter = {"Alias": "gestion_inventario", "Discoverable": True, "DiscoverableTimeout": 600}
+    transport = opened(fake)
+    transport.stop()
+    adapter = fake.bus.adapter
+    assert adapter["Discoverable"] is False
+    assert adapter["DiscoverableTimeout"] == 180
+    assert adapter["Alias"] == ""  # BlueZ: un nombre vacío vuelve al nombre del sistema
+
+
 def test_bluetooth_name_is_configurable(fake):
     opened(fake, alias="bodega_norte")
     assert fake.bus.adapter["Alias"] == "bodega_norte"

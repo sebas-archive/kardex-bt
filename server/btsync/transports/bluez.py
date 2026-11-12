@@ -337,6 +337,12 @@ class BluezTransport:
                 for name in ("Discoverable", "DiscoverableTimeout", "Pairable", "Alias")
                 if name in adapter
             }
+            if adapter.get("Alias") == self.alias:
+                # Una copia anterior murió sin limpiar (p. ej. `docker stop`) y dejó el nombre de la
+                # aplicación puesto: ese estado no es el original. Se vuelve a los valores de
+                # fábrica de BlueZ; un nombre vacío significa "el nombre del sistema".
+                _log("el adaptador quedó con el nombre de la aplicación: se restaurará a los valores por defecto")
+                self._original.update({"Discoverable": False, "DiscoverableTimeout": 180, "Alias": ""})
 
             # Primero el agente: cuando el PC sea visible ya debe haber quien reciba el código.
             self._bus.export(AGENT_PATH, _Agent(self))
