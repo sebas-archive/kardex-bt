@@ -524,21 +524,56 @@ def test_default_is_open_mode_without_pairing():
     assert BluezTransport(require_pairing=True).require_pairing is True
 
 
-def test_open_mode_has_no_agent_and_the_profile_needs_no_authentication(fake):
+def test_open_mode_registers_a_silent_agent_and_the_profile_needs_no_authentication(fake):
+    """Sin agente propio, el de KDE atendía el emparejamiento (PIN y un permiso por servicio)."""
     transport = opened(fake, require_pairing=False)
     bus = fake.bus
-    members = bus.members()
-    assert "RegisterAgent" not in members and "RequestDefaultAgent" not in members
-    assert set(bus.exported) == {PROFILE_PATH}  # el agente del sistema (KDE) queda intacto
+    assert bus.last("RegisterAgent").body == [AGENT_PATH, "NoInputNoOutput"]  # "Just Works": sin código
+    assert bus.last("RequestDefaultAgent").body == [AGENT_PATH]
+    assert set(bus.exported) == {AGENT_PATH, PROFILE_PATH}
     options = bus.last("RegisterProfile").body[2]
     assert options["RequireAuthentication"].value is False
     assert options["RequireAuthorization"].value is False
     # Sigue anunciándose, para que el teléfono lo encuentre la primera vez.
     assert bus.adapter["Alias"] == "gestion_inventario" and bus.adapter["Discoverable"] is True
     transport.stop()
-    assert "UnregisterAgent" not in bus.members() and "UnregisterProfile" in bus.members()
+    assert "UnregisterAgent" in bus.members() and "UnregisterProfile" in bus.members()  # KDE recupera el mando
     assert bus.adapter["Alias"] == "PC de prueba" and bus.adapter["Discoverable"] is False
     assert bus.exported == {} and bus.disconnected
+
+
+def test_open_mode_agent_accepts_pairing_silently_and_never_shows_a_code(fake):
+    shown = []
+
+    async def on_passkey(code):
+        shown.append(code)
+        return False
+
+    transport = opened(fake, require_pairing=False, on_passkey=on_passkey)
+    on_loop(transport, transport._request_confirmation(STRANGER, 123456)).result(5)  # sin excepción = acepta
+    on_loop(transport, transport._request_authorization(STRANGER)).result(5)
+    assert shown == []  # el código no llega a la pantalla
+
+
+def test_pairing_mode_agent_still_rejects_pairing_without_a_code(fake):
+    transport = opened(fake)
+    with pytest.raises(DBusError) as exc:
+        on_loop(transport, transport._request_authorization(PHONE)).result(5)
+    assert exc.value.type == REJECTED
+
+
+def test_open_mode_authorizes_our_service_for_any_device_and_rejects_the_rest_silently(fake):
+    transport = opened(fake, require_pairing=False)
+
+    def authorize(device, uuid):
+        return on_loop(transport, transport._authorize_service(device, uuid)).result(5)
+
+    authorize(STRANGER, SERVICE_UUID)  # un dispositivo sin emparejar: sin excepción = autorizado
+    authorize(PHONE, SERVICE_UUID)
+    for device, uuid in ((STRANGER, HANDS_FREE), (PHONE, SPP_UUID)):
+        with pytest.raises(DBusError) as exc:  # se rechaza sin preguntarle nada al usuario
+            authorize(device, uuid)
+        assert exc.value.type == REJECTED, (device, uuid)
 
 
 def test_pairing_mode_still_requires_authentication_and_authorization(fake):

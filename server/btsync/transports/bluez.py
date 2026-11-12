@@ -7,9 +7,12 @@ RFCOMM ya aceptada como un descriptor de archivo. Diseño y evidencias: docs/spi
 Dos modos (``require_pairing``):
 
 * **Sin claves** (por defecto, D22): el servicio no exige autenticación ni autorización. Un teléfono
-  que nunca se emparejó puede conectarse (Android: ``createInsecureRfcommSocketToServiceRecord``);
-  no hay código ni agente propio. La protección es que el PC solo acepta mientras la ventana está
-  abierta y de a una conexión.
+  que nunca se emparejó puede conectarse (Android: ``createInsecureRfcommSocketToServiceRecord``).
+  Si aun así el teléfono inicia un emparejamiento (apps que usan el socket seguro), lo atiende un
+  agente **silencioso** (``NoInputNoOutput``, "Just Works"): no muestra código, no pide permisos y
+  solo autoriza el servicio propio. Sin él atendía el agente del escritorio (KDE) y mostraba un PIN y
+  un permiso por servicio. La protección es que el PC solo acepta mientras la ventana está abierta y
+  de a una conexión.
 * **Con emparejamiento** (``require_pairing=True``, D5/D8): el PC registra un agente que muestra el
   código de 6 dígitos y solo acepta dispositivos emparejados, y solo para el servicio propio.
 
@@ -186,8 +189,8 @@ class _Agent(ServiceInterface):
         await self._owner._authorize_service(device, uuid)
 
     @method()
-    def RequestAuthorization(self, device: "o"):
-        raise DBusError(_REJECTED, "solo se empareja confirmando el código")
+    async def RequestAuthorization(self, device: "o"):
+        await self._owner._request_authorization(device)
 
     @method()
     def RequestPinCode(self, device: "o") -> "s":
@@ -355,14 +358,15 @@ class BluezTransport:
                 _log("el adaptador quedó con el nombre de la aplicación: se restaurará a los valores por defecto")
                 self._original.update({"Discoverable": False, "DiscoverableTimeout": 180, "Alias": ""})
 
-            if self.require_pairing:
-                # Primero el agente: cuando el PC sea visible ya debe haber quien reciba el código.
-                self._bus.export(AGENT_PATH, _Agent(self))
-                await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RegisterAgent", "os",
-                            [AGENT_PATH, "DisplayYesNo"])
-                self._agent_registered = True
-                # Por defecto: es el teléfono quien inicia el emparejamiento.
-                await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RequestDefaultAgent", "o", [AGENT_PATH])
+            # Primero el agente: cuando el PC sea visible ya debe haber quien atienda el emparejamiento.
+            # Con claves muestra el código (DisplayYesNo); sin claves es silencioso (NoInputNoOutput).
+            self._bus.export(AGENT_PATH, _Agent(self))
+            await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RegisterAgent", "os",
+                        [AGENT_PATH, "DisplayYesNo" if self.require_pairing else "NoInputNoOutput"])
+            self._agent_registered = True
+            # Por defecto: es el teléfono quien inicia el emparejamiento. Al cerrar la ventana se retira
+            # y el agente del sistema recupera el mando.
+            await _call(self._bus, "/org/bluez", _AGENT_MANAGER, "RequestDefaultAgent", "o", [AGENT_PATH])
 
             self._visible = True
             await self._set_adapter("Alias", "s", self.alias)  # antes de hacerse visible
@@ -479,6 +483,9 @@ class BluezTransport:
 
     async def _request_confirmation(self, device: str, passkey: int) -> None:
         """BlueZ pide confirmar el código que también muestra el teléfono."""
+        if not self.require_pairing:
+            _log(f"emparejamiento de {device} aceptado sin código (modo sin claves)")
+            return
         code = f"{passkey:06d}"  # el código puede empezar por cero
         _log(f"código de emparejamiento {code} para {device}")
         if self._on_passkey is None:
@@ -501,10 +508,18 @@ class BluezTransport:
         for task in list(self._confirmations):
             task.cancel()
 
+    async def _request_authorization(self, device: str) -> None:
+        """Emparejamiento sin código ("Just Works"): sin claves se acepta, con claves se rechaza."""
+        if not self.require_pairing:
+            _log(f"emparejamiento de {device} aceptado sin preguntar (modo sin claves)")
+            return
+        raise DBusError(_REJECTED, "solo se empareja confirmando el código")
+
     async def _authorize_service(self, device: str, uuid: str) -> None:
         """Mientras este agente es el del sistema recibe las peticiones de todos los perfiles:
-        solo se autoriza el servicio propio (nunca audio, manos libres, etc.)."""
-        if uuid.lower() != self.service_uuid or not await self._is_paired(device):
+        solo se autoriza el servicio propio (nunca audio, manos libres, etc.). Sin claves no se
+        exige que el dispositivo esté emparejado."""
+        if uuid.lower() != self.service_uuid or (self.require_pairing and not await self._is_paired(device)):
             _log(f"servicio {uuid} de {device}: rechazado")
             raise DBusError(_REJECTED, "servicio no autorizado")
         _log(f"servicio {uuid} de {device}: autorizado")
