@@ -1,0 +1,43 @@
+@startuml
+!include estilo.iuml
+title 10 · Casos de uso
+left to right direction
+
+actor "Operario\n(celular)" as op
+actor "Administrador\n(PC)" as adm
+actor "Scheduler\nde Oracle" as sch
+
+rectangle "Sistema de inventario físico" {
+  usecase "Contar" as contar
+  usecase "Escanear código\nde barras" as escanear
+  usecase "Recontar" as recontar
+  usecase "Sincronizar" as sincronizar
+  usecase "Confirmar código\nde emparejamiento" as codigo
+  usecase "Conciliar" as conciliar
+  usecase "Ver gráficas" as graficas
+  usecase "Cerrar conteo" as cerrar
+  usecase "Reprocesar errores" as reprocesar
+  usecase "Exportar CSV" as csv
+  usecase "Purgar tránsito" as purgar
+  usecase "Procesar capturas\npendientes (respaldo)" as procesar
+}
+
+op --> contar
+op --> sincronizar
+adm --> sincronizar
+adm --> graficas
+adm --> cerrar
+adm --> reprocesar
+adm --> csv
+adm --> codigo
+sch --> procesar
+sch --> purgar
+
+contar <.. escanear : <<extend>>
+contar <.. recontar : <<extend>>
+sincronizar <.. codigo : <<extend>>\n(solo con require_pairing)
+sincronizar ..> conciliar : <<include>>
+cerrar ..> conciliar : <<include>>
+reprocesar ..> conciliar : <<include>>
+procesar ..> conciliar : <<include>>
+@enduml

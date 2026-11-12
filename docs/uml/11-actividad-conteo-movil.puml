@@ -1,0 +1,55 @@
+@startuml
+!include estilo.iuml
+title 11 · Actividad: conteo en el móvil
+|Operario|
+start
+:Abre la APK;
+|APK|
+if (¿Hay operador guardado?) then (no)
+  |Operario|
+  :Escribe su nombre (máx. 60 caracteres);
+  |APK|
+  :Guarda el operador;
+endif
+if (¿Hay catálogo?) then (no)
+  :Avisa: sincronizar una vez con el PC;
+  |Operario|
+  :Sincroniza (ver diagrama 13);
+  |APK|
+endif
+|Operario|
+:Elige conteo y ubicación;
+repeat
+  |Operario|
+  if (¿Código de barras a mano?) then (sí)
+    :Escribe el SKU;
+  else (no)
+    :Escanea con la cámara (ZXing);
+  endif
+  |APK|
+  :Busca el producto en el catálogo;
+  if (¿Está en el catálogo?) then (no)
+    :Advierte «SKU fuera del catálogo»\n(igual se puede guardar);
+  endif
+  |Operario|
+  :Pone la cantidad (teclado, + y −);
+  |APK|
+  if (¿Cantidad válida y nota ≤ 255?) then (sí)
+    if (¿Ya hay lectura de este SKU aquí\ny aún no salió al PC?) then (sí)
+      :Reemplaza la lectura (recuento);
+    else (no)
+      :Inserta una lectura nueva en la Outbox;
+    endif
+  else (no)
+    :Muestra el error y no guarda;
+  endif
+  |Operario|
+repeat while (¿Más productos?) is (sí) not (no)
+:Se acerca al PC;
+|APK|
+:Conecta con el PC recordado (sin código);
+:Envía las lecturas pendientes;
+:Muestra el resultado (BYE);
+|Operario|
+stop
+@enduml
