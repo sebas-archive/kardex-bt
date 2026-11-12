@@ -300,6 +300,42 @@ A pedido del usuario el modo por defecto **no empareja ni usa claves**: `BluezTr
 - **Costo de seguridad:** el enlace no va cifrado y cualquier dispositivo al alcance puede conectarse mientras
   la ventana esté abierta (ver D22 en el plan).
 
+### Prueba real en modo sin claves con agente silencioso (2026-11-11, 03:27–03:32 UTC)
+
+HUAWEI P9 lite, app de terminal serial, UUID serie (`--spp`), `--window 600`. Antes: radio encendida
+(`rfkill unblock bluetooth`) y clave vieja borrada (`bluetoothctl remove`). Del log:
+
+```text
+03:27:29 ESPERANDO_EMPAREJAMIENTO (detectó el nombre sucio de una corrida muerta y lo restauró)
+03:27:30 [bluez] visible como «gestion_inventario» (sin claves) durante 600 s
+03:28:47 celular emparejó desde Ajustes → Bluetooth: Paired, Bonded. SIN PIN y SIN permisos de KDE.
+03:28:47… [bluez] servicio 0000111e (manos libres) y 0000110d (audio): rechazado   (Android reintenta cada ~20-40 s)
+03:31:08 [bluez] conexión de …dev_DC_D9_16_A2_78_24 → CONECTADO
+03:31:33 RECIBIENDO (HELLO)   03:32:08 recibidos=1 (REC)   03:32:46 PROCESANDO → LISTO (END, batch SYNC)
+03:32:46 fila: ('p9lite', 1, 'PROCESADO', None, 'REC|1|1794358578881|CONT-2026-11|A-01|7701234000001|5|Ana|')
+03:32:46 lectura procesada: ('CONT-2026-11', 'A-01', '7701234000001', 5.0, 'Ana', 'S')
+```
+
+En el celular (captura de la app de terminal): `READY`, ~75 líneas de catálogo (`CATCONTEO`, `CATUBIC`,
+`CATPROD`) y `CAT_END`; luego el `REC` enviado, `END|1*883D1CF6`, **`ACK|1*848B25D6`**, **`BYE|1|0*5479A3FD`**
+y «Connection lost» (el PC cierra tras el `BYE`). Al terminar, el adaptador volvió solo a `T0poL`, no visible
+y 180 s, y el servicio salió de Adapter1.UUIDs.
+
+Quedó comprobado: el agente silencioso evita el PIN y los permisos del escritorio; protocolo completo
+(HELLO, READY, catálogo, REC, END, ACK, BYE); COMMIT, batch y conciliación; cierre y limpieza del adaptador.
+
+**Observaciones**
+
+- Tras emparejar desde Ajustes, Android intenta usar el PC como auricular y Huawei muestra «No se puede
+  comunicar con gestion_inventario»: es el rechazo deliberado de manos libres y audio, no un fallo del
+  emparejamiento ni del servicio propio. Es propio del flujo Ajustes → tocar el dispositivo; el socket
+  inseguro de la APK no empareja y no lo dispara.
+- Si el PC conserva una clave que el celular ya olvidó (o al revés), el celular muestra «La clave o el PIN
+  son incorrectos». Se arregla con `bluetoothctl remove <MAC>`. Con socket inseguro no hay clave que desajustar.
+- Un reinicio o suspensión del PC deja el Bluetooth bloqueado (`rfkill`) y Oracle caído (sin política de reinicio).
+- **Sigue sin verificarse** una conexión de un teléfono que nunca se emparejó (socket inseguro): en esta
+  prueba el celular se emparejó desde Ajustes. Lo hará la APK (Tareas 14 y 15).
+
 ### Cómo se hizo (referencia)
 
 Pasos:
