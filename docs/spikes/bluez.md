@@ -237,10 +237,48 @@ esperando; un emparejamiento sin código (`RequestAuthorization`) se rechaza.
   `IDLE` con `TIEMPO_AGOTADO: nadie se conectó en 300 s`, y el adaptador quedó no visible y sin
   el servicio (hallazgo 6 del spike, resuelto).
 
-## Pendiente: paso 5 con el celular
+## Paso 5 con el celular: hecho (2026-11-11)
 
-**Aún no se ha hecho.** Falta emparejar y sincronizar de verdad a través de `SyncController` +
-`BluezTransport`: el código de 6 dígitos, `AuthorizeService`, `NewConnection` y los datos. Pasos:
+Corrida real con el HUAWEI P9 lite, `SyncController` + `BluezTransport` + Oracle, UUID serie
+(`--spp`) y una app de terminal serial. Del log (`.superpowers/paso5-controller.log`, horas UTC):
+
+```text
+01:58:28 ESTADO ESPERANDO_EMPAREJAMIENTO (ventana 600 s)
+01:59:20 ESTADO CONFIRMAR_CODIGO  >>> CÓDIGO DE EMPAREJAMIENTO: 480378 <<<
+01:59:30 respuesta en el PC: aceptar            → ESPERANDO_EMPAREJAMIENTO (Paired, Bonded)
+02:00:56 ESTADO CONECTADO                       (el celular abrió la conexión RFCOMM)
+02:04:50 ESTADO RECIBIENDO                      (HELLO)
+02:12:59 ESTADO RECIBIENDO recibidos=1          (REC)
+02:14:13 ESTADO PROCESANDO → LISTO              (END; el batch corrió con origen SYNC)
+02:14:13 fila: ('p9lite', 1, 'PROCESADO', None, 'REC|1|1794358578881|CONT-2026-11|A-01|7701234000001|5|Ana|')
+02:14:13 lectura procesada: ('CONT-2026-11', 'A-01', '7701234000001', 5.0, 'Ana', 'S')
+```
+
+Quedó comprobado: código de 6 dígitos mostrado y confirmado, autorización del servicio, conexión,
+las tres líneas escritas a mano con su CRC, ACK/BYE del protocolo, batch disparado por el
+controlador y conciliación. **Sigue sin verificarse** la conexión al UUID propio de la aplicación
+(canal 22): la app de terminal solo usa el serie estándar; la primera prueba con el UUID propio
+será la APK (Tareas 14 y 15). Tampoco se registraron las líneas `[bluez]` de esa corrida (se
+imprimían solo en la terminal); desde ahora `controller_cli.py` las guarda también en el log.
+
+### Hallazgos de la corrida real
+
+1. **El código se pide una sola vez**, en el primer emparejamiento. Después el celular queda
+   `Paired` y `Bonded` y se conecta sin código, hasta que alguno de los dos lados lo olvide. El
+   dispositivo sigue `Trusted: no`: el agente autoriza en cada conexión solo el servicio propio.
+2. **Emparejar no es conectar.** El PC solo espera; quien abre la conexión RFCOMM es el teléfono
+   (en esta prueba, desde la app de terminal). La APK lo hará sola al pulsar «Sincronizar».
+3. **Una copia que muere sin limpiar dejaba el adaptador sucio** (visible, con el nombre
+   `gestion_inventario` y 600 s) y la siguiente copia lo tomaba como estado original. Reproducido
+   con `docker stop` (Python como proceso 1 ignora SIGTERM; Docker lo mata a los 10 s). Corregido:
+   `BluezTransport` detecta ese estado y restaura a los valores por defecto (nombre del sistema,
+   no visible, 180 s) y `controller_cli.py` atiende SIGTERM. `docker stop` ahora limpia en 0,3 s.
+   **Para la app de escritorio (Tarea 13):** al cerrar la ventana hay que llamar a
+   `SyncController.cancel()`.
+
+### Cómo se hizo (referencia)
+
+Pasos:
 
 1. Encender el Bluetooth del PC (o `rfkill unblock bluetooth`) y tener Oracle arriba
    (`docker compose up -d --wait oracle`).

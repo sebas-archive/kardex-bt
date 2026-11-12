@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import os
 import queue
+import signal
 import sys
 import time
 
@@ -74,11 +75,21 @@ def check(args, uuid: str) -> int:
     log(f"ABIERTO {summary(during, uuid)}")
     transport.stop()
     keys = ("Discoverable", "DiscoverableTimeout", "Pairable", "Alias")
+    dirty = before.get("Alias") == args.name  # una copia anterior murió sin limpiar
+    if dirty:
+        log("AVISO: el adaptador ya estaba con el nombre de la aplicación (copia anterior sin limpiar); "
+            "se espera que quede en los valores por defecto")
+
+    def restored(after: dict) -> bool:
+        if dirty:
+            return after.get("Alias") != args.name and after.get("Discoverable") is False
+        return all(after.get(k) == before.get(k) for k in keys)
+
     # BlueZ aplica el cambio de nombre de forma asíncrona: se espera a que el adaptador se asiente.
     deadline = time.monotonic() + 5
     while True:
         after = asyncio.run(adapter_now(args.adapter))
-        if all(after.get(k) == before.get(k) for k in keys) or time.monotonic() > deadline:
+        if restored(after) or time.monotonic() > deadline:
             break
         time.sleep(0.2)
     log(f"CERRADO {summary(after, uuid)}")
@@ -89,7 +100,7 @@ def check(args, uuid: str) -> int:
         and during.get("DiscoverableTimeout") == args.window
         and uuid in during.get("UUIDs", [])
         and uuid not in after.get("UUIDs", [])
-        and all(after.get(k) == before.get(k) for k in keys)
+        and restored(after)
     )
     log("--check: OK, la ventana se abre y todo vuelve a quedar como estaba" if ok
         else "--check: FALLO, revisa las tres líneas de arriba")
@@ -129,10 +140,18 @@ def main() -> int:
     os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
     _log_file = open(args.log, "a", encoding="utf-8")
     uuid = SPP_UUID if args.spp else SERVICE_UUID
+    bluez._log = lambda text: log(f"[bluez] {text}")  # que el transporte también escriba en el log
     log(f"=== controller_cli.py {' '.join(sys.argv[1:])} (servicio {uuid}) ===")
 
     if args.check:
         return check(args, uuid)
+
+    # `docker stop` envía SIGTERM, y Python como proceso 1 lo ignora (y a los 10 s Docker lo mata):
+    # sin este manejador el adaptador se quedaba visible y con el nombre cambiado.
+    def terminar(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, terminar)
 
     store = Store(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
     changes: queue.Queue = queue.Queue()
