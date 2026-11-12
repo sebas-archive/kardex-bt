@@ -4,9 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import threading
+
 import oracledb
 
 _client_ready = False
+_connect_lock = threading.Lock()
+
+
+def connect_oracle(dsn: str, user: str, password: str) -> oracledb.Connection:
+    """Abre una conexión thick. **Toda** conexión a Oracle debe pasar por aquí.
+
+    Las llamadas se serializan: con el Instant Client 19 (modo thick, Oracle XE 11g) varios hilos
+    llamando a ``oracledb.connect()`` a la vez abortan el proceso ("double free or corruption",
+    ORA-24550). Se reprodujo en 3 de 3 corridas de 40 rondas de 4 hilos; con el candado, en 0 de 3.
+    Ejecutar consultas desde varios hilos, cada uno con su conexión, no tiene este problema.
+    """
+    with _connect_lock:
+        _init_client()
+        return oracledb.connect(user=user, password=password, dsn=dsn)
 
 
 def _init_client() -> None:
@@ -36,8 +52,7 @@ class Store:
         if self._conn is not None and not self._conn.is_healthy():
             self._conn = None
         if self._conn is None:
-            _init_client()
-            self._conn = oracledb.connect(user=self._user, password=self._password, dsn=self._dsn)
+            self._conn = connect_oracle(self._dsn, self._user, self._password)
         return self._conn
 
     def register_device(self, uuid: str, name: str) -> None:
