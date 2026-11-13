@@ -92,6 +92,14 @@ class SyncRunnerTest {
     }
 
     @Test
+    fun cuentaNoActivaNoSeReintenta() {
+        val conexiones = mutableListOf<Int>()
+        val s = estados(runner(conexiones, intentos = listOf(listOf(SyncProgress.CuentaNoActiva("PENDIENTE", null, 4)))))
+        assertEquals(listOf(1), conexiones)   // insistir no cambia nada: hay que esperar al administrador
+        assertEquals(SyncEstado.CuentaNoActiva("PENDIENTE", null, 4), s.last())
+    }
+
+    @Test
     fun test_pc_unreachable_is_retried_then_reported() {
         val conexiones = mutableListOf<Int>()
         val s = estados(runner(conexiones, falla = true, intentos = listOf(emptyList())))

@@ -45,17 +45,6 @@ SELECT k.id_conteo, k.sku, p.nombre, p.categoria, k.diferencia, k.valor_diferenc
   JOIN productos p ON p.sku = k.sku
  ORDER BY k.id_conteo, ABS(k.valor_diferencia) DESC NULLS LAST, k.sku;
 
--- Avance por zona: ubicaciones con al menos una lectura vigente sobre el total de la zona.
-CREATE OR REPLACE VIEW v_avance_zona AS
-SELECT c.id_conteo,
-       u.zona,
-       COUNT(DISTINCT r.cod_ubicacion) AS ubicaciones_con_lectura,
-       COUNT(DISTINCT u.cod_ubicacion) AS ubicaciones_totales
-  FROM conteos c
- CROSS JOIN ubicaciones u
-  LEFT JOIN registros_procesados r
-         ON r.id_conteo = c.id_conteo AND r.cod_ubicacion = u.cod_ubicacion AND r.vigente = 'S'
- GROUP BY c.id_conteo, u.zona;
 
 -- Lecturas por operador y hora de captura (cuenta tambien las reemplazadas por un recuento).
 CREATE OR REPLACE VIEW v_actividad AS

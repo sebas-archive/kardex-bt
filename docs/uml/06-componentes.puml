@@ -10,7 +10,7 @@ component "APK Android" as apk {
 }
 
 component "Aplicación de escritorio (un proceso, en Docker)" as desk {
-  component "Vistas PyQt6 + pyqtgraph\n(Sincronización, Conteo, Conciliación,\nGráficas, Perfil, Monitoreo)" as vistas
+  component "Pantallas PyQt6 + pyqtgraph\n(Acceso, Dashboard, Inventario,\nSincronización, Gráficas, Perfil)" as vistas
   component "SyncBridge" as bridge
   component "Librería btsync" as btsync {
     component "SyncController" as ctrl

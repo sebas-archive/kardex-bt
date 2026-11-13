@@ -1,7 +1,7 @@
 """Consultas de la app de escritorio.
 
 Los agregados salen de las vistas de Oracle (``V_*``): nunca se traen filas a Python para sumar.
-Lo que no tiene vista (filas de conciliación, detalle por ubicación, errores, conteos) se lee de
+Lo que no tiene vista (filas de conciliación, lecturas de un SKU, errores, conteos) se lee de
 las tablas. **Ninguna función se debe llamar desde el hilo de la interfaz** (usar ``QueryWorker``).
 
 Conexiones: **una por hilo**, reutilizada entre consultas. Abrir una por consulta llegó a miles de
@@ -27,7 +27,6 @@ from .models import (
     EstadoBatch,
     FilaConciliacion,
     Lectura,
-    PerfilDatos,
     ResumenConteo,
 )
 
@@ -116,14 +115,37 @@ def fetch_resumen(id_conteo: str) -> ResumenConteo | None:
                          float(r[7]), float(r[8]), float(r[9]))
 
 
+# Órdenes permitidos de la conciliación: la clave viene de la vista, el SQL sale de aquí (nunca se concatena lo recibido).
+_ORDENES = {
+    "sku": "k.sku",
+    "valor": "ABS(k.valor_diferencia) DESC NULLS LAST, k.sku",
+    "pct": "ABS(k.diferencia_pct) DESC NULLS LAST, k.sku",
+}
+
+
 def fetch_conciliacion(
     id_conteo: str,
     clasificacion: str | None = None,
     categoria: str | None = None,
     texto: str | None = None,
     limit: int = 1000,
+    solo_diferencia: bool = False,
+    valor_min: float | None = None,
+    orden: str = "sku",
 ) -> list[FilaConciliacion]:
+    """Filas de la conciliación con los filtros de la vista.
+
+    ``solo_diferencia`` deja fuera lo que cuadra y lo no contado; ``valor_min`` exige |valor de la diferencia| ≥ ese
+    monto (falte o sobre); ``orden`` es ``sku``, ``valor`` (mayor |valor| primero) o ``pct`` (mayor |%| primero).
+    """
+    if orden not in _ORDENES:
+        raise ValueError(f"orden inválido: {orden!r}")
     filtros, binds = [], {"c": id_conteo, "lim": limit}
+    if solo_diferencia:
+        filtros.append("AND k.diferencia IS NOT NULL AND k.diferencia <> 0")
+    if valor_min:
+        filtros.append("AND ABS(k.valor_diferencia) >= :vmin")
+        binds["vmin"] = valor_min
     if clasificacion:
         filtros.append("AND k.clasificacion = :cl")
         binds["cl"] = clasificacion
@@ -139,7 +161,7 @@ def fetch_conciliacion(
         "        k.diferencia_pct, k.valor_diferencia, k.clasificacion"
         "   FROM conciliacion k JOIN productos p ON p.sku = k.sku"
         f"  WHERE k.id_conteo = :c {' '.join(filtros)}"
-        "  ORDER BY k.sku) WHERE ROWNUM <= :lim"
+        f"  ORDER BY {_ORDENES[orden]}) WHERE ROWNUM <= :lim"
     )
     with _conexion() as conn:
         cur = conn.cursor()
@@ -183,18 +205,6 @@ def fetch_distribucion(id_conteo: str) -> dict[str, int]:
             "SIN_CONTAR": resumen.sin_contar}
 
 
-def fetch_avance_zona(id_conteo: str) -> list[tuple[str, int, int]]:
-    """(zona, ubicaciones con lectura, ubicaciones de la zona) de V_AVANCE_ZONA."""
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT zona, ubicaciones_con_lectura, ubicaciones_totales FROM v_avance_zona "
-            "WHERE id_conteo = :c ORDER BY zona",
-            c=id_conteo,
-        )
-        return [(r[0], int(r[1]), int(r[2])) for r in cur]
-
-
 def fetch_actividad(id_conteo: str) -> list[tuple[str, str, int]]:
     """(operador, hora 'AAAA-MM-DD HH:MM' en UTC, lecturas) de V_ACTIVIDAD."""
     with _conexion() as conn:
@@ -208,16 +218,16 @@ def fetch_actividad(id_conteo: str) -> list[tuple[str, str, int]]:
 
 
 def fetch_lecturas(id_conteo: str, sku: str) -> list[Lectura]:
-    """Detalle por ubicación de un SKU: todas las lecturas, marcando cuál es la vigente."""
+    """Todas las lecturas de un SKU, de la más antigua a la más reciente, marcando cuál es la vigente."""
     with _conexion() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT cod_ubicacion, cantidad, operador, fecha_captura, vigente, nota "
+            "SELECT cantidad, operador, fecha_captura, vigente, nota "
             "FROM registros_procesados WHERE id_conteo = :c AND sku = :s "
-            "ORDER BY cod_ubicacion, fecha_captura, id_registro",
+            "ORDER BY fecha_captura, id_registro",
             c=id_conteo, s=sku,
         )
-        return [Lectura(r[0], float(r[1]), r[2], r[3], r[4] == "S", r[5]) for r in cur]
+        return [Lectura(float(r[0]), r[1], r[2], r[3] == "S", r[4]) for r in cur]
 
 
 def fetch_estado_batch() -> EstadoBatch:
@@ -256,44 +266,3 @@ def reprocesar_errores(id_conteo: str | None = None) -> None:
 def procesar_ahora() -> None:
     with _conexion() as conn:
         conn.cursor().callproc("pkg_batch.procesar_pendientes", ["MANUAL"])
-
-
-def fetch_tolerancias() -> list[tuple[str, float, float, int]]:
-    """(categoría, tolerancia mínima %, tolerancia máxima %, SKU) del catálogo de productos."""
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT categoria, MIN(tolerancia_pct), MAX(tolerancia_pct), COUNT(*) FROM productos "
-            "GROUP BY categoria ORDER BY categoria"
-        )
-        return [(r[0], float(r[1]), float(r[2]), int(r[3])) for r in cur]
-
-
-def fetch_perfil(id_conteo: str) -> PerfilDatos:
-    """Volumen y calidad de la información de un conteo."""
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT COUNT(*), COUNT(CASE WHEN vigente = 'S' THEN 1 END), MIN(fecha_captura), MAX(fecha_captura) "
-            "FROM registros_procesados WHERE id_conteo = :c",
-            c=id_conteo,
-        )
-        total, vigentes, fecha_min, fecha_max = cur.fetchone()
-        cur.execute(
-            "SELECT operador, SUM(registros) FROM v_actividad WHERE id_conteo = :c "
-            "GROUP BY operador ORDER BY 2 DESC, 1",
-            c=id_conteo,
-        )
-        por_operador = [(r[0], int(r[1])) for r in cur]
-        # Por dispositivo: solo las filas cuyo tránsito aún no se purgó (la purga lo deja en NULL).
-        cur.execute(
-            "SELECT t.uuid_dispositivo, COUNT(*) FROM registros_procesados r "
-            "JOIN captura_transito t ON t.id_transito = r.id_transito WHERE r.id_conteo = :c "
-            "GROUP BY t.uuid_dispositivo ORDER BY 2 DESC, 1",
-            c=id_conteo,
-        )
-        por_dispositivo = [(r[0], int(r[1])) for r in cur]
-        cur.execute("SELECT procesados, errores FROM v_estado_batch")
-        procesados, errores = cur.fetchone()
-    return PerfilDatos(int(total), int(vigentes), por_operador, por_dispositivo, int(errores),
-                       int(procesados) + int(errores), fecha_min, fecha_max)

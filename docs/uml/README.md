@@ -23,7 +23,7 @@ docker compose run --rm pybase pytest server/tests/test_uml.py -v
 |---|---|---|
 | [01-clases-servidor.puml](01-clases-servidor.puml) | Clases | La librería `btsync`: `Message`, `Rec`, `FrameError`, `Store`, `Session`, `SyncController`, `Transport` y `Connection` con `BluezTransport` y `TcpTransport`. Se lee de izquierda a derecha: el controlador crea una sesión por conexión y ambos hablan con el transporte y con Oracle. |
 | [02-clases-escritorio.puml](02-clases-escritorio.puml) | Clases | La app de escritorio: `MainWindow` con sus seis vistas, `SyncBridge`, `QueryRunner`/`QueryWorker` y el módulo `db`. Las vistas nunca consultan en el hilo de la interfaz. |
-| [03-clases-android.puml](03-clases-android.puml) | Clases | La APK (MVVM): pantallas, `CountViewModel`, `SyncRunner`, `SyncClient`, `Protocol`, `Outbox` y el catálogo en Room. |
+| [03-clases-android.puml](03-clases-android.puml) | Clases | La APK (MVVM): pantallas, cuentas locales (`AuthRepository`, roles), `CountViewModel`, `SyncRunner`, `SyncClient`, `Protocol`, `Outbox` y el catálogo en Room. |
 | [04-modelo-datos.puml](04-modelo-datos.puml) | Clases con `«table»` (entidad-relación) | Las diez tablas de Oracle con claves, llaves foráneas y cardinalidades. |
 | [05-objetos-instantanea.puml](05-objetos-instantanea.puml) | Objetos | Una lectura real del escenario `T-01`, de la línea `REC` a la fila de `CONCILIACION` (A1: contada 101, +1, `OK`). |
 | [06-componentes.puml](06-componentes.puml) | Componentes | APK, app de escritorio, Oracle y BlueZ, con las interfaces RFCOMM, D-Bus y SQL\*Net. |
@@ -36,7 +36,7 @@ docker compose run --rm pybase pytest server/tests/test_uml.py -v
 | Archivo | Tipo UML | Qué muestra |
 |---|---|---|
 | [10-casos-de-uso.puml](10-casos-de-uso.puml) | Casos de uso | Operario, Administrador y Scheduler de Oracle con sus casos, `«include»` y `«extend»`. |
-| [11-actividad-conteo-movil.puml](11-actividad-conteo-movil.puml) | Actividad con carriles | El flujo del operario en el móvil, de elegir conteo a guardar y sincronizar. |
+| [11-actividad-conteo-movil.puml](11-actividad-conteo-movil.puml) | Actividad con carriles | El flujo del operario en el móvil: iniciar sesión, elegir conteo, escanear (barras o QR), guardar y sincronizar. |
 | [12-actividad-batch.puml](12-actividad-batch.puml) | Actividad con carriles (Móvil / App / Oracle) | De la subida al `ACK` y el batch `PROCESAR_PENDIENTES` paso a paso. |
 | [16-estados-sync-controller.puml](16-estados-sync-controller.puml) | Máquina de estados | `IDLE … ERROR` del controlador, con eventos y guardas (plazo, cancelación, corte, ocupado). |
 | [17-estados-fila-transito.puml](17-estados-fila-transito.puml) | Máquina de estados | Una fila de `CAPTURA_TRANSITO`: `PENDIENTE → PROCESANDO → PROCESADO \| ERROR`, con recuperación de huérfanas. |

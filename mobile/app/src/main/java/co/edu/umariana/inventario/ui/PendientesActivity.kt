@@ -1,31 +1,34 @@
 package co.edu.umariana.inventario.ui
 
 import android.os.Bundle
-import android.widget.ArrayAdapter
-import android.widget.ListView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
-import co.edu.umariana.inventario.data.Estado
+import co.edu.umariana.inventario.ui.pantallas.PendienteFila
+import co.edu.umariana.inventario.ui.pantallas.PendientesScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Todas las lecturas guardadas con su estado: PENDIENTE (no enviada), ENVIADO (sin confirmar) o CONFIRMADO. */
+/** Todas las lecturas guardadas con su estado: pendiente (no enviada), enviada (sin confirmar) o confirmada. */
 class PendientesActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
+    private var filas by mutableStateOf<List<PendienteFila>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        montar("Pendientes")
-        val resumen = texto("", 15f, negrita = true)
-        val lista = ListView(this).also { raiz.addView(it) }
+        pantalla {
+            val lista = filas ?: return@pantalla
+            PendientesScreen(lista, alSincronizar = { abrir(SincronizarActivity::class.java, Transicion.HOJA) }, alVolver = { finish() })
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()  // al volver de sincronizar los estados cambian
         lifecycleScope.launch {
-            val todas = withContext(Dispatchers.IO) { s.contar.todasLasLecturas() }.asReversed()
-            val sinConfirmar = todas.count { it.estado != Estado.CONFIRMADO }
-            resumen.text = if (todas.isEmpty()) "Todavía no hay lecturas" else
-                "${todas.size} lecturas · $sinConfirmar por confirmar"
-            lista.adapter = ArrayAdapter(this@PendientesActivity, android.R.layout.simple_list_item_1,
-                todas.map { "#${it.seq} ${it.ubicacion} · ${it.sku} × ${it.cantidad}  —  ${it.estado}" })
-            lista.layoutParams = lista.layoutParams.apply { height = dp(72) * maxOf(1, todas.size) }
+            filas = withContext(Dispatchers.IO) { s.contar.todasLasLecturas() }.asReversed()
+                .map { PendienteFila(it.seq, it.sku, it.cantidad, it.estado) }
         }
     }
 }

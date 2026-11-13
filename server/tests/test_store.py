@@ -60,7 +60,6 @@ def test_catalog_has_only_open_conteos(store, conteos_de_prueba):
     assert "CONT-2026-11" in ids
     assert "TST-OPEN" in ids
     assert "TST-CLOSED" not in ids
-    assert len(catalog.ubicaciones) == 12
     assert len(catalog.productos) == 60
     # Conteo ciego: ninguna tupla del catálogo lleva cantidades de stock.
     assert all(len(p) == 4 for p in catalog.productos)

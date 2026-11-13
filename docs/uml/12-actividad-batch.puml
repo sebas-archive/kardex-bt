@@ -3,9 +3,9 @@
 title 12 · Actividad: de la subida al ACK y el batch PKG_BATCH.PROCESAR_PENDIENTES
 |Móvil|
 start
-:HELLO|1|uuid|nombre;
+:HELLO|3|uuid|nombre + ACCT|usuario|nombre;
 |App (Session)|
-:READY|ultimo_seq|epoch_ms + catálogo;
+:ACCTST (estado de la cuenta) + READY|ultimo_seq|epoch_ms + catálogo;
 |Móvil|
 :Envía REC|seq|… (hasta 50 sin ACK);
 |App (Session)|
@@ -34,7 +34,7 @@ repeat while (¿Llegó END?) is (no) not (sí)
 :Reclamar pendientes (PENDIENTE → PROCESANDO);
 while (¿Quedan filas reclamadas?) is (sí)
   :Parsear la línea REC;
-  if (¿Conteo abierto, ubicación y SKU\nconocidos, cantidad válida?) then (sí)
+  if (¿Conteo abierto, SKU conocido,\ncantidad válida?) then (sí)
     :Insertar en registros_procesados;
     :Recalcular lectura vigente\n(fecha_captura, luego id_transito);
     :Marcar PROCESADO;

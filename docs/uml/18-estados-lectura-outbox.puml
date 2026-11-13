@@ -4,7 +4,7 @@ title 18 · Máquina de estados de una lectura en la Outbox del móvil
 hide empty description
 
 [*] --> PENDIENTE : insertar()\n(guardar siempre primero en el teléfono)
-PENDIENTE --> PENDIENTE : reemplazar()\n[recuento de la misma ubicación y SKU\nque aún no salió]
+PENDIENTE --> PENDIENTE : reemplazar()\n[recuento del mismo SKU\nque aún no salió]
 PENDIENTE --> ENVIADO : tomarParaEnviar(seq)\n(sale hacia el PC)
 ENVIADO --> CONFIRMADO : ACK|n con n ≥ seq\n(confirmarHasta)
 ENVIADO --> PENDIENTE : corte: READY|n con n < seq\n(reconciliar)

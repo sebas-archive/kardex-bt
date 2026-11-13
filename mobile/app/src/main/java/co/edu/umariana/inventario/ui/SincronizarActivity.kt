@@ -11,18 +11,21 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import co.edu.umariana.inventario.sync.PcConnector
+import co.edu.umariana.inventario.ui.pantallas.SincronizarScreen
+import co.edu.umariana.inventario.ui.pantallas.SincronizarUi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Sincronizar (D22): si ya se eligió el PC, conecta de inmediato —sin buscar, sin emparejar, sin códigos—. La primera
@@ -32,21 +35,17 @@ import kotlinx.coroutines.launch
 class SincronizarActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
     private val vm: SyncViewModel by viewModels { SyncViewModelFactory(Servicios.de(this)) }
-    private lateinit var tvPc: TextView
-    private lateinit var tvEstado: TextView
-    private lateinit var barra: ProgressBar
-    private lateinit var btnSincronizar: Button
-    private lateinit var listaPcs: LinearLayout
+    private var ui by mutableStateOf(SincronizarUi())
     private var pendiente: (() -> Unit)? = null
     private var receptorActivo = false
-    private val encontrados = mutableSetOf<String>()
+    private var seqInicial: Long? = null  // primer seq de esta sincronización: el progreso se mide desde ahí
 
     private val pedirPermisos = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { resultado ->
         if (resultado.values.all { it }) pendiente?.invoke()
         else mostrar("Sin permiso de Bluetooth. Actívalo en Ajustes > Aplicaciones > Inventario > Permisos.")
     }
     private val pedirEncender = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (s.conector.adaptador()?.isEnabled == true) pendiente?.invoke() else mostrar("El Bluetooth sigue apagado")
+        if (s.conector.adaptador()?.isEnabled == true) pendiente?.invoke() else mostrar("El Bluetooth sigue apagado.")
     }
 
     private val receptor = object : BroadcastReceiver() {
@@ -58,30 +57,38 @@ class SincronizarActivity : PantallaActivity() {
                     else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     if (dispositivo != null) agregarPc(dispositivo.address, dispositivo.name ?: intent.getStringExtra(BluetoothDevice.EXTRA_NAME))
                 }
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED ->
-                    if (encontrados.isEmpty()) mostrar(
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    ui = ui.copy(buscando = false)
+                    if (ui.encontrados.isEmpty()) mostrar(
                         "No encontré «${PcConnector.NOMBRE_PC}». En el PC pulsa «Iniciar sincronización» y acércate. " +
                             "En Android 10 o anterior la ubicación del teléfono debe estar encendida para buscar.")
+                }
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        montar("Sincronizar")
-        tvPc = texto("", 15f)
-        tvEstado = texto("", 18f, negrita = true)
-        barra = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).also { raiz.addView(it) }
-        barra.visibility = android.view.View.GONE
-        btnSincronizar = boton("Sincronizar ahora") { sincronizar() }
-        boton("Buscar otro PC") { buscar() }
-        listaPcs = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        raiz.addView(listaPcs)
-
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) { vm.estado.collect { dibujar(it) } }
+        ui = ui.copy(pcNombre = s.settings.pcNombre, pcDireccion = s.settings.pcDireccion, puedeCambiarPc = puedeCambiarPc())
+        pantalla {
+            SincronizarScreen(
+                ui,
+                alSincronizar = ::sincronizar,
+                alBuscar = ::buscar,
+                alElegirPc = { direccion, nombre ->
+                    s.settings.pcDireccion = direccion
+                    s.settings.pcNombre = nombre
+                    detenerBusqueda()
+                    ui = ui.copy(pcNombre = nombre, pcDireccion = direccion, encontrados = emptyList(), mensaje = null, puedeCambiarPc = puedeCambiarPc())
+                    sincronizar()
+                },
+                alVolver = { finish() },
+            )
         }
-        actualizarPc()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) { vm.estado.collect(::alCambiarEstado) }
+        }
+        contarPendientes()
     }
 
     override fun onStart() {
@@ -97,18 +104,34 @@ class SincronizarActivity : PantallaActivity() {
         detenerBusqueda()
     }
 
-    private fun actualizarPc() {
-        val direccion = s.settings.pcDireccion
-        tvPc.text = if (direccion == null) "Todavía no hay un PC elegido." else "PC: ${s.settings.pcNombre ?: PcConnector.NOMBRE_PC} ($direccion)"
+    private fun alCambiarEstado(estado: SyncEstado?) {
+        when (estado) {
+            is SyncEstado.Sincronizando -> {
+                val inicio = seqInicial ?: estado.confirmadoHasta.also { seqInicial = it }
+                ui = ui.copy(estado = estado, enviadas = estado.confirmadoHasta - inicio, porEnviar = estado.total - inicio)
+            }
+            null, is SyncEstado.Conectando -> {
+                seqInicial = null
+                ui = ui.copy(estado = estado, enviadas = 0, porEnviar = 0)
+            }
+            else -> {
+                ui = ui.copy(estado = estado)
+                contarPendientes()
+            }
+        }
     }
 
-    private fun mostrar(mensaje: String) {
-        tvEstado.text = mensaje
+    private fun contarPendientes() {
+        lifecycleScope.launch { ui = ui.copy(pendientes = withContext(Dispatchers.IO) { s.contar.contarPendientes() }) }
+    }
+
+    private fun mostrar(mensaje: String?) {
+        ui = ui.copy(mensaje = mensaje)
     }
 
     // ------------------------------------------------------------------ permisos y Bluetooth encendido
     private fun asegurarBluetooth(buscando: Boolean, accion: () -> Unit) {
-        val adaptador = s.conector.adaptador() ?: return mostrar("Este teléfono no tiene Bluetooth")
+        val adaptador = s.conector.adaptador() ?: return mostrar("Este teléfono no tiene Bluetooth.")
         val necesarios = buildList {
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -123,7 +146,7 @@ class SincronizarActivity : PantallaActivity() {
         }
         if (!adaptador.isEnabled) {
             pendiente = accion
-            mostrar("Enciende el Bluetooth para sincronizar")
+            mostrar("Enciende el Bluetooth para sincronizar.")
             pedirEncender.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
@@ -133,45 +156,27 @@ class SincronizarActivity : PantallaActivity() {
     // ------------------------------------------------------------------ sincronizar
     private fun sincronizar() {
         val direccion = s.settings.pcDireccion ?: return buscar()
-        listaPcs.removeAllViews()
-        asegurarBluetooth(buscando = false) { vm.iniciar(direccion) }
-    }
-
-    private fun dibujar(estado: SyncEstado?) {
-        val enCurso = estado is SyncEstado.Conectando || estado is SyncEstado.Sincronizando || estado is SyncEstado.Reintentando
-        btnSincronizar.isEnabled = !enCurso
-        barra.visibility = if (estado is SyncEstado.Sincronizando) android.view.View.VISIBLE else android.view.View.GONE
-        tvEstado.text = when (estado) {
-            null -> tvEstado.text
-            is SyncEstado.Conectando -> "Conectando con el PC… (intento ${estado.intento})"
-            is SyncEstado.Sincronizando -> {
-                barra.max = estado.total.toInt()
-                barra.progress = estado.confirmadoHasta.toInt()
-                "Enviando… ${estado.confirmadoHasta} de ${estado.total}"
-            }
-            is SyncEstado.Reintentando -> "Se cortó (${estado.motivo}). Reintentando, intento ${estado.intento}…"
-            is SyncEstado.Listo -> "Listo: ${estado.aceptados} lecturas aceptadas, ${estado.rechazados} rechazadas" +
-                if (estado.pendientes > 0) ". Quedan ${estado.pendientes} sin enviar: vuelve a sincronizar." else ". Todo enviado."
-            SyncEstado.Ocupado -> "El PC está atendiendo a otro teléfono. Espera a que termine y vuelve a intentar."
-            is SyncEstado.Rechazado -> "El PC rechazó la conexión: ${estado.motivo}"
-            is SyncEstado.PcNoDisponible -> "No se pudo conectar con el PC (${estado.motivo}). ¿Está encendido, cerca, " +
-                "y con la sincronización iniciada en la aplicación?"
-            is SyncEstado.Cortado -> "Se cortó la conexión (${estado.motivo}). Las ${estado.pendientes} lecturas sin enviar " +
-                "siguen guardadas; vuelve a intentar."
+        asegurarBluetooth(buscando = false) {
+            detenerBusqueda()
+            ui = ui.copy(encontrados = emptyList(), mensaje = null)
+            vm.iniciar(direccion)
         }
     }
 
     // ------------------------------------------------------------------ buscar el PC (solo la primera vez)
+    /** Cualquier operador elige o cambia el PC (el rol Supervisor desapareció en la Fase 1). */
+    private fun puedeCambiarPc(): Boolean = true
+
     private fun buscar() {
+        if (vm.enCurso) return
         asegurarBluetooth(buscando = true) { iniciarBusqueda() }
     }
 
     private fun iniciarBusqueda() {
         val adaptador = s.conector.adaptador() ?: return
-        listaPcs.removeAllViews()
-        encontrados.clear()
-        mostrar("Buscando «${PcConnector.NOMBRE_PC}»… En el PC pulsa «Iniciar sincronización».")
-        adaptador.bondedDevices?.forEach { if (it.name == PcConnector.NOMBRE_PC) agregarPc(it.address, it.name) }
+        vm.cancelar()  // deja el indicador en «buscando», no en el resultado anterior
+        ui = ui.copy(buscando = true, encontrados = emptyList(), mensaje = null)
+        adaptador.bondedDevices?.forEach { agregarPc(it.address, it.name) }
         if (!receptorActivo) {
             val filtro = IntentFilter().apply {
                 addAction(BluetoothDevice.ACTION_FOUND)
@@ -190,20 +195,11 @@ class SincronizarActivity : PantallaActivity() {
             receptorActivo = false
         }
         runCatching { s.conector.adaptador()?.cancelDiscovery() }
+        if (ui.buscando) ui = ui.copy(buscando = false)
     }
 
     private fun agregarPc(direccion: String, nombre: String?) {
-        if (nombre != PcConnector.NOMBRE_PC || !encontrados.add(direccion)) return
-        mostrar("Encontré el PC. Tócalo para conectar.")
-        listaPcs.addView(Button(this).apply {
-            text = "$nombre\n$direccion"
-            setOnClickListener {
-                s.settings.pcDireccion = direccion
-                s.settings.pcNombre = nombre
-                detenerBusqueda()
-                actualizarPc()
-                sincronizar()
-            }
-        })
+        if (nombre != PcConnector.NOMBRE_PC || ui.encontrados.any { it.first == direccion }) return
+        ui = ui.copy(encontrados = ui.encontrados + (direccion to nombre), mensaje = null)
     }
 }

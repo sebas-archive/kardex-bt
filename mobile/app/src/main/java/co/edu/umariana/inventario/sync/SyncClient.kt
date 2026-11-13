@@ -5,7 +5,7 @@ import co.edu.umariana.inventario.data.CatalogRepository
 import co.edu.umariana.inventario.data.ConteoEntity
 import co.edu.umariana.inventario.data.Outbox
 import co.edu.umariana.inventario.data.ProductoEntity
-import co.edu.umariana.inventario.data.UbicacionEntity
+import co.edu.umariana.inventario.protocol.EstadoCuentaPc
 import co.edu.umariana.inventario.protocol.FrameError
 import co.edu.umariana.inventario.protocol.Message
 import co.edu.umariana.inventario.protocol.Protocol
@@ -46,6 +46,12 @@ sealed class SyncProgress {
 
     /** La conexión se cortó. Lo no confirmado queda en la bandeja de salida para el siguiente intento. */
     data class Cut(val motivo: String, val pendientes: Int) : SyncProgress()
+
+    /**
+     * La cuenta no está ACTIVO en el PC (pendiente, rechazada o suspendida): no se envió ninguna lectura.
+     * Las [pendientes] siguen en el búfer y salen cuando el administrador active la cuenta.
+     */
+    data class CuentaNoActiva(val estado: String, val motivo: String?, val pendientes: Int) : SyncProgress()
 }
 
 /**
@@ -56,6 +62,8 @@ sealed class SyncProgress {
  *   La fila no se modifica y el desfase se recalcula en cada sesión: nunca se acumula.
  * - **Ventana:** como mucho [WINDOW] lecturas sin confirmar en vuelo.
  * - **Go-back-N:** ante `NAK|n|motivo` se reenvía desde `n`.
+ * - **Cuenta:** tras `HELLO` va `ACCT` con el operador de la sesión; el PC responde su estado (`ACCTST`), que se
+ *   entrega a [alEstado]. Si no es ACTIVO no se envía ninguna lectura: la sesión termina con `END|0`.
  *
  * Una llamada es un intento sobre un socket. Tras un [SyncProgress.Cut] (o un `Done` con pendientes)
  * quien llama abre otra conexión y vuelve a llamar: nada se duplica.
@@ -65,6 +73,9 @@ class SyncClient(
     private val catalog: CatalogRepository,
     private val deviceUuid: String,
     private val deviceName: String,
+    private val cuentaUsuario: String,
+    private val cuentaNombre: String,
+    private val alEstado: (EstadoCuentaPc) -> Unit = {},
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     fun sync(socket: BluetoothSocketLike): Flow<SyncProgress> = flow {
@@ -85,20 +96,34 @@ class SyncClient(
         fun read(): Message =
             Protocol.parse(reader.readLine() ?: throw EOFException("el PC cerró la conexión"))
 
-        out.write(Protocol.frame(listOf("HELLO", "1", Protocol.encodeText(deviceUuid), Protocol.encodeText(deviceName))))
+        out.write(Protocol.frame(listOf("HELLO", Protocol.VERSION, Protocol.encodeText(deviceUuid), Protocol.encodeText(deviceName))))
+        out.write(Protocol.frame(listOf("ACCT", Protocol.encodeText(cuentaUsuario), Protocol.encodeText(cuentaNombre))))
         out.flush()
 
-        val first = read()
-        if (first.kind == "NAK") {
-            emit(if (first.fields[1] == "OCUPADO") SyncProgress.Busy else SyncProgress.Rejected(first.fields[1]))
+        val cuentaMsg = read()
+        if (cuentaMsg.kind == "NAK") {
+            emit(if (cuentaMsg.fields[1] == "OCUPADO") SyncProgress.Busy else SyncProgress.Rejected(cuentaMsg.fields[1]))
             return
         }
+        val cuenta = EstadoCuentaPc.fromMessage(cuentaMsg)
+        alEstado(cuenta)
+        val activa = cuenta.estado == "ACTIVO"
+
+        val first = read()
         if (first.kind != "READY") throw FrameError("FORMAT", "se esperaba READY y llegó ${first.kind}")
         val last = first.fields[0].toLong()
         val offset = first.fields[1].toLong() - nowMs()  // D15: un desfase por sesión, nunca guardado
         outbox.reconciliar(last)
 
         catalog.reemplazarTodo(readCatalog(::read))
+
+        if (!activa) {  // sin cuenta activa no sale ninguna lectura: quedan en el búfer
+            out.write(Protocol.frame(listOf("END", "0")))
+            out.flush()
+            while (read().kind != "BYE") { /* el PC cierra la sesión */ }
+            emit(SyncProgress.CuentaNoActiva(cuenta.estado, cuenta.motivo, outbox.contarPendientes()))
+            return
+        }
 
         var total = outbox.ultimoSeq()
         emit(SyncProgress.Connected(last, maxOf(0L, total - last).toInt()))
@@ -114,8 +139,8 @@ class SyncClient(
                     break
                 }
                 out.write(
-                    Rec(lectura.seq, lectura.tsOriginalMs + offset, lectura.idConteo, lectura.ubicacion,
-                        lectura.sku, lectura.cantidad, lectura.operador, lectura.nota).toFrame()
+                    Rec(lectura.seq, lectura.tsOriginalMs + offset, lectura.idConteo, lectura.sku, lectura.cantidad,
+                        lectura.operador, lectura.nota).toFrame()
                 )
                 next++
             }
@@ -145,15 +170,13 @@ class SyncClient(
 
     private fun readCatalog(read: () -> Message): Catalog {
         val conteos = ArrayList<ConteoEntity>()
-        val ubicaciones = ArrayList<UbicacionEntity>()
         val productos = ArrayList<ProductoEntity>()
         while (true) {
             val m = read()
             when (m.kind) {
                 "CATCONTEO" -> conteos += ConteoEntity(m.fields[0], m.fields[1])
-                "CATUBIC" -> ubicaciones += UbicacionEntity(m.fields[0], m.fields[1], m.fields[2])
                 "CATPROD" -> productos += ProductoEntity(m.fields[0], m.fields[1], m.fields[2], m.fields[3])
-                "CAT_END" -> return Catalog(conteos, ubicaciones, productos)
+                "CAT_END" -> return Catalog(conteos, productos)
                 else -> throw FrameError("FORMAT", "se esperaba el catálogo y llegó ${m.kind}")
             }
         }

@@ -1,6 +1,6 @@
 """Batch PL/SQL: procesar, recontar (D13), errores recuperables, huérfanas, purga y bitácora.
 
-Todos los tests usan el escenario fijo (conteo T-01, ubicaciones U1-U3, SKUs A1-A5).
+Todos los tests usan el escenario fijo (conteo T-01, SKUs A1-A5).
 """
 
 import datetime as dt
@@ -30,14 +30,14 @@ def estado(db, id_transito):
 def registro(db, id_transito):
     cur = db.cursor()
     cur.execute(
-        "SELECT id_conteo, cod_ubicacion, sku, cantidad, operador, nota, vigente, fecha_captura "
+        "SELECT id_conteo, sku, cantidad, operador, nota, vigente, fecha_captura "
         "FROM registros_procesados WHERE id_transito = :i",
         i=id_transito,
     )
     row = cur.fetchone()
     if row is None:
         return None
-    keys = ("id_conteo", "cod_ubicacion", "sku", "cantidad", "operador", "nota", "vigente", "fecha_captura")
+    keys = ("id_conteo", "sku", "cantidad", "operador", "nota", "vigente", "fecha_captura")
     return dict(zip(keys, row))
 
 
@@ -52,57 +52,58 @@ def scalar(db, sql, **binds):
 
 
 def test_valid_row_becomes_procesado_with_typed_fields(escenario, db):
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "A1", "12.5", "Ana", "ok")
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", "12.5", "Ana", "ok")
     procesar(db)
     assert estado(db, tid) == ("PROCESADO", None)
     r = registro(db, tid)
     del r["fecha_captura"]
     assert r == {
-        "id_conteo": "T-01", "cod_ubicacion": "U1", "sku": "A1",
+        "id_conteo": "T-01", "sku": "A1",
         "cantidad": 12.5, "operador": "Ana", "nota": "ok", "vigente": "S",
     }
 
 
 def test_capture_timestamp_is_utc_from_epoch_ms(escenario, db):
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1)
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", 1)
     procesar(db)
     assert registro(db, tid)["fecha_captura"] == dt.datetime(2024, 11, 9, 16, 40, 0)
 
 
 def test_recount_same_location_latest_wins(escenario, db):
-    old = staging(db, "tst-d1", 1, 1000, C, "U1", "A2", 40)
-    new = staging(db, "tst-d2", 1, 2000, C, "U1", "A2", 45)
+    old = staging(db, "tst-d1", 1, 1000, C, "A2", 40)
+    new = staging(db, "tst-d2", 1, 2000, C, "A2", 45)
     procesar(db)
     assert (vigente(db, old), vigente(db, new)) == ("N", "S")
     assert registro(db, new)["cantidad"] == 45
 
 
 def test_tie_same_timestamp_higher_id_transito_wins(escenario, db):
-    first = staging(db, "tst-d1", 1, 5000, C, "U1", "A2", 40)
-    second = staging(db, "tst-d2", 1, 5000, C, "U1", "A2", 45)
+    first = staging(db, "tst-d1", 1, 5000, C, "A2", 40)
+    second = staging(db, "tst-d2", 1, 5000, C, "A2", 45)
     assert second > first
     procesar(db)
     assert (vigente(db, first), vigente(db, second)) == ("N", "S")
 
 
 def test_older_reading_arriving_later_does_not_override(escenario, db):
-    newer = staging(db, "tst-d1", 1, 2000, C, "U1", "A2", 45)
+    newer = staging(db, "tst-d1", 1, 2000, C, "A2", 45)
     procesar(db)
-    older = staging(db, "tst-d2", 1, 1000, C, "U1", "A2", 40)
+    older = staging(db, "tst-d2", 1, 1000, C, "A2", 40)
     procesar(db)
     assert (vigente(db, newer), vigente(db, older)) == ("S", "N")
 
 
-def test_same_sku_two_locations_both_vigente(escenario, db):
-    a = staging(db, "tst-d1", 1, T0, C, "U1", "A1", 60, "Ana")
-    b = staging(db, "tst-d1", 2, T0 + 1000, C, "U2", "A1", 41, "Luis")
+def test_same_sku_counted_by_two_people_keeps_only_the_latest(escenario, db):
+    """Sin ubicaciones hay una lectura vigente por (conteo, SKU): la de Luis, posterior, reemplaza a la de Ana."""
+    a = staging(db, "tst-d1", 1, T0, C, "A1", 60, "Ana")
+    b = staging(db, "tst-d2", 1, T0 + 1000, C, "A1", 41, "Luis")
     procesar(db)
-    assert (vigente(db, a), vigente(db, b)) == ("S", "S")
+    assert (vigente(db, a), vigente(db, b)) == ("N", "S")
 
 
 def test_unknown_sku_marks_error_and_batch_continues(escenario, db):
-    bad = staging(db, "tst-b1", 1, T0, C, "U1", "ZZ9", 5)
-    good = staging(db, "tst-b1", 2, T0 + 1, C, "U1", "A1", 5)
+    bad = staging(db, "tst-b1", 1, T0, C, "ZZ9", 5)
+    good = staging(db, "tst-b1", 2, T0 + 1, C, "A1", 5)
     procesar(db)
     assert estado(db, bad) == ("ERROR", "SKU_DESCONOCIDO")
     assert registro(db, bad) is None
@@ -110,24 +111,23 @@ def test_unknown_sku_marks_error_and_batch_continues(escenario, db):
 
 
 @pytest.mark.parametrize(
-    "conteo, ubic, cant, esperado",
+    "conteo, cant, esperado",
     [
-        (C, "U9", "1", "UBICACION_DESCONOCIDA"),
-        ("T-99", "U1", "1", "CONTEO_NO_ABIERTO"),
-        (C, "U1", "-1", "CANTIDAD_INVALIDA"),
-        (C, "U1", "1,5", "CANTIDAD_INVALIDA"),
-        (C, "U1", "1.2345", "CANTIDAD_INVALIDA"),
+        ("T-99", "1", "CONTEO_NO_ABIERTO"),
+        (C, "-1", "CANTIDAD_INVALIDA"),
+        (C, "1,5", "CANTIDAD_INVALIDA"),
+        (C, "1.2345", "CANTIDAD_INVALIDA"),
     ],
 )
-def test_other_validation_errors(escenario, db, conteo, ubic, cant, esperado):
-    tid = staging(db, "tst-b1", 1, T0, conteo, ubic, "A1", cant)
+def test_other_validation_errors(escenario, db, conteo, cant, esperado):
+    tid = staging(db, "tst-b1", 1, T0, conteo, "A1", cant)
     procesar(db)
     assert estado(db, tid) == ("ERROR", esperado)
     assert registro(db, tid) is None
 
 
 def test_reprocesar_errores_after_adding_product(escenario, db):
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "ZZ9", 7)
+    tid = staging(db, "tst-b1", 1, T0, C, "ZZ9", 7)
     procesar(db)
     assert estado(db, tid) == ("ERROR", "SKU_DESCONOCIDO")
     db.cursor().execute(
@@ -141,14 +141,14 @@ def test_reprocesar_errores_after_adding_product(escenario, db):
 
 
 def test_operator_and_note_roundtrip(escenario, db):
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1, "Ñandú|Pérez", "a|b\nc%ñ😀")
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", 1, "Ñandú|Pérez", "a|b\nc%ñ😀")
     procesar(db)
     r = registro(db, tid)
     assert (r["operador"], r["nota"]) == ("Ñandú|Pérez", "a|b\nc%ñ😀")
 
 
 def test_long_note_and_operator_are_truncated(escenario, db):
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1, "ñ" * 80, "é" * 300)
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", 1, "ñ" * 80, "é" * 300)
     procesar(db)
     assert estado(db, tid) == ("PROCESADO", None)
     r = registro(db, tid)
@@ -156,7 +156,7 @@ def test_long_note_and_operator_are_truncated(escenario, db):
 
 
 def test_empty_operator_and_note_are_null(escenario, db):
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1, "", "")
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", 1, "", "")
     procesar(db)
     r = registro(db, tid)
     assert (r["operador"], r["nota"]) == (None, None)
@@ -164,7 +164,7 @@ def test_empty_operator_and_note_are_null(escenario, db):
 
 def test_quantity_parses_with_dot_under_comma_nls(escenario, db):
     db.cursor().execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = ',.'")
-    tid = staging(db, "tst-b1", 1, T0, C, "U1", "A1", "12.5")
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", "12.5")
     procesar(db)
     assert estado(db, tid) == ("PROCESADO", None)
     assert scalar(
@@ -173,8 +173,8 @@ def test_quantity_parses_with_dot_under_comma_nls(escenario, db):
 
 
 def test_stale_procesando_row_is_recovered_and_fresh_one_is_not(escenario, db):
-    stale = staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1)
-    fresh = staging(db, "tst-b1", 2, T0 + 1, C, "U1", "A2", 1)
+    stale = staging(db, "tst-b1", 1, T0, C, "A1", 1)
+    fresh = staging(db, "tst-b1", 2, T0 + 1, C, "A2", 1)
     cur = db.cursor()
     cur.execute(
         "UPDATE captura_transito SET estado = 'PROCESANDO', "
@@ -192,9 +192,9 @@ def test_stale_procesando_row_is_recovered_and_fresh_one_is_not(escenario, db):
 
 
 def test_two_concurrent_batches_process_each_row_once(escenario, db):
-    ubics, skus = ("U1", "U2", "U3"), ("A1", "A2", "A3", "A4", "A5")
+    skus = ("A1", "A2", "A3", "A4", "A5")
     for i in range(200):
-        staging(db, "tst-conc", i + 1, T0 + i, C, ubics[i % 3], skus[i % 5], i % 7)
+        staging(db, "tst-conc", i + 1, T0 + i, C, skus[i % 5], i % 7)
     barrier = threading.Barrier(2)
     errors = []
 
@@ -221,22 +221,22 @@ def test_two_concurrent_batches_process_each_row_once(escenario, db):
     assert scalar(
         db, "SELECT COUNT(*) FROM captura_transito WHERE uuid_dispositivo = 'tst-conc' AND estado = 'PROCESADO'"
     ) == 200
-    # Una sola lectura vigente por (ubicación, SKU): 3 x 5 grupos.
+    # Una sola lectura vigente por SKU: 5 grupos.
     assert scalar(
         db, "SELECT COUNT(*) FROM registros_procesados WHERE id_conteo = :c AND vigente = 'S'", c=C
-    ) == 15
+    ) == 5
     assert scalar(
         db, "SELECT SUM(procesados) FROM log_batch WHERE id > :m", m=escenario.log_mark
     ) == 200
 
 
 def test_purge_deletes_only_old_processed(escenario, db):
-    old_ok = staging(db, "tst-p1", 1, T0, C, "U1", "A1", 1)
+    old_ok = staging(db, "tst-p1", 1, T0, C, "A1", 1)
     procesar(db)  # de verdad PROCESADO, con su registro
-    old_err = staging(db, "tst-p1", 2, T0, C, "U1", "ZZ9", 1)
+    old_err = staging(db, "tst-p1", 2, T0, C, "ZZ9", 1)
     procesar(db)
-    old_pend = staging(db, "tst-p1", 3, T0, C, "U1", "A2", 1)
-    new_ok = staging(db, "tst-p1", 4, T0, C, "U1", "A3", 1)
+    old_pend = staging(db, "tst-p1", 3, T0, C, "A2", 1)
+    new_ok = staging(db, "tst-p1", 4, T0, C, "A3", 1)
     cur = db.cursor()
     cur.execute("UPDATE captura_transito SET estado = 'PROCESADO' WHERE id_transito = :i", i=new_ok)
     cur.execute(
@@ -265,7 +265,7 @@ def test_purge_deletes_only_old_processed(escenario, db):
 def test_purge_keeps_highest_seq_per_device_so_ready_survives(escenario, db):
     """READY sale de MAX(seq): si la purga borrara todas las filas de un teléfono, el servidor
     volvería a responder READY|0 y el teléfono reenviaría todo su historial."""
-    ids = [staging(db, "tst-p2", seq, T0, C, "U1", "A1", 1) for seq in (1, 2, 3)]
+    ids = [staging(db, "tst-p2", seq, T0, C, "A1", 1) for seq in (1, 2, 3)]
     cur = db.cursor()
     cur.execute(
         "UPDATE captura_transito SET estado = 'PROCESADO', "
@@ -280,9 +280,9 @@ def test_purge_keeps_highest_seq_per_device_so_ready_survives(escenario, db):
 
 
 def test_log_batch_row_written(escenario, db):
-    staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1)
-    staging(db, "tst-b1", 2, T0, C, "U1", "A2", 1)
-    staging(db, "tst-b1", 3, T0, C, "U1", "ZZ9", 1)
+    staging(db, "tst-b1", 1, T0, C, "A1", 1)
+    staging(db, "tst-b1", 2, T0, C, "A2", 1)
+    staging(db, "tst-b1", 3, T0, C, "ZZ9", 1)
     procesar(db)
     cur = db.cursor()
     cur.execute(
@@ -300,9 +300,9 @@ def test_log_batch_row_written(escenario, db):
 
 
 def test_store_run_batch_returns_counts_of_its_own_run(escenario, store, db):
-    staging(db, "tst-b1", 1, T0, C, "U1", "A1", 1)
-    staging(db, "tst-b1", 2, T0, C, "U1", "A2", 1)
-    staging(db, "tst-b1", 3, T0, C, "U1", "ZZ9", 1)
+    staging(db, "tst-b1", 1, T0, C, "A1", 1)
+    staging(db, "tst-b1", 2, T0, C, "A2", 1)
+    staging(db, "tst-b1", 3, T0, C, "ZZ9", 1)
     assert store.run_batch("SYNC") == (2, 1)
     assert scalar(
         db, "SELECT origen FROM log_batch WHERE id = (SELECT MAX(id) FROM log_batch)"

@@ -15,12 +15,12 @@ from btsync.protocol import frame, parse
 from btsync.session import Session
 from btsync.store import Store
 from btsync.transports.tcp import TcpTransport
-from conftest import purge_test_rows
+from conftest import OPERADOR_ACTIVO, purge_test_rows
 
 ROOT = Path(__file__).resolve().parents[2]
 UUID = "dev-e2e"
 TRUTH = json.loads((ROOT / "tools" / "truth.json").read_text(encoding="utf-8"))
-N = len(TRUTH["fisico"])  # una lectura por par (ubicación, SKU)
+N = len(TRUTH["fisico"])  # una lectura por SKU
 SKEW_MS = 600_000
 
 
@@ -80,6 +80,7 @@ def phone_cmd(port, state_file, *extra):
         "--port", str(port),
         "--seed", "42",
         "--uuid", UUID,
+        "--cuenta", OPERADOR_ACTIVO,
         "--state-file", str(state_file),
         *extra,
     ]
@@ -195,8 +196,9 @@ def test_retry_does_not_apply_offset_twice(server, db, tmp_path):
 def test_second_connection_while_busy_gets_nak_ocupado(server):
     first = socket.create_connection(("127.0.0.1", server.port), timeout=10)
     try:
-        first.sendall(frame(["HELLO", "1", "dev-e2e-a", "Primero"]))
+        first.sendall(frame(["HELLO", "3", "dev-e2e-a", "Primero"]) + frame(["ACCT", OPERADOR_ACTIVO, "Operador de prueba"]))
         first_in = first.makefile("rb")
+        assert parse(first_in.readline()).kind == "ACCTST"
         assert parse(first_in.readline()).kind == "READY"
 
         second = socket.create_connection(("127.0.0.1", server.port), timeout=10)

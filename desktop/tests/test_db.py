@@ -1,6 +1,6 @@
 """Capa de datos de la app de escritorio, contra el escenario fijo T-01.
 
-Lecturas: U1 A1 60 Ana, U2 A1 41 Luis, U1 A2 45 Ana, U1 A3 23 Ana, U2 A5 4 Luis;
+Lecturas: A1 60 Ana y luego A1 101 Luis (recuento), A2 45 Ana, A3 23 Ana, A5 4 Luis;
 stock A1 100, A2 50, A3 20, A4 10 (A5 no está en la foto). Ver server/tests/fixtures.
 """
 
@@ -75,12 +75,6 @@ def test_distribucion_counts(contado):
     assert dbq.fetch_distribucion(C) == {"OK": 1, "FALTANTE": 1, "SOBRANTE": 2, "SIN_CONTAR": 1}
 
 
-def test_avance_zona_counts(contado):
-    zonas = {zona: (con, total) for zona, con, total in dbq.fetch_avance_zona(C)}
-    assert zonas["Z1"] == (2, 2)
-    assert zonas["Z2"] == (0, 1)
-
-
 def test_actividad_by_operator(contado):
     por_operador = {}
     for operador, hora, registros in dbq.fetch_actividad(C):
@@ -89,11 +83,11 @@ def test_actividad_by_operator(contado):
     assert por_operador == {"Ana": 3, "Luis": 2}
 
 
-def test_fetch_lecturas_a1_returns_two_rows(contado):
+def test_fetch_lecturas_a1_returns_the_recount_as_the_current_one(contado):
     lecturas = dbq.fetch_lecturas(C, "A1")
-    assert [(l.cod_ubicacion, l.cantidad, l.operador, l.vigente) for l in lecturas] == [
-        ("U1", 60.0, "Ana", True),
-        ("U2", 41.0, "Luis", True),
+    assert [(l.cantidad, l.operador, l.vigente) for l in lecturas] == [
+        (60.0, "Ana", False),      # la primera lectura quedó reemplazada
+        (101.0, "Luis", True),     # el recuento es la que vale
     ]
     assert dbq.fetch_lecturas(C, "A4") == []  # nadie contó A4
 
@@ -108,7 +102,7 @@ def test_cerrar_conteo_turns_sin_contar_into_faltante(contado):
 def test_reprocesar_errores_moves_error_rows_to_processed_after_fix(contado):
     conn = connect()
     try:
-        tid = staging(conn, "tst-d1", 1, T0, C, "U1", "ZZ9", 7)
+        tid = staging(conn, "tst-d1", 1, T0, C, "ZZ9", 7)
         dbq.procesar_ahora()
         errores = {e.id_transito: e for e in dbq.fetch_errores()}
         assert errores[tid].mensaje_error == "SKU_DESCONOCIDO"
@@ -133,9 +127,9 @@ def test_fetch_estado_batch_counts_pendientes_and_errores(contado):
     conn = connect()
     try:
         antes = dbq.fetch_estado_batch()
-        staging(conn, "tst-d2", 1, T0, C, "U1", "ZZ9", 1)   # quedará en ERROR
+        staging(conn, "tst-d2", 1, T0, C, "ZZ9", 1)   # quedará en ERROR
         dbq.procesar_ahora()
-        staging(conn, "tst-d2", 2, T0, C, "U1", "A1", 1)    # se queda PENDIENTE
+        staging(conn, "tst-d2", 2, T0, C, "A1", 1)    # se queda PENDIENTE
         ahora = dbq.fetch_estado_batch()
     finally:
         conn.close()
@@ -199,3 +193,22 @@ def test_many_threads_share_one_connection_each(contado, monkeypatch):
         h.join(timeout=60)
     assert errores == []
     assert len(conectadas) == 8      # una por hilo, no una por consulta (eran 200)
+
+
+def _skus(filas):
+    return [f.sku for f in filas]
+
+
+def test_fetch_conciliacion_only_rows_with_difference(contado):
+    assert _skus(dbq.fetch_conciliacion(C, solo_diferencia=True)) == ["A1", "A2", "A3", "A5"]  # A4 (sin contar) no tiene diferencia
+
+
+def test_fetch_conciliacion_minimum_value(contado):
+    assert _skus(dbq.fetch_conciliacion(C, valor_min=5000)) == ["A2", "A3"]      # |valor| ≥ 5.000, falte o sobre
+
+
+def test_fetch_conciliacion_order_is_a_whitelist(contado):
+    assert _skus(dbq.fetch_conciliacion(C, orden="valor")) == ["A3", "A2", "A5", "A1", "A4"]   # mayor |valor| primero
+    assert _skus(dbq.fetch_conciliacion(C, orden="pct")) == ["A3", "A2", "A1", "A4", "A5"]     # mayor |%| primero
+    with pytest.raises(ValueError):
+        dbq.fetch_conciliacion(C, orden="1; DROP TABLE conteos")  # el orden no se concatena tal cual

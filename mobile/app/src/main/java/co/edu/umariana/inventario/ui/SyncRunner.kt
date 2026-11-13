@@ -20,6 +20,8 @@ sealed class SyncEstado {
     /** No se pudo abrir la conexión: PC apagado, fuera de alcance o sin la sincronización iniciada. */
     data class PcNoDisponible(val motivo: String) : SyncEstado()
     data class Cortado(val motivo: String, val pendientes: Int) : SyncEstado()
+    /** La cuenta no está activa en el PC: no se envió nada. No se reintenta: hay que esperar al administrador. */
+    data class CuentaNoActiva(val estado: String, val motivo: String?, val pendientes: Int) : SyncEstado()
 }
 
 /**
@@ -65,6 +67,8 @@ class SyncRunner(
                             terminal = SyncEstado.Listo(progreso.aceptados, progreso.rechazados, progreso.pendientes)
                         }
                     SyncProgress.Busy -> terminal = SyncEstado.Ocupado
+                    is SyncProgress.CuentaNoActiva ->
+                        terminal = SyncEstado.CuentaNoActiva(progreso.estado, progreso.motivo, progreso.pendientes)
                     is SyncProgress.Rejected -> terminal = SyncEstado.Rechazado(progreso.motivo)
                     is SyncProgress.Cut ->
                         if (intento < maxIntentos) reintentarPor = progreso.motivo

@@ -48,9 +48,8 @@ class FilaConciliacion:
 
 @dataclass(frozen=True)
 class Lectura:
-    """Una lectura procesada de un SKU en una ubicación (``vigente`` = la que cuenta, D13)."""
+    """Una lectura procesada de un SKU (``vigente`` = la que cuenta: la más reciente, D13)."""
 
-    cod_ubicacion: str
     cantidad: float
     operador: str | None
     fecha_captura: datetime
@@ -102,17 +101,3 @@ def fmt_num(valor: float | None) -> str:
     if float(valor).is_integer():
         return str(int(valor))
     return f"{valor:.3f}".rstrip("0").rstrip(".").replace(".", ",")
-
-
-@dataclass(frozen=True)
-class PerfilDatos:
-    """Cómo es la información de un conteo: volumen, quién la capturó y su calidad."""
-
-    total_lecturas: int
-    vigentes: int
-    por_operador: list[tuple[str, int]]
-    por_dispositivo: list[tuple[str, int]]
-    filas_error: int            # filas del tránsito (todos los conteos) que el batch dejó en ERROR
-    filas_total: int            # filas del tránsito ya resueltas: PROCESADO + ERROR
-    fecha_min: datetime | None
-    fecha_max: datetime | None

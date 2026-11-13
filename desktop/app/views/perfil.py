@@ -1,209 +1,151 @@
-"""Vista «Perfil»: cómo es la información (campos, reglas de clasificación, tolerancias y calidad)."""
+"""Pantalla «Perfil»: quién tiene la sesión abierta, su rol, cambiar la contraseña y cerrar sesión."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QGroupBox,
-    QHeaderView,
-    QScrollArea,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+
+from .. import auth
+from .base import QueryRunner
+
+PERMISOS = (
+    ("Ver el dashboard, el inventario y las gráficas", False),
+    ("Sincronizar con el celular", False),
+    ("Exportar el inventario a CSV", False),
+    ("Cerrar conteos y reprocesar errores", True),
+    ("Administrar las cuentas y sus roles", True),
 )
-
-from .. import db
-from ..models import PerfilDatos, fmt_num, fmt_pct
-from .base import QueryRunner, StateBanner
-from .conciliacion import COLORES
-
-CAMPOS = (
-    ("SKU", "texto", "Código de barras del producto (el escáner del celular lee el SKU)."),
-    ("Sistema", "número", "Cantidad teórica en la foto de stock tomada al abrir el conteo."),
-    ("Contada", "número", "Suma de las lecturas vigentes del SKU en todas las ubicaciones."),
-    ("Diferencia", "número", "Contada − Sistema. Vacía mientras el SKU está sin contar."),
-    ("Dif. %", "porcentaje", "Diferencia ÷ Sistema × 100. Vacía si Sistema es 0."),
-    ("Valor", "pesos (COP)", "Diferencia × costo unitario. Negativo = faltante, positivo = sobrante."),
-    ("Clasificación", "texto", "OK, FALTANTE, SOBRANTE o SIN_CONTAR (reglas abajo)."),
-    ("Ubicación", "texto", "Estante donde se contó. Recontar la misma ubicación reemplaza la lectura anterior."),
-    ("Operador", "texto (≤ 60)", "Quién contó; lo escribe el operario en el celular."),
-    ("Fecha de captura", "fecha UTC", "Hora del celular corregida con la hora del servidor al sincronizar."),
-)
-CLASIFICACIONES = {
-    "OK": "La diferencia absoluta no supera Sistema × tolerancia % de la categoría (el límite cuenta como OK).",
-    "FALTANTE": "Contada es menor que Sistema y la diferencia supera la tolerancia.",
-    "SOBRANTE": "Contada es mayor que Sistema fuera de tolerancia, o Sistema es 0 y se contó algo.",
-    "SIN_CONTAR": "Nadie lo contó y el conteo sigue abierto; cuando se cierra el conteo pasa a FALTANTE con contada 0.",
-}
-INDICADORES = ("Lecturas procesadas", "Por operador", "Por dispositivo", "Filas con error", "Fechas capturadas")
-
-
-def _cargar(id_conteo: str) -> tuple[PerfilDatos, list[tuple[str, float, float, int]]]:
-    """Corre en un hilo de trabajo."""
-    return db.fetch_perfil(id_conteo), db.fetch_tolerancias()
-
-
-def _tolerancia(minimo: float, maximo: float) -> str:
-    if minimo == maximo:
-        return f"{fmt_num(minimo)} %"
-    return f"{fmt_num(minimo)}–{fmt_num(maximo)} %"
-
-
-def _tabla(encabezados: tuple[str, ...], filas: int = 0) -> QTableWidget:
-    tabla = QTableWidget(filas, len(encabezados))
-    tabla.setHorizontalHeaderLabels(list(encabezados))
-    tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-    tabla.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-    tabla.verticalHeader().hide()
-    cabecera = tabla.horizontalHeader()
-    for i in range(len(encabezados) - 1):
-        cabecera.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-    cabecera.setSectionResizeMode(len(encabezados) - 1, QHeaderView.ResizeMode.Stretch)  # la última se estira
-    tabla.setWordWrap(True)
-    tabla.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    return tabla
-
-
-def _ajustar(tabla: QTableWidget) -> None:
-    """Alto exacto de las filas: las tablas no tienen barra vertical, la vista entera se desplaza."""
-    tabla.resizeRowsToContents()
-    alto = tabla.horizontalHeader().height() + sum(tabla.rowHeight(r) for r in range(tabla.rowCount())) + 4
-    tabla.setFixedHeight(alto)
 
 
 class PerfilView(QWidget):
+    cerrar_sesion = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._runner = QueryRunner(self)
-        self._id: str | None = None
-        self._cargado = False
-        self.banner = StateBanner()
-        self.banner.retry.connect(self.refresh)
+        self._sesion: auth.Sesion | None = None
 
-        self.tbl_campos = _tabla(("Campo", "Tipo", "Qué significa"), len(CAMPOS))
-        for r, fila in enumerate(CAMPOS):
-            for c, texto in enumerate(fila):
-                self.tbl_campos.setItem(r, c, QTableWidgetItem(texto))
-        self.tbl_clasificaciones = _tabla(("Clasificación", "Regla"), len(CLASIFICACIONES))
-        for r, (nombre, regla) in enumerate(CLASIFICACIONES.items()):
-            item = QTableWidgetItem(nombre)
-            item.setBackground(QBrush(QColor(COLORES[nombre])))
-            item.setForeground(QBrush(QColor("#1f2933")))
-            self.tbl_clasificaciones.setItem(r, 0, item)
-            self.tbl_clasificaciones.setItem(r, 1, QTableWidgetItem(regla))
-        self.tbl_tolerancias = _tabla(("Categoría", "Tolerancia", "SKU"))
-        self.tbl_estadisticas = _tabla(("Indicador", "Valor"), len(INDICADORES))
-        for r, nombre in enumerate(INDICADORES):
-            self.tbl_estadisticas.setItem(r, 0, QTableWidgetItem(nombre))
-            self.tbl_estadisticas.setItem(r, 1, QTableWidgetItem("—"))
+        self.lbl_inicial = QLabel("")
+        self.lbl_inicial.setFixedSize(64, 64)
+        self.lbl_inicial.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_inicial.setStyleSheet("background: #10261F; color: #34D399; border-radius: 32px; font-size: 26px; font-weight: 600;")
+        self.lbl_nombre = QLabel("")
+        self.lbl_nombre.setObjectName("tituloPagina")
+        self.lbl_usuario = QLabel("")
+        self.lbl_usuario.setObjectName("subtitulo")
+        self.lbl_rol = QLabel("")
+        self.lbl_rol.setObjectName("insignia")
+        datos = QVBoxLayout()
+        datos.setSpacing(2)
+        datos.addWidget(self.lbl_nombre)
+        fila_usuario = QHBoxLayout()
+        fila_usuario.addWidget(self.lbl_usuario)
+        fila_usuario.addWidget(self.lbl_rol)
+        fila_usuario.addStretch(1)
+        datos.addLayout(fila_usuario)
+        self.btn_salir = QPushButton("Cerrar sesión")
+        self.btn_salir.setObjectName("peligro")
+        cabecera = QHBoxLayout()
+        cabecera.setSpacing(16)
+        cabecera.addWidget(self.lbl_inicial)
+        cabecera.addLayout(datos, 1)
+        cabecera.addWidget(self.btn_salir)
 
-        self._secciones: list[QGroupBox] = []
-        contenido = QWidget()
-        lay = QVBoxLayout(contenido)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.addWidget(self.banner)
-        for titulo, tabla in (
-            ("Campos de la conciliación", self.tbl_campos),
-            ("Clasificaciones", self.tbl_clasificaciones),
-            ("Tolerancia por categoría", self.tbl_tolerancias),
-            ("Calidad y volumen de la información", self.tbl_estadisticas),
-        ):
-            caja = QGroupBox(titulo)
-            QVBoxLayout(caja).addWidget(tabla)
-            lay.addWidget(caja)
-            self._secciones.append(caja)
-        lay.addStretch(1)
-        desplazable = QScrollArea()
-        desplazable.setWidgetResizable(True)
-        desplazable.setFrameShape(QFrame.Shape.NoFrame)
-        desplazable.setWidget(contenido)
+        self.lbl_permisos = QLabel("")
+        self.lbl_permisos.setTextFormat(Qt.TextFormat.RichText)
+        tarjeta_permisos = self._tarjeta("Lo que puede hacer tu rol", self.lbl_permisos)
+
+        self.txt_actual = self._clave("Contraseña actual")
+        self.txt_nueva = self._clave("Contraseña nueva (mínimo 8, con letras y números)")
+        self.txt_confirmacion = self._clave("Repite la contraseña nueva")
+        self.btn_cambiar = QPushButton("Cambiar contraseña")
+        self.lbl_resultado = QLabel("")
+        self.lbl_resultado.setWordWrap(True)
+        self.lbl_resultado.hide()
+        fila_boton = QHBoxLayout()
+        fila_boton.addWidget(self.btn_cambiar)
+        fila_boton.addStretch(1)
+        tarjeta_clave = self._tarjeta("Contraseña", self.txt_actual, self.txt_nueva, self.txt_confirmacion, fila_boton, self.lbl_resultado)
+        tarjeta_clave.setMaximumWidth(460)
+
         raiz = QVBoxLayout(self)
-        raiz.setContentsMargins(0, 0, 0, 0)
-        raiz.addWidget(desplazable)
-        self._reajustar()
+        raiz.setContentsMargins(4, 4, 4, 4)
+        raiz.setSpacing(16)
+        raiz.addLayout(cabecera)
+        columnas = QHBoxLayout()
+        columnas.setSpacing(16)
+        columnas.addWidget(tarjeta_clave, 1, Qt.AlignmentFlag.AlignTop)
+        columnas.addWidget(tarjeta_permisos, 1, Qt.AlignmentFlag.AlignTop)
+        raiz.addLayout(columnas)
+        raiz.addStretch(1)
 
-    # ------------------------------------------------------------------ API
-    def titulos_de_seccion(self) -> list[str]:
-        return [caja.title() for caja in self._secciones]
-
-    def campos(self) -> list[tuple[str, str, str]]:
-        return list(CAMPOS)
-
-    def clasificaciones(self) -> dict[str, str]:
-        return self._pares(self.tbl_clasificaciones)
-
-    def tolerancias(self) -> dict[str, str]:
-        return self._pares(self.tbl_tolerancias)
-
-    def estadisticas(self) -> dict[str, str]:
-        return self._pares(self.tbl_estadisticas)
-
-    def set_conteo(self, id_conteo: str | None) -> None:
-        self._id, self._cargado = id_conteo, False
-        self._valores_estadisticas({n: "—" for n in INDICADORES})
-        self.refresh()
-
-    def refresh(self) -> None:
-        if self._id is None:
-            self.banner.show_empty("Sin datos")
-            return
-        if not self._cargado:
-            self.banner.show_loading()
-        self._runner.run(_cargar, self._mostrar, self.banner.show_error, self._id, key="perfil")
-
-    # ------------------------------------------------------------- internos
-    def _reajustar(self) -> None:
-        for tabla in (self.tbl_campos, self.tbl_clasificaciones, self.tbl_tolerancias, self.tbl_estadisticas):
-            _ajustar(tabla)
-
-    def showEvent(self, evento) -> None:
-        super().showEvent(evento)
-        QTimer.singleShot(0, self._reajustar)  # el alto de las filas depende del estilo y del ancho ya definitivos
-
-    def resizeEvent(self, evento) -> None:
-        super().resizeEvent(evento)
-        QTimer.singleShot(0, self._reajustar)  # con otro ancho cambian las líneas de los textos largos
+        self.btn_salir.clicked.connect(self.cerrar_sesion)
+        self.btn_cambiar.clicked.connect(self._cambiar)
+        self.txt_confirmacion.returnPressed.connect(self._cambiar)
 
     @staticmethod
-    def _pares(tabla: QTableWidget) -> dict[str, str]:
-        return {tabla.item(r, 0).text(): tabla.item(r, 1).text() for r in range(tabla.rowCount())}
+    def _clave(pista: str) -> QLineEdit:
+        campo = QLineEdit()
+        campo.setPlaceholderText(pista)
+        campo.setEchoMode(QLineEdit.EchoMode.Password)
+        return campo
 
-    def _valores_estadisticas(self, valores: dict[str, str]) -> None:
-        for r, nombre in enumerate(INDICADORES):
-            self.tbl_estadisticas.item(r, 1).setText(valores[nombre])
-        _ajustar(self.tbl_estadisticas)
+    @staticmethod
+    def _tarjeta(titulo: str, *contenido) -> QFrame:
+        tarjeta = QFrame()
+        tarjeta.setObjectName("card")
+        lay = QVBoxLayout(tarjeta)
+        lay.setContentsMargins(18, 16, 18, 16)
+        lay.setSpacing(10)
+        rotulo = QLabel(titulo)
+        rotulo.setObjectName("seccion")
+        lay.addWidget(rotulo)
+        for pieza in contenido:
+            lay.addLayout(pieza) if isinstance(pieza, QHBoxLayout) else lay.addWidget(pieza)
+        return tarjeta
 
-    def _mostrar(self, datos) -> None:
-        perfil, tolerancias = datos
-        self._cargado = True
-        self.tbl_tolerancias.setRowCount(len(tolerancias))
-        for r, (categoria, minimo, maximo, skus) in enumerate(tolerancias):
-            for c, texto in enumerate((categoria, _tolerancia(minimo, maximo), str(skus))):
-                self.tbl_tolerancias.setItem(r, c, QTableWidgetItem(texto))
-        _ajustar(self.tbl_tolerancias)
-
-        if perfil.total_lecturas == 0:
-            self._valores_estadisticas({n: "—" for n in INDICADORES})
-            self.banner.show_empty("Sin datos")
+    # ------------------------------------------------- contrato de las vistas
+    def set_sesion(self, sesion: auth.Sesion | None) -> None:
+        self._sesion = sesion
+        for campo in (self.txt_actual, self.txt_nueva, self.txt_confirmacion):
+            campo.clear()
+        self.lbl_resultado.hide()
+        if sesion is None:
             return
-        self.banner.clear()
-        error = "—"
-        if perfil.filas_total:
-            error = (f"{perfil.filas_error} de {perfil.filas_total} "
-                     f"({fmt_pct(100 * perfil.filas_error / perfil.filas_total)})")
-        self._valores_estadisticas({
-            "Lecturas procesadas": f"{perfil.total_lecturas} ({perfil.vigentes} vigentes, "
-                                   f"{perfil.total_lecturas - perfil.vigentes} reemplazadas)",
-            "Por operador": _unir(perfil.por_operador),
-            "Por dispositivo": _unir(perfil.por_dispositivo),
-            "Filas con error": error,
-            "Fechas capturadas": f"{perfil.fecha_min:%Y-%m-%d %H:%M:%S} → {perfil.fecha_max:%Y-%m-%d %H:%M:%S} (UTC)",
-        })
+        self.lbl_inicial.setText(sesion.nombre[:1].upper())
+        self.lbl_nombre.setText(sesion.nombre)
+        self.lbl_usuario.setText(f"@{sesion.usuario}")
+        self.lbl_rol.setText(auth.NOMBRE_ROL[sesion.rol])
+        self.lbl_rol.setProperty("estado", sesion.rol)
+        self.lbl_rol.style().unpolish(self.lbl_rol)
+        self.lbl_rol.style().polish(self.lbl_rol)
+        self.lbl_permisos.setText("<br>".join(
+            (f"<span style='color:#34D399'>✓</span>&nbsp; {texto}" if sesion.es_admin or not solo_admin
+             else f"<span style='color:#6E6E6E'>—&nbsp; {texto} (solo administrador)</span>")
+            for texto, solo_admin in PERMISOS))
 
+    def set_conteo(self, id_conteo: str | None) -> None:
+        """El perfil no depende del conteo."""
 
-def _unir(pares: list[tuple[str, int]]) -> str:
-    return " · ".join(f"{nombre or '(sin operador)'} {n}" for nombre, n in pares) or "—"
+    def refresh(self) -> None:
+        """Nada que consultar: los datos de la sesión ya están aquí."""
+
+    # ------------------------------------------------------------- internos
+    def _cambiar(self) -> None:
+        if self._sesion is None:
+            return
+        self.btn_cambiar.setEnabled(False)
+        self._runner.run(auth.cambiar_clave, lambda _: self._resultado("Contraseña cambiada.", True),
+                         lambda mensaje: self._resultado(mensaje, False),
+                         self._sesion.usuario, self.txt_actual.text(), self.txt_nueva.text(), self.txt_confirmacion.text())
+
+    def _resultado(self, mensaje: str, ok: bool) -> None:
+        self.btn_cambiar.setEnabled(True)
+        self.lbl_resultado.setObjectName("avisoFormulario" if ok else "errorFormulario")
+        self.lbl_resultado.style().unpolish(self.lbl_resultado)
+        self.lbl_resultado.style().polish(self.lbl_resultado)
+        self.lbl_resultado.setText(mensaje)
+        self.lbl_resultado.show()
+        if ok:
+            for campo in (self.txt_actual, self.txt_nueva, self.txt_confirmacion):
+                campo.clear()

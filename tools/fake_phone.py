@@ -24,10 +24,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 try:
-    from btsync.protocol import encode_text, frame, parse
+    from btsync.protocol import PROTOCOL_VERSION, encode_text, frame, parse
 except ImportError:  # ejecutado fuera del contenedor
     sys.path.insert(0, str(ROOT / "server"))
-    from btsync.protocol import encode_text, frame, parse
+    from btsync.protocol import PROTOCOL_VERSION, encode_text, frame, parse
 
 WINDOW = 50           # REC sin confirmar que se permiten en vuelo
 MAX_SESSIONS = 5      # reconexiones antes de rendirse
@@ -40,12 +40,11 @@ def generar_lecturas(seed: int, operador: str, dirty: bool, reloj_ms: int) -> li
     conteo = truth["conteo"]
     lecturas: list[dict] = []
 
-    def add(ubicacion: str, sku: str, cantidad: int, nota: str = "") -> None:
+    def add(sku: str, cantidad, nota: str = "") -> None:
         lecturas.append({
             "seq": len(lecturas) + 1,
             "ts_original_ms": reloj_ms + len(lecturas),  # reloj del teléfono al capturar
             "id_conteo": conteo,
-            "ubicacion": ubicacion,
             "sku": sku,
             "cantidad": str(cantidad),
             "operador": operador,
@@ -56,17 +55,17 @@ def generar_lecturas(seed: int, operador: str, dirty: bool, reloj_ms: int) -> li
         cantidad = fila["cantidad"]
         if rng.random() < ERROR_RATE:
             cantidad = max(0, cantidad + rng.choice([-2, -1, 1, 2]))
-        add(fila["ubicacion"], fila["sku"], cantidad)
+        add(fila["sku"], cantidad)
 
     if dirty:
         base = truth["fisico"]
         # Tres lecturas que el batch debe marcar como ERROR...
-        add(base[0]["ubicacion"], "SKU-NO-EXISTE", 5, "producto sin alta")
-        add("Z-99", base[0]["sku"], 3, "ubicación inexistente")
-        add("Z-99", base[0]["sku"], 4, "recuento en ubicación inexistente")
+        add("SKU-NO-EXISTE", 5, "producto sin alta")
+        add("SKU-SIN-ALTA-2", 3, "otro producto sin alta")
+        add(base[0]["sku"], "1,5", "cantidad con coma")
         # ...y tres recuentos válidos, que reemplazan a la lectura anterior.
         for fila in rng.sample(base, 3):
-            add(fila["ubicacion"], fila["sku"], fila["cantidad"], "recuento")
+            add(fila["sku"], fila["cantidad"], "recuento")
     return lecturas
 
 
@@ -89,12 +88,16 @@ def una_sesion(args, estado: dict, reloj) -> str:
     total = len(lecturas)
     with socket.create_connection((args.host, args.port), timeout=15) as sock:
         rfile = sock.makefile("rb")
-        sock.sendall(frame(["HELLO", "1", encode_text(args.uuid), encode_text(args.name)]))
+        sock.sendall(frame(["HELLO", PROTOCOL_VERSION, encode_text(args.uuid), encode_text(args.name)]))
+        sock.sendall(frame(["ACCT", encode_text(args.cuenta), encode_text(args.cuenta)]))
         msg = leer(rfile)
         if msg.kind == "NAK":
             if msg.fields[1] == "OCUPADO":
                 return "OCUPADO"
             raise ConnectionError(f"el servidor rechazó el saludo: {msg.fields}")
+        if msg.fields[1] != "ACTIVO":   # ACCTST: sin cuenta activa el PC no acepta lecturas
+            raise ConnectionError(f"la cuenta {args.cuenta} está {msg.fields[1]}: apruébala en «Solicitudes» del PC")
+        msg = leer(rfile)
         ultimo = int(msg.fields[0])
         # D15: un único desfase por sincronización, calculado contra el reloj del teléfono AHORA.
         offset = int(msg.fields[1]) - reloj()
@@ -111,7 +114,7 @@ def una_sesion(args, estado: dict, reloj) -> str:
                 l = lecturas[siguiente - 1]
                 sock.sendall(frame([
                     "REC", str(l["seq"]), str(l["ts_original_ms"] + offset),
-                    *(encode_text(l[k]) for k in ("id_conteo", "ubicacion", "sku", "cantidad", "operador", "nota")),
+                    *(encode_text(l[k]) for k in ("id_conteo", "sku", "cantidad", "operador", "nota")),
                 ]))
                 siguiente += 1
                 if args.delay_ms:
@@ -142,6 +145,8 @@ def main() -> int:
     parser.add_argument("--dirty", action="store_true", help="agrega 3 lecturas con error y 3 recuentos")
     parser.add_argument("--skew-ms", type=int, default=0, help="adelanto (+) o atraso (-) del reloj del teléfono")
     parser.add_argument("--operator", default="Ana")
+    parser.add_argument("--cuenta", default="operador.demo",
+                        help="usuario del operador (ACCT); debe estar aprobado en «Solicitudes» del PC")
     parser.add_argument("--uuid", default="fake-phone-0001")
     parser.add_argument("--name", default="Teléfono simulado")
     parser.add_argument("--state-file", type=Path, default=None, help="outbox persistente (JSON)")

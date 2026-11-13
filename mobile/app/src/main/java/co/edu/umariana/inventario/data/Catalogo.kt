@@ -11,42 +11,33 @@ import androidx.room.Transaction
 @Entity(tableName = "conteos")
 data class ConteoEntity(@PrimaryKey val id: String, val nombre: String)
 
-@Entity(tableName = "ubicaciones")
-data class UbicacionEntity(@PrimaryKey val cod: String, val zona: String, val descripcion: String)
-
 @Entity(tableName = "productos")
 data class ProductoEntity(@PrimaryKey val sku: String, val nombre: String, val categoria: String, val unidad: String)
 
 /** Lo que el PC envía para poder contar. Nunca trae el stock del sistema (conteo ciego, D12). */
 data class Catalog(
     val conteos: List<ConteoEntity> = emptyList(),
-    val ubicaciones: List<UbicacionEntity> = emptyList(),
     val productos: List<ProductoEntity> = emptyList(),
 )
 
 @Dao
 abstract class CatalogDao {
     @Query("DELETE FROM conteos") protected abstract fun borrarConteos()
-    @Query("DELETE FROM ubicaciones") protected abstract fun borrarUbicaciones()
     @Query("DELETE FROM productos") protected abstract fun borrarProductos()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) protected abstract fun insertarConteos(filas: List<ConteoEntity>)
-    @Insert(onConflict = OnConflictStrategy.REPLACE) protected abstract fun insertarUbicaciones(filas: List<UbicacionEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) protected abstract fun insertarProductos(filas: List<ProductoEntity>)
 
     /** Todo o nada: el catálogo local nunca queda a medias. */
     @Transaction
     open fun reemplazarTodo(catalogo: Catalog) {
         borrarConteos()
-        borrarUbicaciones()
         borrarProductos()
         insertarConteos(catalogo.conteos)
-        insertarUbicaciones(catalogo.ubicaciones)
         insertarProductos(catalogo.productos)
     }
 
     @Query("SELECT * FROM conteos ORDER BY id") abstract fun conteos(): List<ConteoEntity>
-    @Query("SELECT * FROM ubicaciones ORDER BY cod") abstract fun ubicaciones(): List<UbicacionEntity>
     @Query("SELECT * FROM productos ORDER BY sku") abstract fun productos(): List<ProductoEntity>
     @Query("SELECT * FROM productos WHERE sku = :sku") abstract fun producto(sku: String): ProductoEntity?
 }
@@ -55,7 +46,6 @@ abstract class CatalogDao {
 class CatalogRepository(private val dao: CatalogDao) {
     fun reemplazarTodo(catalogo: Catalog) = dao.reemplazarTodo(catalogo)
     fun conteos(): List<ConteoEntity> = dao.conteos()
-    fun ubicaciones(): List<UbicacionEntity> = dao.ubicaciones()
     fun productos(): List<ProductoEntity> = dao.productos()
     fun producto(sku: String): ProductoEntity? = dao.producto(sku)
 }

@@ -5,11 +5,11 @@ title 11 · Actividad: conteo en el móvil
 start
 :Abre la APK;
 |APK|
-if (¿Hay operador guardado?) then (no)
+if (¿Hay sesión abierta?) then (no)
   |Operario|
-  :Escribe su nombre (máx. 60 caracteres);
+  :Inicia sesión, o crea su cuenta\n(rol Clasificador por defecto);
   |APK|
-  :Guarda el operador;
+  :Valida la contraseña y abre la sesión\n(el operador es quien entró);
 endif
 if (¿Hay catálogo?) then (no)
   :Avisa: sincronizar una vez con el PC;
@@ -18,13 +18,13 @@ if (¿Hay catálogo?) then (no)
   |APK|
 endif
 |Operario|
-:Elige conteo y ubicación;
+:Elige el conteo;
 repeat
   |Operario|
-  if (¿Código de barras a mano?) then (sí)
+  if (¿Digita el código a mano?) then (sí)
     :Escribe el SKU;
   else (no)
-    :Escanea con la cámara (ZXing);
+    :Escanea el código de barras\no el QR con la cámara (ZXing);
   endif
   |APK|
   :Busca el producto en el catálogo;

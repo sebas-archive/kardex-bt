@@ -1,13 +1,13 @@
 {
-  "version": 1,
+  "version": 3,
   "descripcion": "Vectores compartidos Python/Kotlin. frame_fields = kind + campos ya codificados (lo que recibe frame()); fields = campos decodificados sin el kind (lo que devuelve parse()). line = linea completa sin el salto de linea final.",
   "vectors": [
     {
       "name": "hello",
-      "line": "HELLO|1|dev-0001|Bodega Norte*78D353E4",
-      "frame_fields": ["HELLO", "1", "dev-0001", "Bodega Norte"],
+      "line": "HELLO|3|dev-0001|Bodega Norte*9545800D",
+      "frame_fields": ["HELLO", "3", "dev-0001", "Bodega Norte"],
       "kind": "HELLO",
-      "fields": ["1", "dev-0001", "Bodega Norte"]
+      "fields": ["3", "dev-0001", "Bodega Norte"]
     },
     {
       "name": "ready",
@@ -18,17 +18,17 @@
     },
     {
       "name": "rec_simple",
-      "line": "REC|1|1731170400000|CONT-2026-11|A-01|7701234000011|12.5|Ana|ok*5DCB72C4",
-      "frame_fields": ["REC", "1", "1731170400000", "CONT-2026-11", "A-01", "7701234000011", "12.5", "Ana", "ok"],
+      "line": "REC|1|1731170400000|CONT-2026-11|7701234000011|12.5|Ana|ok*3B3B9456",
+      "frame_fields": ["REC", "1", "1731170400000", "CONT-2026-11", "7701234000011", "12.5", "Ana", "ok"],
       "kind": "REC",
-      "fields": ["1", "1731170400000", "CONT-2026-11", "A-01", "7701234000011", "12.5", "Ana", "ok"]
+      "fields": ["1", "1731170400000", "CONT-2026-11", "7701234000011", "12.5", "Ana", "ok"]
     },
     {
       "name": "rec_special_text",
-      "line": "REC|2|1731170401000|CONT-2026-11|A-01|7701234000012|3|Ñandú%7C%25|a%7Cb%0Ac%25😀*CAE52190",
-      "frame_fields": ["REC", "2", "1731170401000", "CONT-2026-11", "A-01", "7701234000012", "3", "Ñandú%7C%25", "a%7Cb%0Ac%25😀"],
+      "line": "REC|2|1731170401000|CONT-2026-11|7701234000012|3|Ñandú%7C%25|a%7Cb%0Ac%25😀*3D0238C5",
+      "frame_fields": ["REC", "2", "1731170401000", "CONT-2026-11", "7701234000012", "3", "Ñandú%7C%25", "a%7Cb%0Ac%25😀"],
       "kind": "REC",
-      "fields": ["2", "1731170401000", "CONT-2026-11", "A-01", "7701234000012", "3", "Ñandú|%", "a|b\nc%😀"]
+      "fields": ["2", "1731170401000", "CONT-2026-11", "7701234000012", "3", "Ñandú|%", "a|b\nc%😀"]
     },
     {
       "name": "ack",
@@ -50,6 +50,34 @@
       "frame_fields": ["BYE", "3", "0"],
       "kind": "BYE",
       "fields": ["3", "0"]
+    },
+    {
+      "name": "acct",
+      "line": "ACCT|luis.ortiz|Luis Ortiz*01ECE5DD",
+      "frame_fields": ["ACCT", "luis.ortiz", "Luis Ortiz"],
+      "kind": "ACCT",
+      "fields": ["luis.ortiz", "Luis Ortiz"]
+    },
+    {
+      "name": "acctst_suspendido",
+      "line": "ACCTST|luis.ortiz|SUSPENDIDO|OPERADOR|Revisar %7C inventario al 100%25%0Ahabla con el jefe*D4227640",
+      "frame_fields": ["ACCTST", "luis.ortiz", "SUSPENDIDO", "OPERADOR", "Revisar %7C inventario al 100%25%0Ahabla con el jefe"],
+      "kind": "ACCTST",
+      "fields": ["luis.ortiz", "SUSPENDIDO", "OPERADOR", "Revisar | inventario al 100%\nhabla con el jefe"]
+    },
+    {
+      "name": "acctst_pendiente",
+      "line": "ACCTST|luis.ortiz|PENDIENTE||*56A93874",
+      "frame_fields": ["ACCTST", "luis.ortiz", "PENDIENTE", "", ""],
+      "kind": "ACCTST",
+      "fields": ["luis.ortiz", "PENDIENTE", "", ""]
+    },
+    {
+      "name": "nak_cuenta",
+      "line": "NAK|1|CUENTA_NO_ACTIVA*563CF707",
+      "frame_fields": ["NAK", "1", "CUENTA_NO_ACTIVA"],
+      "kind": "NAK",
+      "fields": ["1", "CUENTA_NO_ACTIVA"]
     }
   ]
 }

@@ -30,13 +30,17 @@ bluez -> bz : NewConnection(fd)
 bz -> ctrl : on_connection(conn)
 note over ctrl : estado CONECTADO
 ctrl -> ses : Session(conn, store).run()
-apk -> ses : HELLO|1|uuid|nombre
+apk -> ses : HELLO|3|uuid|nombre
+apk -> ses : ACCT|usuario|nombre
 note over ctrl : estado RECIBIENDO
+ses -> st : sincronizar_cuenta(usuario, nombre)
+ses -> apk : ACCTST|usuario|estado|rol|motivo
+note right of apk : sin ACTIVO: ningún REC\n(NAK CUENTA_NO_ACTIVA)
 ses -> st : register_device · open_sync · last_seq(uuid)
 ses -> apk : READY|ultimo_seq|epoch_ms
-ses -> apk : CATCONTEO · CATUBIC · CATPROD … CAT_END
+ses -> apk : CATCONTEO · CATPROD … CAT_END
 loop hasta 50 REC sin ACK
-  apk -> ses : REC|seq|ts|conteo|ubicación|sku|cantidad|operador|nota
+  apk -> ses : REC|seq|ts|conteo|sku|cantidad|operador|nota
   ses -> st : insert_staging(uuid, seq, raw)
   opt cada 25 insertados
     ses -> st : commit()

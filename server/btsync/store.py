@@ -38,8 +38,21 @@ class Catalog:
     """Lo que el móvil necesita para contar. Nunca incluye el stock del sistema (conteo ciego)."""
 
     conteos: list[tuple[str, str]] = field(default_factory=list)
-    ubicaciones: list[tuple[str, str, str]] = field(default_factory=list)
     productos: list[tuple[str, str, str, str]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EstadoCuenta:
+    """Lo que el PC responde en ACCTST: estado de la cuenta del operador, su rol y el motivo (si la rechazaron o suspendieron)."""
+
+    estado: str
+    rol: str | None
+    motivo: str | None
+
+
+CONFLICTO_ESCRITORIO = "Ese usuario ya existe en el PC"
+OTRO_TELEFONO = "Esta cuenta está vinculada a otro teléfono. Pide al administrador que la desvincule."
+SIN_PERMISO = "Tu rol no tiene permiso para sincronizar. Habla con el administrador."
 
 
 class Store:
@@ -66,6 +79,49 @@ class Store:
         )
         conn.commit()
 
+    def sincronizar_cuenta(self, usuario: str, nombre: str, uuid: str) -> EstadoCuenta:
+        """La cuenta del operador que sincroniza desde el teléfono ``uuid``.
+
+        - Si no existe se crea PENDIENTE (origen MOVIL, sin clave del PC) y queda **vinculada a ese teléfono**.
+        - Un usuario que ya existe como cuenta del PC no se toca: RECHAZADO con el motivo.
+        - Desde otro teléfono la cuenta no entrega lecturas (SUSPENDIDO con el motivo) hasta que el administrador
+          la desvincule: sin esto, cualquiera podría registrar en su teléfono el usuario de un operador aprobado.
+        - Si la matriz quita al rol Operador el permiso de Bluetooth, tampoco (SUSPENDIDO con el motivo).
+        """
+        conn = self._connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("INSERT INTO usuarios (usuario, nombre, clave_hash, estado, origen, uuid_dispositivo) "
+                        "VALUES (:u, :n, '-', 'PENDIENTE', 'MOVIL', :d)", u=usuario, n=nombre, d=uuid)
+            conn.commit()
+        except oracledb.IntegrityError as exc:
+            conn.rollback()
+            if "ORA-00001" not in str(exc):   # ya existía (o la creó otra conexión a la vez): se lee abajo
+                raise
+        cur.execute("SELECT estado, rol, motivo, origen, uuid_dispositivo FROM usuarios WHERE usuario = :u", u=usuario)
+        estado, rol, motivo, origen, vinculado = cur.fetchone()
+        if origen != "MOVIL":
+            return EstadoCuenta("RECHAZADO", None, CONFLICTO_ESCRITORIO)
+        if vinculado is None:   # el administrador la desvinculó: la toma este teléfono
+            cur.execute("UPDATE usuarios SET uuid_dispositivo = :d WHERE usuario = :u AND uuid_dispositivo IS NULL",
+                        d=uuid, u=usuario)
+            conn.commit()
+        elif vinculado != uuid:
+            return EstadoCuenta("SUSPENDIDO", rol, OTRO_TELEFONO)
+        if estado == "ACTIVO" and not self._operador_puede_sincronizar(cur):
+            return EstadoCuenta("SUSPENDIDO", rol, SIN_PERMISO)
+        return EstadoCuenta(estado, rol, motivo)
+
+    @staticmethod
+    def _operador_puede_sincronizar(cur) -> bool:
+        """Nivel de GESTION en el módulo Bluetooth para el rol Operador (matriz de permisos). Sin fila: el inicial (sí)."""
+        try:
+            cur.execute("SELECT nivel FROM permisos WHERE rol = 'OPERADOR' AND modulo = 'bluetooth'")
+        except oracledb.DatabaseError:   # base anterior a la tabla de permisos
+            return True
+        fila = cur.fetchone()
+        return fila is None or fila[0] == "GESTION"
+
     def last_seq(self, uuid: str) -> int:
         cur = self._connection().cursor()
         cur.execute(
@@ -89,6 +145,15 @@ class Store:
             raise
         return True
 
+    def close(self) -> None:
+        """Cierra la conexión (la XE tiene pocos procesos: no hay que esperar al recolector de basura)."""
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except oracledb.Error:
+                pass
+            self._conn = None
+
     def commit(self) -> None:
         if self._conn is not None:
             self._conn.commit()
@@ -101,13 +166,9 @@ class Store:
         cur = self._connection().cursor()
         cur.execute("SELECT id_conteo, nombre FROM conteos WHERE estado = 'ABIERTO' ORDER BY id_conteo")
         conteos = [(r[0], r[1]) for r in cur]
-        cur.execute(
-            "SELECT cod_ubicacion, zona, NVL(descripcion, '') FROM ubicaciones ORDER BY cod_ubicacion"
-        )
-        ubicaciones = [(r[0], r[1], r[2] or "") for r in cur]
         cur.execute("SELECT sku, nombre, categoria, unidad FROM productos ORDER BY sku")
         productos = [(r[0], r[1], r[2], r[3]) for r in cur]
-        return Catalog(conteos, ubicaciones, productos)
+        return Catalog(conteos, productos)
 
     def run_batch(self, origen: str) -> tuple[int, int]:
         """Ejecuta PKG_BATCH.PROCESAR_PENDIENTES y devuelve ``(procesados, errores)`` de esa corrida.

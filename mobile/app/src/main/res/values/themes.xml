@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- La interfaz la dibuja Compose; este tema solo da el fondo de la ventana (evita un destello blanco al abrir) y la barra de estado. -->
+    <style name="Theme.Inventario" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/fondo</item>
+        <item name="android:statusBarColor">@color/barra_estado</item>
+    </style>
+</resources>

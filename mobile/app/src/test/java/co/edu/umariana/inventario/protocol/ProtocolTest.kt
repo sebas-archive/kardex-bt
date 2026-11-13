@@ -27,7 +27,7 @@ class ProtocolTest {
     @Test
     fun test_frame_and_parse_match_all_shared_vectors() {
         val vectors = vectors()
-        assertEquals(7, vectors.size)
+        assertEquals(11, vectors.size)
         for (v in vectors) {
             val name = v.getString("name")
             val line = v.getString("line").toByteArray(Charsets.UTF_8)
@@ -40,6 +40,19 @@ class ProtocolTest {
     }
 
     @Test
+    fun acctYAcctstCoincidenConLosVectores() {
+        assertEquals("3", Protocol.VERSION)
+        val acct = vector("acct")
+        assertArrayEquals((acct.getString("line") + "\n").toByteArray(Charsets.UTF_8),
+            Protocol.frame(listOf("ACCT", Protocol.encodeText("luis.ortiz"), Protocol.encodeText("Luis Ortiz"))))
+        val st = Protocol.parse(vector("acctst_suspendido").getString("line").toByteArray(Charsets.UTF_8))
+        assertEquals(EstadoCuentaPc("luis.ortiz", "SUSPENDIDO", "OPERADOR", "Revisar | inventario al 100%\nhabla con el jefe"),
+            EstadoCuentaPc.fromMessage(st))
+        val pendiente = EstadoCuentaPc.fromMessage(Protocol.parse(vector("acctst_pendiente").getString("line").toByteArray(Charsets.UTF_8)))
+        assertEquals(EstadoCuentaPc("luis.ortiz", "PENDIENTE", null, null), pendiente)  // vacíos → null
+    }
+
+    @Test
     fun test_text_with_separators_survives_the_wire() {
         val original = "a|b\nc%ñ😀\r"
         val encoded = Protocol.encodeText(original)
@@ -49,7 +62,7 @@ class ProtocolTest {
 
         val line = vector("rec_special_text").getString("line")
         val rec = Rec.fromMessage(Protocol.parse(line.toByteArray(Charsets.UTF_8)))
-        assertEquals(Rec(2, 1731170401000, "CONT-2026-11", "A-01", "7701234000012", "3", "Ñandú|%", "a|b\nc%😀"), rec)
+        assertEquals(Rec(2, 1731170401000, "CONT-2026-11", "7701234000012", "3", "Ñandú|%", "a|b\nc%😀"), rec)
         assertEquals(line.substringBeforeLast('*'), rec.toRaw())
         assertArrayEquals((line + "\n").toByteArray(Charsets.UTF_8), rec.toFrame())
     }

@@ -23,8 +23,8 @@ class OutboxTest {
     @After
     fun cerrar() = db.close()
 
-    private fun lectura(sku: String = "A1", ubicacion: String = "U1", cantidad: String = "1", ts: Long = 1000) =
-        LecturaEntity(tsOriginalMs = ts, idConteo = "T-01", ubicacion = ubicacion, sku = sku,
+    private fun lectura(sku: String = "A1", cantidad: String = "1", ts: Long = 1000, conteo: String = "T-01") =
+        LecturaEntity(tsOriginalMs = ts, idConteo = conteo, sku = sku,
             cantidad = cantidad, operador = "Ana", nota = "")
 
     @Test
@@ -45,12 +45,12 @@ class OutboxTest {
     }
 
     @Test
-    fun test_reemplazar_updates_existing_reading_for_same_location_and_sku() {
-        val seq = outbox.insertar(lectura(sku = "A1", ubicacion = "U1", cantidad = "40", ts = 1000))
-        outbox.insertar(lectura(sku = "A1", ubicacion = "U2", cantidad = "7", ts = 1100))  // otra ubicación
-        outbox.insertar(lectura(sku = "A2", ubicacion = "U1", cantidad = "9", ts = 1200))  // otro SKU
+    fun test_reemplazar_updates_existing_reading_for_same_sku() {
+        val seq = outbox.insertar(lectura(sku = "A1", cantidad = "40", ts = 1000))
+        outbox.insertar(lectura(sku = "A1", cantidad = "7", ts = 1100, conteo = "T-02"))  // otro conteo
+        outbox.insertar(lectura(sku = "A2", cantidad = "9", ts = 1200))  // otro SKU
 
-        assertTrue(outbox.reemplazar("T-01", "U1", "A1", "45", 2000))
+        assertTrue(outbox.reemplazar("T-01", "A1", "45", 2000))
 
         val todas = outbox.todas()
         assertEquals(3, todas.size)  // recontar no agrega fila
@@ -60,7 +60,7 @@ class OutboxTest {
         assertEquals(Estado.PENDIENTE, recontada.estado)
         assertEquals(listOf("7", "9"), todas.filter { it.seq != seq }.map { it.cantidad })
 
-        assertFalse(outbox.reemplazar("T-01", "U9", "A1", "1", 3000))  // no había lectura: quien llama inserta
+        assertFalse(outbox.reemplazar("T-01", "A9", "1", 3000))  // no había lectura: quien llama inserta
         assertEquals(3, outbox.todas().size)
     }
 
@@ -70,10 +70,10 @@ class OutboxTest {
         assertEquals("40", outbox.tomarParaEnviar(seq)!!.cantidad)  // ya salió hacia el PC
         assertEquals(Estado.ENVIADO, outbox.todas().single().estado)
 
-        assertFalse(outbox.reemplazar("T-01", "U1", "A1", "45", 2000))  // el PC puede tener el 40: no se pisa
+        assertFalse(outbox.reemplazar("T-01", "A1", "45", 2000))  // el PC puede tener el 40: no se pisa
         assertEquals("40", outbox.todas().single().cantidad)
         outbox.confirmarHasta(seq)
-        assertFalse(outbox.reemplazar("T-01", "U1", "A1", "45", 2000))
+        assertFalse(outbox.reemplazar("T-01", "A1", "45", 2000))
         assertEquals("40", outbox.todas().single().cantidad)
 
         // Tras un corte el PC dice qué tiene: lo enviado que no llegó vuelve a PENDIENTE.
@@ -81,6 +81,6 @@ class OutboxTest {
         outbox.tomarParaEnviar(otra)
         outbox.reconciliar(seq)
         assertEquals(listOf(Estado.CONFIRMADO, Estado.PENDIENTE), outbox.todas().map { it.estado })
-        assertTrue(outbox.reemplazar("T-01", "U1", "A2", "6", 3000))
+        assertTrue(outbox.reemplazar("T-01", "A2", "6", 3000))
     }
 }

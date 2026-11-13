@@ -29,12 +29,6 @@ CREATE TABLE productos (
     CONSTRAINT pk_productos PRIMARY KEY (sku)
 );
 
-CREATE TABLE ubicaciones (
-    cod_ubicacion VARCHAR2(20 CHAR)  NOT NULL,
-    zona          VARCHAR2(10 CHAR)  NOT NULL,
-    descripcion   VARCHAR2(100 CHAR),
-    CONSTRAINT pk_ubicaciones PRIMARY KEY (cod_ubicacion)
-);
 
 -- Foto del stock teorico al abrir el conteo.
 CREATE TABLE stock_sistema (
@@ -89,7 +83,6 @@ CREATE TABLE registros_procesados (
     id_registro      NUMBER             NOT NULL,
     id_transito      NUMBER,
     id_conteo        VARCHAR2(30 CHAR)  NOT NULL,
-    cod_ubicacion    VARCHAR2(20 CHAR)  NOT NULL,
     sku              VARCHAR2(30 CHAR)  NOT NULL,
     cantidad         NUMBER(12, 3)      NOT NULL,
     operador         VARCHAR2(60 CHAR),
@@ -102,12 +95,11 @@ CREATE TABLE registros_procesados (
     CONSTRAINT fk_registros_transito FOREIGN KEY (id_transito)
         REFERENCES captura_transito (id_transito) ON DELETE SET NULL,
     CONSTRAINT fk_registros_conteo FOREIGN KEY (id_conteo) REFERENCES conteos (id_conteo),
-    CONSTRAINT fk_registros_ubicacion FOREIGN KEY (cod_ubicacion) REFERENCES ubicaciones (cod_ubicacion),
     CONSTRAINT fk_registros_producto FOREIGN KEY (sku) REFERENCES productos (sku),
     CONSTRAINT ck_registros_vigente CHECK (vigente IN ('S', 'N'))
 );
 
-CREATE INDEX ix_registros_grupo ON registros_procesados (id_conteo, cod_ubicacion, sku);
+CREATE INDEX ix_registros_grupo ON registros_procesados (id_conteo, sku);
 
 CREATE OR REPLACE TRIGGER trg_registro_bi
 BEFORE INSERT ON registros_procesados
@@ -173,3 +165,28 @@ BEGIN
     :NEW.id := seq_log_batch.NEXTVAL;
 END;
 /
+
+-- ------------------------------------------------------- cuentas de la app de escritorio
+-- Todas las cuentas: las del PC (ADMIN, INVENTARIO) y las de los operadores del movil (OPERADOR, origen MOVIL).
+-- Estado: PENDIENTE hasta que un administrador la aprueba (ACTIVO) o la rechaza; SUSPENDIDO con motivo.
+-- La clave nunca se guarda en claro (PBKDF2); las cuentas del movil guardan '-' y no entran al PC.
+CREATE TABLE usuarios (
+    usuario          VARCHAR2(30 CHAR)  NOT NULL,
+    nombre           VARCHAR2(60 CHAR)  NOT NULL,
+    rol              VARCHAR2(12 CHAR),                       -- NULL = cuenta nueva esperando que un admin le asigne el rol
+    clave_hash       VARCHAR2(200 CHAR) NOT NULL,
+    clave_pendiente  VARCHAR2(200 CHAR),                      -- contrasena nueva pedida por quien la olvido (hash), por aprobar
+    estado           VARCHAR2(10 CHAR)  DEFAULT 'PENDIENTE' NOT NULL,
+    motivo           VARCHAR2(300 CHAR),                      -- por que se rechazo o suspendio (lo escribe el administrador)
+    resuelto_por     VARCHAR2(30 CHAR),                       -- administrador que aprobo, rechazo o suspendio
+    resuelto         TIMESTAMP,
+    origen           VARCHAR2(10 CHAR)  DEFAULT 'ESCRITORIO' NOT NULL,   -- donde se registro: ESCRITORIO o MOVIL
+    uuid_dispositivo VARCHAR2(50 CHAR),                       -- cuentas MOVIL: el telefono al que quedo vinculada
+    intentos         NUMBER             DEFAULT 0 NOT NULL,
+    bloqueado_hasta  TIMESTAMP,
+    creado           TIMESTAMP          DEFAULT SYSTIMESTAMP,
+    CONSTRAINT pk_usuarios PRIMARY KEY (usuario),
+    CONSTRAINT ck_usuarios_rol CHECK (rol IS NULL OR rol IN ('ADMIN', 'INVENTARIO', 'OPERADOR')),
+    CONSTRAINT ck_usuarios_estado CHECK (estado IN ('PENDIENTE', 'ACTIVO', 'RECHAZADO', 'SUSPENDIDO')),
+    CONSTRAINT ck_usuarios_origen CHECK (origen IN ('ESCRITORIO', 'MOVIL'))
+);

@@ -1,6 +1,6 @@
 @startuml
 !include estilo.iuml
-title 04 · Modelo de datos Oracle (entidad-relación)
+title 04 · Modelo de datos Oracle (entidad-relación; sin ubicaciones)
 hide circle
 skinparam linetype ortho
 
@@ -20,12 +20,41 @@ class productos <<table>> {
   unidad
   costo_unit : NUMBER(12,2)
   tolerancia_pct : NUMBER(5,2)
+  stock_minimo : NUMBER(12,3)
 }
-class ubicaciones <<table>> {
-  * cod_ubicacion : VARCHAR2(20) <<PK>>
+class usuarios <<table>> {
+  * usuario : VARCHAR2(30) <<PK>>
   --
-  zona
-  descripcion
+  nombre
+  rol : ADMIN | INVENTARIO | OPERADOR
+  clave_hash : PBKDF2 ('-' si viene del móvil)
+  estado : PENDIENTE | ACTIVO | RECHAZADO | SUSPENDIDO
+  motivo · resuelto_por · resuelto
+  origen : ESCRITORIO | MOVIL
+  intentos · bloqueado_hasta
+}
+class categorias <<table>> {
+  * nombre <<PK>>
+  --
+  activa : S | N
+}
+class almacenes <<table>> {
+  * codigo <<PK>>
+  --
+  nombre · ubicacion
+  activo : S | N
+}
+class existencias <<table>> {
+  * sku <<PK, FK>>
+  * codigo_almacen <<PK, FK>>
+  --
+  cantidad : NUMBER(12,3) ≥ 0
+}
+class permisos <<table>> {
+  * rol <<PK>>
+  * modulo <<PK>>
+  --
+  nivel : NINGUNO | CONSULTA | GESTION
 }
 class stock_sistema <<table>> {
   * id_conteo <<PK, FK>>
@@ -55,7 +84,6 @@ class registros_procesados <<table>> {
   --
   id_transito <<FK, SET NULL>>
   id_conteo <<FK>>
-  cod_ubicacion <<FK>>
   sku <<FK>>
   cantidad : NUMBER(12,3)
   operador
@@ -98,11 +126,13 @@ class log_batch <<table>> {
 conteos "1" -- "0..*" stock_sistema
 productos "1" -- "0..*" stock_sistema
 conteos "1" -- "0..*" registros_procesados
-ubicaciones "1" -- "0..*" registros_procesados
 productos "1" -- "0..*" registros_procesados
 captura_transito "1" -- "0..1" registros_procesados : id_transito
 conteos "1" -- "0..*" conciliacion
 productos "1" -- "0..*" conciliacion
 dispositivos "1" .. "0..*" captura_transito : uuid (sin FK)
 dispositivos "1" .. "0..*" sync_sesiones : uuid (sin FK)
+productos "1" -- "0..*" existencias
+almacenes "1" -- "0..*" existencias
+categorias "1" .. "0..*" productos : nombre = categoria
 @enduml

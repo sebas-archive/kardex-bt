@@ -3,8 +3,8 @@
 title 15 · Secuencia: fila en ERROR, alta del producto, reprocesar y cerrar el conteo
 autonumber
 actor Administrador as adm
-participant "MonitorView" as mon
-participant "ConteoView" as cv
+participant "SyncView\n(lecturas con error)" as mon
+participant "DashboardView" as cv
 participant "QueryWorker\n(hilo de trabajo)" as w
 database "Oracle (PKG_BATCH)" as ora
 

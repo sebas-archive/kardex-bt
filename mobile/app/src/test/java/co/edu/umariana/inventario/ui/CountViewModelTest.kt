@@ -8,7 +8,6 @@ import co.edu.umariana.inventario.data.ConteoEntity
 import co.edu.umariana.inventario.data.Estado
 import co.edu.umariana.inventario.data.ProductoEntity
 import co.edu.umariana.inventario.data.TestDb
-import co.edu.umariana.inventario.data.UbicacionEntity
 import co.edu.umariana.inventario.protocol.Protocol
 import co.edu.umariana.inventario.protocol.Rec
 import org.junit.After
@@ -37,7 +36,6 @@ class CountViewModelTest {
         CatalogRepository(db.catalogo()).reemplazarTodo(
             Catalog(
                 conteos = listOf(ConteoEntity("T-01", "Conteo de prueba")),
-                ubicaciones = listOf(UbicacionEntity("U1", "Z1", "Estante 1"), UbicacionEntity("U2", "Z1", "Estante 2")),
                 productos = listOf(ProductoEntity("A1", "Producto A1", "Abarrotes", "UND"),
                     ProductoEntity("A2", "Café | molido", "Abarrotes", "UND")),
             )
@@ -57,14 +55,14 @@ class CountViewModelTest {
     @Test
     fun test_save_requires_operator_name() {
         vm.elegirConteo("T-01")
-        assertEquals(SaveResult.OperadorFaltante, vm.guardar("U1", "A1", "5", ""))
+        assertEquals(SaveResult.OperadorFaltante, vm.guardar("A1", "5", ""))
         vm.setOperador("   ")  // en blanco no cuenta
-        assertEquals(SaveResult.OperadorFaltante, vm.guardar("U1", "A1", "5", ""))
+        assertEquals(SaveResult.OperadorFaltante, vm.guardar("A1", "5", ""))
         assertTrue(db.outbox().todas().isEmpty())
 
         vm.setOperador("  Ana ")
         assertEquals("Ana", vm.operador.value)  // sin espacios sobrantes
-        assertTrue(vm.guardar("U1", "A1", "5", "") is SaveResult.Guardada)
+        assertTrue(vm.guardar("A1", "5", "") is SaveResult.Guardada)
         assertEquals("Ana", db.outbox().todas().single().operador)
     }
 
@@ -73,7 +71,7 @@ class CountViewModelTest {
         vm.elegirConteo("T-01")
         vm.setOperador("x".repeat(61))
         assertEquals("", vm.operador.value)
-        assertEquals(SaveResult.OperadorFaltante, vm.guardar("U1", "A1", "5", ""))
+        assertEquals(SaveResult.OperadorFaltante, vm.guardar("A1", "5", ""))
 
         vm.setOperador("y".repeat(60))  // el límite es inclusivo
         assertEquals("y".repeat(60), vm.operador.value)
@@ -85,32 +83,32 @@ class CountViewModelTest {
     fun test_invalid_quantity_blocks_save() {
         listo()
         for (mala in listOf("1,5", "-1", "1.2345", "", " ", "abc", "1234567890", "1.", ".5", "1e3")) {
-            assertEquals("«$mala» debía rechazarse", SaveResult.CantidadInvalida, vm.guardar("U1", "A1", mala, ""))
+            assertEquals("«$mala» debía rechazarse", SaveResult.CantidadInvalida, vm.guardar("A1", mala, ""))
         }
         assertTrue(db.outbox().todas().isEmpty())
         for (buena in listOf("0", "7", "12.5", "0.001", "123456789", "123456789.123")) {
-            assertTrue("«$buena» debía aceptarse", vm.guardar("U2", "A2", buena, "") is SaveResult.Guardada)
+            assertTrue("«$buena» debía aceptarse", vm.guardar("A2", buena, "") is SaveResult.Guardada)
         }
     }
 
     @Test
     fun test_unknown_sku_warns_but_can_save() {
         listo()
-        val conocido = vm.guardar("U1", "A1", "3", "") as SaveResult.Guardada
+        val conocido = vm.guardar("A1", "3", "") as SaveResult.Guardada
         assertFalse(conocido.skuDesconocido)
 
-        val raro = vm.guardar("U1", "9999999999999", "2", "") as SaveResult.Guardada
+        val raro = vm.guardar("9999999999999", "2", "") as SaveResult.Guardada
         assertTrue(raro.skuDesconocido)  // advertencia, no error: el producto puede darse de alta después (D16)
         assertEquals(2, db.outbox().todas().size)
     }
 
     @Test
-    fun test_recount_replaces_previous_in_same_location() {
+    fun test_recount_replaces_the_previous_reading() {
         listo()
-        val primera = vm.guardar("U1", "A1", "5", "") as SaveResult.Guardada
+        val primera = vm.guardar("A1", "5", "") as SaveResult.Guardada
         assertFalse(primera.reemplazo)
         ahora += 60_000
-        val segunda = vm.guardar("U1", "A1", "7", "") as SaveResult.Guardada
+        val segunda = vm.guardar("A1", "7", "") as SaveResult.Guardada
         assertTrue(segunda.reemplazo)
         assertEquals(primera.seq, segunda.seq)
 
@@ -118,33 +116,33 @@ class CountViewModelTest {
         assertEquals(1, filas.size)
         assertEquals("7", filas[0].cantidad)
         assertEquals(ahora, filas[0].tsOriginalMs)
-        assertEquals("7", vm.ultimaLectura("U1", "A1")?.cantidad)
+        assertEquals("7", vm.ultimaLectura("A1")?.cantidad)
 
-        // Otra ubicación suma aparte (D13): no es un recuento.
-        assertFalse((vm.guardar("U2", "A1", "4", "") as SaveResult.Guardada).reemplazo)
+        // Otro producto no es un recuento: es una lectura nueva.
+        assertFalse((vm.guardar("A2", "4", "") as SaveResult.Guardada).reemplazo)
         assertEquals(2, db.outbox().todas().size)
-        assertNull(vm.ultimaLectura("U2", "A2"))
+        assertNull(vm.ultimaLectura("9999999999999"))
     }
 
     @Test
     fun test_recount_after_the_reading_was_sent_adds_a_new_row() {
         listo()
-        val primera = vm.guardar("U1", "A1", "5", "") as SaveResult.Guardada
+        val primera = vm.guardar("A1", "5", "") as SaveResult.Guardada
         db.outbox().tomarParaEnviar(primera.seq)  // ya salió hacia el PC: no se toca
         ahora += 60_000
-        val segunda = vm.guardar("U1", "A1", "7", "") as SaveResult.Guardada
+        val segunda = vm.guardar("A1", "7", "") as SaveResult.Guardada
         assertFalse(segunda.reemplazo)
         assertEquals(listOf("5", "7"), db.outbox().todas().map { it.cantidad })
         assertEquals(listOf(Estado.ENVIADO, Estado.PENDIENTE), db.outbox().todas().map { it.estado })
-        assertEquals("7", vm.ultimaLectura("U1", "A1")?.cantidad)  // el PC se queda con la más reciente
+        assertEquals("7", vm.ultimaLectura("A1")?.cantidad)  // el PC se queda con la más reciente
     }
 
     @Test
     fun test_note_over_255_chars_is_rejected() {
         listo()
-        assertEquals(SaveResult.NotaLarga, vm.guardar("U1", "A1", "5", "n".repeat(256)))
+        assertEquals(SaveResult.NotaLarga, vm.guardar("A1", "5", "n".repeat(256)))
         assertTrue(db.outbox().todas().isEmpty())
-        assertTrue(vm.guardar("U1", "A1", "5", "n".repeat(255)) is SaveResult.Guardada)
+        assertTrue(vm.guardar("A1", "5", "n".repeat(255)) is SaveResult.Guardada)
     }
 
     @Test
@@ -152,13 +150,13 @@ class CountViewModelTest {
         vm.elegirConteo("T-01")
         vm.setOperador("Ana|Luis")
         val nota = "caja rota | 2 pzs\nrevisar 100%"
-        vm.guardar("U1", "A1", "5", nota)
+        vm.guardar("A1", "5", nota)
 
         val fila = db.outbox().todas().single()
         assertEquals(nota, fila.nota)  // en la base va tal cual; se codifica al armar el REC
-        val rec = Rec(fila.seq, fila.tsOriginalMs, fila.idConteo, fila.ubicacion, fila.sku, fila.cantidad, fila.operador, fila.nota)
+        val rec = Rec(fila.seq, fila.tsOriginalMs, fila.idConteo, fila.sku, fila.cantidad, fila.operador, fila.nota)
         val cruda = rec.toRaw()
-        assertEquals("el REC debe tener 9 campos", 9, cruda.split("|").size)
+        assertEquals("el REC debe tener 8 campos", 8, cruda.split("|").size)
         assertTrue(cruda.contains("Ana%7CLuis"))
         assertTrue(cruda.contains("caja rota %7C 2 pzs%0Arevisar 100%25"))
         assertEquals(rec, Rec.fromMessage(Protocol.parse(rec.toFrame())))  // y llega idéntico
@@ -174,22 +172,20 @@ class CountViewModelTest {
     }
 
     @Test
-    fun test_missing_conteo_location_or_sku_blocks_save() {
+    fun test_missing_conteo_or_sku_blocks_save() {
         vm.setOperador("Ana")
-        assertEquals(SaveResult.SinConteo, vm.guardar("U1", "A1", "5", ""))
+        assertEquals(SaveResult.SinConteo, vm.guardar("A1", "5", ""))
         vm.elegirConteo("T-01")
-        assertEquals(SaveResult.UbicacionFaltante, vm.guardar(" ", "A1", "5", ""))
-        assertEquals(SaveResult.SkuFaltante, vm.guardar("U1", "  ", "5", ""))
+        assertEquals(SaveResult.SkuFaltante, vm.guardar("  ", "5", ""))
         assertTrue(db.outbox().todas().isEmpty())
     }
 
     @Test
-    fun test_location_list_shows_latest_reading_per_sku() {
+    fun test_counted_list_shows_latest_reading_per_sku() {
         listo()
-        vm.guardar("U1", "A1", "5", "")
-        vm.guardar("U1", "A2", "3", "")
-        vm.guardar("U2", "A1", "9", "")
-        vm.guardar("U1", "A1", "6", "")  // recuento
-        assertEquals(listOf("A1" to "6", "A2" to "3"), vm.lecturasDe("U1").map { it.sku to it.cantidad })
+        vm.guardar("A1", "5", "")
+        vm.guardar("A2", "3", "")
+        vm.guardar("A1", "6", "")  // recuento
+        assertEquals(listOf("A1" to "6", "A2" to "3"), vm.lecturas().map { it.sku to it.cantidad })
     }
 }

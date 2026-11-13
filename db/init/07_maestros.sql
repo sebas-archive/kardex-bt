@@ -1,0 +1,8 @@
+-- Categorias, almacenes y existencias (Fase 2). Las tablas, la columna productos.stock_minimo y los datos de
+-- ejemplo los crea la aplicacion de escritorio al arrancar (desktop/app/maestros.py, migrar()): una sola
+-- definicion, y una base creada antes de esta fase tambien los recibe. Este archivo queda como referencia.
+--
+-- categorias  (nombre PK, activa S|N)                      nombre = productos.categoria
+-- almacenes   (codigo PK, nombre, ubicacion, activo S|N)
+-- existencias (sku FK productos, codigo_almacen FK almacenes, cantidad >= 0)   PK (sku, codigo_almacen)
+-- productos.stock_minimo NUMBER(12,3) DEFAULT 10           por debajo: STOCK_BAJO; en 0: AGOTADO

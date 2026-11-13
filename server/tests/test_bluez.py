@@ -34,7 +34,7 @@ from btsync.transports.bluez import (
     BluezConnection,
     BluezTransport,
 )
-from test_controller import FakeStore, end, hello, rec, wait_for
+from test_controller import FakeStore, acct, end, hello, rec, wait_for
 
 ADAPTER_IFACE = "org.bluez.Adapter1"
 DEVICE_IFACE = "org.bluez.Device1"
@@ -477,7 +477,7 @@ def test_controller_full_cycle_over_bluez_transport(fake):
 
     phone, fd = phone_socket()
     on_loop(transport, transport._new_connection(PHONE, fd)).result(5)
-    phone.sendall(hello() + rec(1) + rec(2) + end(2))
+    phone.sendall(hello() + acct() + rec(1) + rec(2) + end(2))
     replies, kinds = phone.makefile("rb"), []
     while not kinds or kinds[-1] != "BYE":
         kinds.append(parse(replies.readline()).kind)
@@ -613,7 +613,7 @@ def test_open_mode_never_asks_for_a_code_and_a_full_sync_works(fake):
     controller, transport, store, changes = started(fake, require_pairing=False)
     phone, fd = phone_socket()
     on_loop(transport, transport._new_connection(STRANGER, fd)).result(5)
-    phone.sendall(hello() + rec(1) + rec(2) + end(2))
+    phone.sendall(hello() + acct() + rec(1) + rec(2) + end(2))
     replies, kinds = phone.makefile("rb"), []
     while not kinds or kinds[-1] != "BYE":
         kinds.append(parse(replies.readline()).kind)

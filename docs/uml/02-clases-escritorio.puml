@@ -6,10 +6,13 @@ left to right direction
 
 class MainWindow {
   +refresh_requested : pyqtSignal
-  +cerrando : pyqtSignal
-  +add_view(view, title, index)
-  +select_conteo(id_conteo)
-  +conteo_actual() : str
+  +sesion_cambiada : pyqtSignal
+  +add_view(view, title, modulo)
+  +mostrar_estado_cuenta(cuenta)
+  +iniciar(sesion)
+  +cerrar_sesion()
+  +ir_a(titulo)
+  +avisar(texto, tipo)
 }
 class SyncBridge <<QObject>> {
   +status_changed : pyqtSignal
@@ -26,18 +29,18 @@ class QueryWorker <<QRunnable>> {
   +run()
 }
 class WorkerSignals <<QObject>>
-class StateBanner {
-  +show_loading()
-  +show_empty(texto)
-  +show_error(texto)
-  +clear()
-}
+class StateBanner
+
+class AccesoView
+class DashboardView
+class InventarioView
 class SyncView
-class ConteoView
-class ConciliacionView
 class ChartsView
 class PerfilView
-class MonitorView
+class UsuariosView
+class SolicitudesView
+class RolesView
+class EstadoCuentaView
 class ConciliacionModel <<QAbstractTableModel>>
 class DetalleLecturas
 class EjeFormato <<AxisItem>>
@@ -47,15 +50,51 @@ interface RefreshableView <<Protocol>> {
   +refresh()
 }
 
+package "app.auth (cuentas del PC)" as authmod {
+  entity "auth" as auth {
+    registrar(usuario, nombre, clave, confirmacion)
+    iniciar_sesion(usuario, clave)
+    cambiar_clave(usuario, actual, nueva, confirmacion)
+    listar()
+    cambiar_rol(quien, usuario, rol)
+    aprobar(quien, usuario, rol)
+    rechazar(quien, usuario, motivo)
+    suspender(quien, usuario, motivo)
+    reactivar(quien, usuario)
+    historial_solicitudes()
+    consultar_cuenta(usuario)
+    restablecer_clave(quien, usuario, nueva)
+  }
+  entity "permisos" as permisos {
+    nivel(rol, modulo)
+    puede(rol, modulo, minimo)
+    matriz()
+    guardar(quien, rol, modulo, nivel)
+    exigir(quien, modulo, minimo)
+  }
+}
+class Sesion {
+  +usuario
+  +nombre
+  +rol : ADMIN | INVENTARIO | OPERADOR
+  +permisos : (modulo, nivel)…
+  +puede(modulo, minimo)
+}
+class ErrorDeAcceso <<Exception>>
+class CuentaSinAcceso <<Exception>> {
+  +estado : PENDIENTE | RECHAZADO | SUSPENDIDO
+  +motivo
+}
+class Solicitud
+
 package "app.db (módulo, una conexión Oracle por hilo)" as dbmod {
   entity "db" as db {
     fetch_conteos()
     fetch_resumen(id_conteo)
-    fetch_conciliacion(...)
+    fetch_conciliacion(..., solo_diferencia, valor_min, orden)
     fetch_dif_por_categoria(id_conteo)
     fetch_top_desvios(id_conteo)
     fetch_distribucion(id_conteo)
-    fetch_avance_zona(id_conteo)
     fetch_actividad(id_conteo)
     fetch_lecturas(id_conteo, sku)
     fetch_estado_batch()
@@ -63,30 +102,58 @@ package "app.db (módulo, una conexión Oracle por hilo)" as dbmod {
     cerrar_conteo(id_conteo)
     reprocesar_errores(id_conteo)
     procesar_ahora()
-    fetch_perfil(id_conteo)
   }
 }
 
+class TarjetaKpi
+class BarraSegmentada
+class Dona
+class Indicador
+class Pasos
+class Aviso
+class Transicion
 class SyncController <<btsync>>
 
+RefreshableView <|.. DashboardView
+RefreshableView <|.. InventarioView
 RefreshableView <|.. SyncView
-RefreshableView <|.. ConteoView
-RefreshableView <|.. ConciliacionView
 RefreshableView <|.. ChartsView
 RefreshableView <|.. PerfilView
-RefreshableView <|.. MonitorView
-MainWindow o-- RefreshableView : pestañas (add_view)
+RefreshableView <|.. UsuariosView
+RefreshableView <|.. SolicitudesView
+RefreshableView <|.. RolesView
+MainWindow *-- AccesoView : sin sesión
+MainWindow *-- EstadoCuentaView : cuenta sin acceso
+MainWindow o-- RefreshableView : secciones de la barra lateral
+MainWindow ..> Sesion : la del usuario que entró
+MainWindow *-- Transicion
+MainWindow ..> Aviso : avisos flotantes
 MainWindow --> QueryRunner : lista de conteos
 MainWindow *-- StateBanner
+AccesoView ..> auth : registrar / iniciar_sesion
+UsuariosView ..> auth : módulo «usuarios»
+SolicitudesView ..> auth : aprobar / rechazar
+RolesView ..> permisos : matriz / guardar
+auth ..> permisos : exigir
+CuentaSinAcceso --|> ErrorDeAcceso
+auth ..> CuentaSinAcceso : estado ≠ ACTIVO
+auth ..> Solicitud : historial
+PerfilView ..> auth : cambiar_clave
+auth ..> db : conexión del hilo
+auth ..> ErrorDeAcceso : lanza
+auth ..> Sesion : devuelve
 RefreshableView ..> QueryRunner : consultas fuera del hilo de la UI
-RefreshableView *-- StateBanner
 QueryRunner ..> QueryWorker : lanza
 QueryWorker *-- WorkerSignals
 QueryWorker ..> db : fetch_*
 SyncView --> SyncBridge
-MonitorView --> SyncBridge
 SyncBridge *-- SyncController
-ConciliacionView *-- ConciliacionModel
-ConciliacionView *-- DetalleLecturas
+InventarioView *-- ConciliacionModel
+InventarioView *-- DetalleLecturas
 ChartsView *-- EjeFormato
+ChartsView *-- Dona
+DashboardView *-- TarjetaKpi
+DashboardView *-- BarraSegmentada
+SyncView *-- Indicador
+SyncView *-- Pasos
 @enduml
