@@ -2,8 +2,8 @@
 """Genera de forma reproducible la semilla de inventario.
 
 Produce dos archivos a partir de una semilla aleatoria fija:
-  * db/init/02_seed.sql  -> catalogos, ubicaciones, conteo abierto y foto de stock del sistema.
-  * tools/truth.json     -> el stock FISICO "real" por (ubicacion, SKU), del que parte fake_phone.py.
+  * db/init/02_seed.sql  -> catalogos, conteo abierto y foto de stock del sistema.
+  * tools/truth.json     -> el stock FISICO "real" por SKU, del que parte fake_phone.py.
 
 Uso: python tools/gen_seed.py --seed 42
 """
@@ -19,9 +19,9 @@ CONTEO_NOMBRE = "Inventario fisico noviembre 2026"
 SKU_PREFIX = "770123400"  # + 4 digitos = 13 digitos (estilo EAN-13)
 N_SIN_STOCK = 2           # SKUs del catalogo que no estan en la foto de stock
 
-# (categoria, tolerancia_pct, ubicaciones donde se guarda, [(nombre, unidad, costo COP)])
+# (categoria, tolerancia_pct, [(nombre, unidad, costo COP)])
 CATEGORIAS = [
-    ("Abarrotes", 2.0, ["A-01", "A-02"], [
+    ("Abarrotes", 2.0, [
         ("Arroz 500 g", "UND", 2400), ("Azúcar 1 kg", "UND", 3900),
         ("Aceite de Girasol 1 L", "UND", 11500), ("Lentejas 500 g", "UND", 3100),
         ("Fríjol Cargamanto 500 g", "UND", 7800), ("Harina de Trigo 1 kg", "UND", 3600),
@@ -29,7 +29,7 @@ CATEGORIAS = [
         ("Atún en Lata 160 g", "UND", 5200), ("Panela Cuadrada 500 g", "UND", 2900),
         ("Café Molido 250 g", "UND", 9800), ("Avena en Hojuelas 400 g", "UND", 4100),
     ]),
-    ("Bebidas", 2.0, ["A-03", "A-04"], [
+    ("Bebidas", 2.0, [
         ("Agua Botella 600 mL", "UND", 1800), ("Gaseosa Cola 1.5 L", "UND", 4800),
         ("Jugo de Naranja 1 L", "UND", 4300), ("Cerveza Lata 330 mL", "UND", 2900),
         ("Té Frío 500 mL", "UND", 3100), ("Bebida Energizante 250 mL", "UND", 4700),
@@ -37,7 +37,7 @@ CATEGORIAS = [
         ("Gaseosa Lima-Limón 400 mL", "UND", 2400), ("Agua Saborizada 500 mL", "UND", 2600),
         ("Malta 330 mL", "UND", 2700), ("Bebida Hidratante 500 mL", "UND", 3600),
     ]),
-    ("Aseo", 1.0, ["B-01", "B-02"], [
+    ("Aseo", 1.0, [
         ("Jabón de Barra 300 g", "UND", 2100), ("Detergente en Polvo 1 kg", "UND", 8900),
         ("Suavizante 1 L", "UND", 7400), ("Cloro 1 L", "UND", 3200),
         ("Lavaplatos 500 g", "UND", 4300), ("Papel Higiénico x4", "UND", 6800),
@@ -45,7 +45,7 @@ CATEGORIAS = [
         ("Limpiador de Pisos 1 L", "UND", 6100), ("Bolsas de Basura x10", "UND", 3700),
         ("Jabón Líquido Manos 500 mL", "UND", 5400), ("Trapero de Algodón", "UND", 8200),
     ]),
-    ("Ferretería", 0.5, ["B-03", "B-04"], [
+    ("Ferretería", 0.5, [
         ("Martillo 16 oz", "UND", 24500), ("Destornillador de Pala 6 mm", "UND", 8900),
         ("Alicate Universal 8 in", "UND", 21800), ("Cinta Métrica 5 m", "UND", 13900),
         ("Cinta Aislante 10 m", "UND", 3800), ("Tornillos Caja x100", "UND", 7200),
@@ -53,7 +53,7 @@ CATEGORIAS = [
         ("Bombillo LED 9 W", "UND", 6200), ("Extensión Eléctrica 3 m", "UND", 14800),
         ("Guantes de Carnaza", "PAR", 9600), ("Brocha 2 in", "UND", 5100),
     ]),
-    ("Lácteos", 0.0, ["C-01", "C-02", "C-03", "C-04"], [
+    ("Lácteos", 0.0, [
         ("Leche Entera 1 L", "UND", 4200), ("Leche Deslactosada 1 L", "UND", 4900),
         ("Yogurt de Fresa 1 L", "UND", 6300), ("Queso Campesino 500 g", "UND", 11800),
         ("Queso Mozzarella 500 g", "UND", 15200), ("Mantequilla 250 g", "UND", 7600),
@@ -62,13 +62,6 @@ CATEGORIAS = [
         ("Leche en Polvo 400 g", "UND", 17900), ("Yogurt Natural 1 L", "UND", 5600),
     ]),
 ]
-
-UBICACIONES = [
-    (f"{zona}-{n:02d}", zona, f"Zona {zona} - Estante {n}")
-    for zona in "ABC"
-    for n in range(1, 5)
-]
-
 
 def lit(texto: str) -> str:
     """Literal SQL seguro para sqlplus sin depender de NLS_LANG (no-ASCII via UNISTR)."""
@@ -89,8 +82,8 @@ def lit(texto: str) -> str:
 def construir(seed: int):
     rng = random.Random(seed)
 
-    productos = []  # dicts: sku, nombre, categoria, unidad, costo, tolerancia, ubicaciones
-    for categoria, tolerancia, ubics, items in CATEGORIAS:
+    productos = []  # dicts: sku, nombre, categoria, unidad, costo, tolerancia
+    for categoria, tolerancia, items in CATEGORIAS:
         for nombre, unidad, costo in items:
             productos.append({
                 "sku": f"{SKU_PREFIX}{len(productos) + 1:04d}",
@@ -99,7 +92,6 @@ def construir(seed: int):
                 "unidad": unidad,
                 "costo": costo,
                 "tolerancia": tolerancia,
-                "ubicaciones": ubics,
             })
 
     # Dos SKUs existen en el catalogo pero no en la foto de stock del sistema.
@@ -130,20 +122,9 @@ def construir(seed: int):
                 q = max(1, q + rng.choice([-1, 1]))
         fisico_total[sku] = q
 
-    # Reparto fisico por ubicacion: casi siempre una sola; a veces dos.
-    fisico = []
-    for p in productos:
-        total = fisico_total[p["sku"]]
-        ubics = p["ubicaciones"]
-        if total >= 6 and rng.random() < 0.35:
-            u1, u2 = rng.sample(ubics, 2)
-            parte = rng.randint(1, total - 1)
-            reparto = [(u1, parte), (u2, total - parte)]
-        else:
-            reparto = [(rng.choice(ubics), total)]
-        for ubic, cantidad in reparto:
-            fisico.append({"ubicacion": ubic, "sku": p["sku"], "cantidad": cantidad})
-    fisico.sort(key=lambda r: (r["ubicacion"], r["sku"]))
+    # Lo que hay fisicamente de cada SKU: una cantidad por producto.
+    fisico = [{"sku": p["sku"], "cantidad": fisico_total[p["sku"]]} for p in productos]
+    fisico.sort(key=lambda r: r["sku"])
 
     return productos, sistema, fisico
 
@@ -158,11 +139,6 @@ def render_sql(seed: int, productos, sistema) -> str:
         "INSERT INTO conteos (id_conteo, nombre, estado) "
         f"VALUES ({lit(CONTEO_ID)}, {lit(CONTEO_NOMBRE)}, 'ABIERTO');",
     ]
-    for cod, zona, desc in UBICACIONES:
-        out.append(
-            "INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) "
-            f"VALUES ({lit(cod)}, {lit(zona)}, {lit(desc)});"
-        )
     for p in productos:
         out.append(
             "INSERT INTO productos (sku, nombre, categoria, unidad, costo_unit, tolerancia_pct) "
@@ -182,7 +158,6 @@ def render_sql(seed: int, productos, sistema) -> str:
 def render_truth(sistema, fisico) -> str:
     doc = {
         "conteo": CONTEO_ID,
-        "ubicaciones": [u[0] for u in UBICACIONES],
         "sistema": sistema,
         "fisico": fisico,
     }

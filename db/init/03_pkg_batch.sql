@@ -56,22 +56,22 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         RETURN UTL_URL.UNESCAPE(p_valor, 'UTF-8');
     END texto;
 
-    -- D13: en cada (conteo, ubicacion, SKU) vale la lectura con FECHA_CAPTURA mas reciente;
+    -- D13: en cada (conteo, SKU) vale la lectura con FECHA_CAPTURA mas reciente (recontar reemplaza);
     -- si empatan, la de ID_TRANSITO mayor (global, asignado al llegar al staging).
-    PROCEDURE recalcular_vigente(p_conteo IN VARCHAR2, p_ubic IN VARCHAR2, p_sku IN VARCHAR2) IS
+    PROCEDURE recalcular_vigente(p_conteo IN VARCHAR2, p_sku IN VARCHAR2) IS
         l_mejor registros_procesados.id_registro%TYPE;
     BEGIN
         SELECT id_registro
           INTO l_mejor
           FROM (SELECT id_registro
                   FROM registros_procesados
-                 WHERE id_conteo = p_conteo AND cod_ubicacion = p_ubic AND sku = p_sku
+                 WHERE id_conteo = p_conteo AND sku = p_sku
                  ORDER BY fecha_captura DESC, NVL(id_transito, -1) DESC, id_registro DESC)
          WHERE ROWNUM = 1;
 
         UPDATE registros_procesados
            SET vigente = CASE WHEN id_registro = l_mejor THEN 'S' ELSE 'N' END
-         WHERE id_conteo = p_conteo AND cod_ubicacion = p_ubic AND sku = p_sku
+         WHERE id_conteo = p_conteo AND sku = p_sku
            AND vigente <> CASE WHEN id_registro = l_mejor THEN 'S' ELSE 'N' END;
     END recalcular_vigente;
 
@@ -79,7 +79,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
     PROCEDURE procesar_fila(p_id IN NUMBER, p_raw IN VARCHAR2) IS
         l_ts      VARCHAR2(4000);
         l_conteo  VARCHAR2(4000);
-        l_ubic    VARCHAR2(4000);
         l_sku     VARCHAR2(4000);
         l_cant    VARCHAR2(4000);
         l_oper    VARCHAR2(4000);
@@ -92,19 +91,14 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
             fallar('FORMATO_INVALIDO');
         END IF;
         l_conteo := texto(campo(p_raw, 4));
-        l_ubic   := texto(campo(p_raw, 5));
-        l_sku    := texto(campo(p_raw, 6));
-        l_cant   := texto(campo(p_raw, 7));
-        l_oper   := texto(campo(p_raw, 8));
-        l_nota   := texto(campo(p_raw, 9));
+        l_sku    := texto(campo(p_raw, 5));
+        l_cant   := texto(campo(p_raw, 6));
+        l_oper   := texto(campo(p_raw, 7));
+        l_nota   := texto(campo(p_raw, 8));
 
         SELECT COUNT(*) INTO l_n FROM conteos WHERE id_conteo = l_conteo AND estado = 'ABIERTO';
         IF l_n = 0 THEN
             fallar('CONTEO_NO_ABIERTO');
-        END IF;
-        SELECT COUNT(*) INTO l_n FROM ubicaciones WHERE cod_ubicacion = l_ubic;
-        IF l_n = 0 THEN
-            fallar('UBICACION_DESCONOCIDA');
         END IF;
         SELECT COUNT(*) INTO l_n FROM productos WHERE sku = l_sku;
         IF l_n = 0 THEN
@@ -116,9 +110,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         END IF;
 
         INSERT INTO registros_procesados
-            (id_transito, id_conteo, cod_ubicacion, sku, cantidad, operador, nota, fecha_captura, vigente)
+            (id_transito, id_conteo, sku, cantidad, operador, nota, fecha_captura, vigente)
         VALUES
-            (p_id, l_conteo, l_ubic, l_sku,
+            (p_id, l_conteo, l_sku,
              -- Mascara fija: no depende del NLS de la sesion.
              TO_NUMBER(l_cant, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,'''),
              SUBSTR(l_oper, 1, 60), SUBSTR(l_nota, 1, 255),
@@ -126,13 +120,13 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
              TIMESTAMP '1970-01-01 00:00:00' + NUMTODSINTERVAL(TO_NUMBER(l_ts) / 1000, 'SECOND'),
              'N');
 
-        recalcular_vigente(l_conteo, l_ubic, l_sku);
+        recalcular_vigente(l_conteo, l_sku);
         g_conteos(l_conteo) := TRUE;
     END procesar_fila;
 
     -- Reglas de conciliacion (por SKU del conteo):
     --   * Entran los SKU de la foto de stock y los que tienen lecturas vigentes (sin foto: sistema 0).
-    --   * contada = suma de las lecturas vigentes; DIFERENCIA = contada - sistema.
+    --   * contada = la lectura vigente del SKU (una por conteo: recontar reemplaza); DIFERENCIA = contada - sistema.
     --   * OK si |DIFERENCIA| <= sistema x TOLERANCIA_PCT / 100 (limite inclusivo);
     --     si no, FALTANTE (contada < sistema) o SOBRANTE.
     --   * Sin lecturas: SIN_CONTAR mientras el conteo esta ABIERTO; al cerrarlo cuenta como 0.

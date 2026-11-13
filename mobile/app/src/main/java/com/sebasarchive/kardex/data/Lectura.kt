@@ -22,12 +22,11 @@ object Estado {
  * `tsOriginalMs` es la hora del reloj del teléfono al capturar y **no se modifica al sincronizar**:
  * el desfase con el servidor se suma solo en lo que se envía (D15).
  */
-@Entity(tableName = "lecturas", indices = [Index(value = ["idConteo", "ubicacion", "sku"])])
+@Entity(tableName = "lecturas", indices = [Index(value = ["idConteo", "sku"])])
 data class LecturaEntity(
     @PrimaryKey(autoGenerate = true) val seq: Long = 0,
     val tsOriginalMs: Long,
     val idConteo: String,
-    val ubicacion: String,
     val sku: String,
     val cantidad: String,
     val operador: String,
@@ -58,19 +57,16 @@ abstract class Outbox {
     @Query("SELECT * FROM lecturas ORDER BY seq")
     abstract fun todas(): List<LecturaEntity>
 
-    /** La lectura más reciente de esa ubicación y SKU, en cualquier estado (es la que vale para el PC, D13). */
-    @Query(
-        "SELECT * FROM lecturas WHERE idConteo = :idConteo AND ubicacion = :ubicacion AND sku = :sku " +
-            "ORDER BY seq DESC LIMIT 1"
-    )
-    abstract fun ultimaDe(idConteo: String, ubicacion: String, sku: String): LecturaEntity?
+    /** La lectura más reciente de ese SKU en el conteo, en cualquier estado (es la que vale para el PC, D13). */
+    @Query("SELECT * FROM lecturas WHERE idConteo = :idConteo AND sku = :sku ORDER BY seq DESC LIMIT 1")
+    abstract fun ultimaDe(idConteo: String, sku: String): LecturaEntity?
 
-    /** Lo contado en una ubicación: la lectura más reciente de cada SKU. */
+    /** Lo contado en un conteo: la lectura más reciente de cada SKU. */
     @Query(
         "SELECT * FROM lecturas WHERE seq IN (SELECT MAX(seq) FROM lecturas " +
-            "WHERE idConteo = :idConteo AND ubicacion = :ubicacion GROUP BY sku) ORDER BY seq"
+            "WHERE idConteo = :idConteo GROUP BY sku) ORDER BY seq"
     )
-    abstract fun vigentesEn(idConteo: String, ubicacion: String): List<LecturaEntity>
+    abstract fun vigentes(idConteo: String): List<LecturaEntity>
 
     @Query("SELECT * FROM lecturas WHERE seq = :seq")
     protected abstract fun porSeq(seq: Long): LecturaEntity?
@@ -82,10 +78,10 @@ abstract class Outbox {
     protected abstract fun devolverEnviadasDespuesDe(seq: Long): Int
 
     @Query(
-        "SELECT * FROM lecturas WHERE idConteo = :idConteo AND ubicacion = :ubicacion AND sku = :sku " +
+        "SELECT * FROM lecturas WHERE idConteo = :idConteo AND sku = :sku " +
             "AND estado = 'PENDIENTE' ORDER BY seq DESC LIMIT 1"
     )
-    protected abstract fun pendienteDe(idConteo: String, ubicacion: String, sku: String): LecturaEntity?
+    protected abstract fun pendienteDe(idConteo: String, sku: String): LecturaEntity?
 
     @Query("UPDATE lecturas SET cantidad = :cantidad, tsOriginalMs = :tsOriginalMs WHERE seq = :seq AND estado = 'PENDIENTE'")
     protected abstract fun actualizarPendiente(seq: Long, cantidad: String, tsOriginalMs: Long): Int
@@ -102,13 +98,13 @@ abstract class Outbox {
     }
 
     /**
-     * Recontar: si la lectura de esa ubicación y SKU **nunca se envió**, se corrige en sitio (con la
+     * Recontar: si la lectura de ese SKU **nunca se envió**, se corrige en sitio (con la
      * hora del recuento) y devuelve true. Si ya salió hacia el PC no se toca —el PC puede tenerla— y
      * devuelve false: quien llama inserta una lectura nueva y el servidor se queda con la más reciente (D13).
      */
     @Transaction
-    open fun reemplazar(idConteo: String, ubicacion: String, sku: String, cantidad: String, tsOriginalMs: Long): Boolean {
-        val pendiente = pendienteDe(idConteo, ubicacion, sku) ?: return false
+    open fun reemplazar(idConteo: String, sku: String, cantidad: String, tsOriginalMs: Long): Boolean {
+        val pendiente = pendienteDe(idConteo, sku) ?: return false
         return actualizarPendiente(pendiente.seq, cantidad, tsOriginalMs) == 1
     }
 

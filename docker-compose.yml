@@ -130,3 +130,11 @@ services:
 volumes:
   oracle-data:
   gradle-home:
+
+# Subred fija: la que Docker elige sola (p. ej. 172.20.0.0/16) puede chocar con la del Wi-Fi/hotspot
+# del host y dejar a Oracle inalcanzable (ORA-12547 desde el puerto publicado).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.250.0.0/24

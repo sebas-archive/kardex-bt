@@ -4,7 +4,64 @@
 title 03 · Clases de la APK Android (MVVM)
 left to right direction
 
+package "auth (contraseña local, estado del PC)" {
+  class AuthRepository {
+    +registrar(usuario, nombre, clave, confirmacion, pregunta, respuesta) : AuthResult
+    +aplicarEstado(usuario, estado, rol, motivo)
+    +iniciarSesion(usuario, clave) : AuthResult
+    +preguntaDe(usuario) : String?
+    +restablecer(usuario, respuesta, clave, confirmacion) : AuthResult
+    +cambiarClave(actual, nueva, confirmacion) : AuthResult
+    +sesion() : Sesion?
+    +cerrarSesion()
+  }
+  class AuthResult <<sealed>> {
+    Ok(usuario) · CredencialesInvalidas · Bloqueado(segundos)
+    ClaveDebil · UsuarioExiste · RespuestaIncorrecta · …
+  }
+  class Sesion {
+    +usuario
+    +nombre
+    +rol
+    +estado
+    +motivo
+    +puedeTrabajar : Boolean
+  }
+  class Rol <<object>> {
+    OPERADOR
+  }
+  class EstadoCuenta <<object>> {
+    PENDIENTE · ACTIVO · RECHAZADO · SUSPENDIDO
+  }
+  class Claves <<object>> {
+    +crear(secreto) : String
+    +verificar(secreto, guardado) : Boolean
+    +fuerza(clave) : Int
+  }
+  class UsuarioEntity {
+    +usuario
+    +nombre
+    +rol
+    +estado
+    +motivo
+    +claveHash
+    +pregunta
+    +respuestaHash
+    +intentosFallidos
+    +bloqueadoHastaMs
+  }
+  class CuentasDatabase
+}
+
+package "scan" {
+  class CodigoEscaneado <<object>> {
+    +sku(contenido) : String
+  }
+}
+
 package "ui (vista y modelo de vista)" {
+  class AuthActivity
+  class PerfilActivity
   class HomeActivity
   class ContarActivity
   class SincronizarActivity
@@ -12,15 +69,14 @@ package "ui (vista y modelo de vista)" {
   class CountViewModel {
     +operador : StateFlow<String>
     +conteo : StateFlow<String?>
-    +ubicacion : StateFlow<String?>
-    +guardar(ubicacion, sku, cantidad, nota) : SaveResult
-    +ultimaLectura(ubicacion, sku) : LecturaEntity?
+    +guardar(sku, cantidad, nota) : SaveResult
+    +ultimaLectura(sku) : LecturaEntity?
     +setOperador(nombre)
-    +lecturasDe(ubicacion) : List<LecturaEntity>
+    +lecturas() : List<LecturaEntity>
   }
   class SaveResult <<sealed>> {
     Guardada(seq, reemplazo, skuDesconocido)
-    OperadorFaltante · SinConteo · UbicacionFaltante
+    OperadorFaltante · SinConteo
     SkuFaltante · CantidadInvalida · NotaLarga
   }
   class SyncViewModel {
@@ -38,7 +94,6 @@ package "ui (vista y modelo de vista)" {
   class SettingsStore {
     +operador
     +conteo
-    +ubicacion
     +pcDireccion
   }
   class Servicios
@@ -53,6 +108,7 @@ package "sync" {
     Progress(confirmadoHasta, total)
     Done(aceptados, rechazados, pendientes)
     Busy · Rejected(motivo) · Cut(motivo, pendientes)
+    CuentaNoActiva(estado, motivo, pendientes)
   }
   interface BluetoothSocketLike {
     +inputStream
@@ -93,7 +149,7 @@ package "data (Room)" {
     +insertar(l) : Long
     +pendientesDesde(seq)
     +confirmarHasta(seq)
-    +reemplazar(idConteo, ubicacion, sku, cantidad, ts) : Boolean
+    +reemplazar(idConteo, sku, cantidad, ts) : Boolean
     +tomarParaEnviar(seq)
     +reconciliar(ultimoSeqServidor)
   }
@@ -101,7 +157,6 @@ package "data (Room)" {
     +seq : Long
     +tsOriginalMs : Long
     +idConteo
-    +ubicacion
     +sku
     +cantidad
     +operador
@@ -118,7 +173,6 @@ package "data (Room)" {
   class CatalogDao
   class Catalog
   class ConteoEntity
-  class UbicacionEntity
   class ProductoEntity
 }
 
@@ -126,6 +180,20 @@ class DeviceIdentity <<object>> {
   +get(context) : String
 }
 
+AuthActivity --|> PantallaActivity
+PerfilActivity --|> PantallaActivity
+AuthActivity --> AuthRepository
+PerfilActivity --> AuthRepository
+HomeActivity ..> AuthRepository : exige sesión
+Servicios *-- AuthRepository
+AuthRepository --> SettingsStore : sesión abierta
+AuthRepository --> CuentasDatabase
+AuthRepository ..> Claves
+AuthRepository ..> AuthResult
+AuthRepository ..> Sesion
+CuentasDatabase "1" o-- "*" UsuarioEntity
+UsuarioEntity ..> Rol
+ContarActivity ..> CodigoEscaneado : barras o QR → SKU
 HomeActivity --|> PantallaActivity
 ContarActivity --|> PantallaActivity
 SincronizarActivity --|> PantallaActivity
@@ -160,6 +228,5 @@ AppDatabase *-- CatalogDao
 CatalogRepository --> CatalogDao
 CatalogDao ..> Catalog
 Catalog o-- ConteoEntity
-Catalog o-- UbicacionEntity
 Catalog o-- ProductoEntity
 @enduml

@@ -3,13 +3,18 @@
 title 10 · Casos de uso
 left to right direction
 
-actor "Operario\n(celular)" as op
+actor "Operador de Inventario\n(celular)" as op
+actor "Inventario\n(PC)" as inv
 actor "Administrador\n(PC)" as adm
+adm -|> inv
 actor "Scheduler\nde Oracle" as sch
 
 rectangle "Sistema de inventario físico" {
+  usecase "Iniciar sesión" as entrar
+  usecase "Crear cuenta\n(queda PENDIENTE)" as registrar
+  usecase "Recuperar\ncontraseña" as recuperar
   usecase "Contar" as contar
-  usecase "Escanear código\nde barras" as escanear
+  usecase "Escanear código\nde barras o QR" as escanear
   usecase "Recontar" as recontar
   usecase "Sincronizar" as sincronizar
   usecase "Confirmar código\nde emparejamiento" as codigo
@@ -19,20 +24,27 @@ rectangle "Sistema de inventario físico" {
   usecase "Reprocesar errores" as reprocesar
   usecase "Exportar CSV" as csv
   usecase "Purgar tránsito" as purgar
+  usecase "Aprobar, rechazar o\nsuspender cuentas;\nroles y permisos" as usuarios
   usecase "Procesar capturas\npendientes (respaldo)" as procesar
 }
 
+op --> entrar
 op --> contar
 op --> sincronizar
-adm --> sincronizar
-adm --> graficas
+inv --> sincronizar
+inv --> graficas
+inv --> csv
 adm --> cerrar
 adm --> reprocesar
-adm --> csv
-adm --> codigo
+adm --> usuarios
+inv --> entrar
+inv --> codigo
 sch --> procesar
 sch --> purgar
 
+entrar <.. registrar : <<extend>>
+entrar <.. recuperar : <<extend>>
+contar ..> entrar : <<include>>
 contar <.. escanear : <<extend>>
 contar <.. recontar : <<extend>>
 sincronizar <.. codigo : <<extend>>\n(solo con require_pairing)

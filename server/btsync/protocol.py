@@ -18,17 +18,22 @@ MAX_LINE_BYTES = 4000
 # Cantidad mínima de partes (incluido el KIND) que exige cada tipo de mensaje.
 _MIN_PARTS = {
     "HELLO": 4,
-    "REC": 9,
+    "ACCT": 3,
+    "ACCTST": 5,
+    "REC": 8,
     "END": 2,
     "READY": 3,
     "CATCONTEO": 3,
-    "CATUBIC": 4,
     "CATPROD": 5,
     "CAT_END": 1,
     "ACK": 2,
     "NAK": 3,
     "BYE": 3,
 }
+
+# Versión del protocolo que viaja en HELLO. La 2 quitó la ubicación del REC y el mensaje CATUBIC.
+# La 3 añadió ACCT/ACCTST: el móvil identifica la cuenta del operador y el PC responde su estado.
+PROTOCOL_VERSION = "3"
 
 _CRC_HEX = re.compile(rb"[0-9A-F]{8}")
 _ESCAPES = {"%25": "%", "%7C": "|", "%0D": "\r", "%0A": "\n"}
@@ -54,7 +59,6 @@ class Rec:
     seq: int
     ts_ms: int
     id_conteo: str
-    ubicacion: str
     sku: str
     cantidad: str
     operador: str
@@ -63,13 +67,13 @@ class Rec:
     @classmethod
     def from_message(cls, m: Message) -> Rec:
         f = m.fields
-        if m.kind != "REC" or len(f) != 8:
-            raise FrameError("FORMAT", "REC exige exactamente 8 campos")
+        if m.kind != "REC" or len(f) != 7:
+            raise FrameError("FORMAT", "REC exige exactamente 7 campos")
         try:
             seq, ts_ms = int(f[0]), int(f[1])
         except ValueError:
             raise FrameError("FORMAT", "seq y epoch_ms deben ser enteros") from None
-        return cls(seq, ts_ms, f[2], f[3], f[4], f[5], f[6], f[7])
+        return cls(seq, ts_ms, f[2], f[3], f[4], f[5], f[6])
 
     def to_raw(self) -> str:
         """La línea REC tal como viaja por el cable, sin el CRC."""
@@ -81,7 +85,6 @@ class Rec:
                 encode_text(x)
                 for x in (
                     self.id_conteo,
-                    self.ubicacion,
                     self.sku,
                     self.cantidad,
                     self.operador,

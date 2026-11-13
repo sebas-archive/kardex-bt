@@ -4,18 +4,6 @@ SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = app;
 
 INSERT INTO conteos (id_conteo, nombre, estado) VALUES ('CONT-2026-11', 'Inventario fisico noviembre 2026', 'ABIERTO');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('A-01', 'A', 'Zona A - Estante 1');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('A-02', 'A', 'Zona A - Estante 2');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('A-03', 'A', 'Zona A - Estante 3');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('A-04', 'A', 'Zona A - Estante 4');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('B-01', 'B', 'Zona B - Estante 1');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('B-02', 'B', 'Zona B - Estante 2');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('B-03', 'B', 'Zona B - Estante 3');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('B-04', 'B', 'Zona B - Estante 4');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('C-01', 'C', 'Zona C - Estante 1');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('C-02', 'C', 'Zona C - Estante 2');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('C-03', 'C', 'Zona C - Estante 3');
-INSERT INTO ubicaciones (cod_ubicacion, zona, descripcion) VALUES ('C-04', 'C', 'Zona C - Estante 4');
 INSERT INTO productos (sku, nombre, categoria, unidad, costo_unit, tolerancia_pct) VALUES ('7701234000001', 'Arroz 500 g', 'Abarrotes', 'UND', 2400, 2.0);
 INSERT INTO productos (sku, nombre, categoria, unidad, costo_unit, tolerancia_pct) VALUES ('7701234000002', UNISTR('Az\00FAcar 1 kg'), 'Abarrotes', 'UND', 3900, 2.0);
 INSERT INTO productos (sku, nombre, categoria, unidad, costo_unit, tolerancia_pct) VALUES ('7701234000003', 'Aceite de Girasol 1 L', 'Abarrotes', 'UND', 11500, 2.0);

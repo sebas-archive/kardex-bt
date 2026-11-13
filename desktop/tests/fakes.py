@@ -5,7 +5,7 @@ import queue
 import threading
 
 from btsync.protocol import frame
-from btsync.store import Catalog
+from btsync.store import Catalog, EstadoCuenta
 
 NOW = 1731170400000
 
@@ -17,6 +17,7 @@ class FakeStore:
         self.rows, self.batch_calls = [], []
 
     def register_device(self, uuid, name): pass
+    def sincronizar_cuenta(self, usuario, nombre, uuid): return EstadoCuenta("ACTIVO", "OPERADOR", None)
     def open_sync(self, uuid): return 1
     def close_sync(self, id, recibidos, aceptados): pass
     def last_seq(self, uuid): return len(self.rows)
@@ -91,11 +92,15 @@ class FakeTransport:
 
 
 def hello(uuid="tst-gui"):
-    return frame(["HELLO", "1", uuid, "Teléfono de prueba"])
+    return frame(["HELLO", "3", uuid, "Teléfono de prueba"])
 
 
-def rec(seq, conteo="T-01", ubic="U1", sku="A1", cant="1", operador="Ana"):
-    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, ubic, sku, cant, operador, ""])
+def acct(usuario="tst-operador"):
+    return frame(["ACCT", usuario, "Operador de prueba"])
+
+
+def rec(seq, conteo="T-01", sku="A1", cant="1", operador="Ana"):
+    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, sku, cant, operador, ""])
 
 
 def end(n):

@@ -16,7 +16,6 @@ package "btsync.protocol" {
     +seq : int
     +ts_ms : int
     +id_conteo : str
-    +ubicacion : str
     +sku : str
     +cantidad : str
     +operador : str
@@ -29,7 +28,6 @@ package "btsync.protocol" {
 package "btsync.store" {
   class Catalog <<dataclass>> {
     +conteos : list
-    +ubicaciones : list
     +productos : list
   }
   class Store {

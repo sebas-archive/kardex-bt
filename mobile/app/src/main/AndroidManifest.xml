@@ -13,24 +13,28 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
+    <!-- Pantallas en vertical fija: la app se usa con una mano mientras se cuenta. -->
     <application
         android:allowBackup="false"
+        android:icon="@drawable/ic_app"
         android:label="Inventario"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+        android:theme="@style/Theme.Inventario">
 
-        <activity android:name=".ui.HomeActivity" android:exported="true">
+        <activity android:name=".ui.HomeActivity" android:screenOrientation="portrait" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".ui.OperadorActivity" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".ui.ElegirActivity" />
-        <activity android:name=".ui.ContarActivity" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".ui.LecturasActivity" />
-        <activity android:name=".ui.PendientesActivity" />
-        <activity android:name=".ui.SincronizarActivity" />
+        <activity android:name=".ui.AuthActivity" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.EstadoCuentaActivity" android:screenOrientation="portrait" />
+        <activity android:name=".ui.PerfilActivity" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.ElegirActivity" android:screenOrientation="portrait" />
+        <activity android:name=".ui.ContarActivity" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.LecturasActivity" android:screenOrientation="portrait" />
+        <activity android:name=".ui.PendientesActivity" android:screenOrientation="portrait" />
+        <activity android:name=".ui.SincronizarActivity" android:screenOrientation="portrait" />
     </application>
 
 </manifest>

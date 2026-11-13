@@ -1,51 +1,41 @@
 package com.sebasarchive.kardex.ui
 
 import android.os.Bundle
-import android.widget.ArrayAdapter
-import android.widget.Spinner
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.sebasarchive.kardex.data.ConteoEntity
-import com.sebasarchive.kardex.data.UbicacionEntity
+import com.sebasarchive.kardex.ui.pantallas.ElegirScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Elegir conteo y ubicación a partir del catálogo que mandó el PC. */
+/** Elegir el conteo a partir del catálogo que mandó el PC. */
 class ElegirActivity : PantallaActivity() {
+    private val s by lazy { Servicios.de(this) }
+    private var conteos by mutableStateOf<List<ConteoEntity>?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        montar("Conteo y ubicación")
-        val s = Servicios.de(this)
-        val aviso = texto("")
-        texto("Conteo", 14f)
-        val spConteo = Spinner(this).also { raiz.addView(it) }
-        texto("Ubicación", 14f)
-        val spUbic = Spinner(this).also { raiz.addView(it) }
-        var conteos = emptyList<ConteoEntity>()
-        var ubicaciones = emptyList<UbicacionEntity>()
-
-        boton("Listo") {
-            val c = conteos.getOrNull(spConteo.selectedItemPosition)
-            val u = ubicaciones.getOrNull(spUbic.selectedItemPosition)
-            if (c == null || u == null) aviso("No hay catálogo: sincroniza una vez con el PC")
-            else {
-                s.contar.elegirConteo(c.id)
-                s.contar.elegirUbicacion(u.cod)
-                finish()
-            }
+        pantalla {
+            val lista = conteos ?: return@pantalla  // hasta que carga, solo el fondo
+            ElegirScreen(
+                lista, s.contar.conteo.value,
+                alConfirmar = { conteo ->
+                    s.contar.elegirConteo(conteo)
+                    finish()
+                },
+                alVolver = { finish() },
+                alSincronizar = { abrir(SincronizarActivity::class.java, Transicion.HOJA) },
+            )
         }
+    }
 
+    override fun onResume() {
+        super.onResume()  // al volver de sincronizar, el catálogo puede haber llegado
         lifecycleScope.launch {
-            val (cs, us) = withContext(Dispatchers.IO) { s.contar.conteos() to s.contar.ubicaciones() }
-            conteos = cs
-            ubicaciones = us
-            if (cs.isEmpty()) aviso.text = "Todavía no hay catálogo. Sincroniza una vez con el PC para descargarlo."
-            spConteo.adapter = ArrayAdapter(this@ElegirActivity, android.R.layout.simple_spinner_dropdown_item,
-                cs.map { "${it.id} — ${it.nombre}" })
-            spUbic.adapter = ArrayAdapter(this@ElegirActivity, android.R.layout.simple_spinner_dropdown_item,
-                us.map { "${it.cod} — ${it.zona} · ${it.descripcion}" })
-            cs.indexOfFirst { it.id == s.contar.conteo.value }.takeIf { it >= 0 }?.let { spConteo.setSelection(it) }
-            us.indexOfFirst { it.cod == s.contar.ubicacion.value }.takeIf { it >= 0 }?.let { spUbic.setSelection(it) }
+            conteos = withContext(Dispatchers.IO) { s.contar.conteos() }
         }
     }
 }

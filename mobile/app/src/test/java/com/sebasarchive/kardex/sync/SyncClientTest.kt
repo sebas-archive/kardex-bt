@@ -9,7 +9,7 @@ import com.sebasarchive.kardex.data.LecturaEntity
 import com.sebasarchive.kardex.data.Outbox
 import com.sebasarchive.kardex.data.ProductoEntity
 import com.sebasarchive.kardex.data.TestDb
-import com.sebasarchive.kardex.data.UbicacionEntity
+import com.sebasarchive.kardex.protocol.EstadoCuentaPc
 import com.sebasarchive.kardex.protocol.Message
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -31,6 +31,7 @@ class SyncClientTest {
     private lateinit var outbox: Outbox
     private lateinit var catalog: CatalogRepository
     private var phoneNow = S
+    private val estadosCuenta = ArrayList<EstadoCuentaPc>()
 
     @Before
     fun abrir() {
@@ -43,13 +44,14 @@ class SyncClientTest {
     fun cerrar() = db.close()
 
     private fun lectura(ts: Long, cantidad: String = "1") = LecturaEntity(
-        tsOriginalMs = ts, idConteo = "T-01", ubicacion = "U1", sku = "A1",
+        tsOriginalMs = ts, idConteo = "T-01", sku = "A1",
         cantidad = cantidad, operador = "Ana", nota = "")
 
     private fun cargar(n: Int) = (1..n).forEach { outbox.insertar(lectura(ts = 1000L + it, cantidad = it.toString())) }
 
     private fun sync(pc: FakePc): List<SyncProgress> {
-        val client = SyncClient(outbox, catalog, "dev-test-1", "Teléfono de prueba") { phoneNow }
+        val client = SyncClient(outbox, catalog, "dev-test-1", "Teléfono de prueba", "ana.gomez", "Ana Gómez",
+            alEstado = { estadosCuenta += it }) { phoneNow }
         val eventos = runBlocking { client.sync(pc.connect()).toList() }
         pc.join()
         return eventos
@@ -66,7 +68,9 @@ class SyncClientTest {
         assertEquals(listOf(50, 50, 20), pc.bursts.toList())  // nunca más de 50 sin confirmar
         assertEquals((1L..120L).toList(), pc.accepted.map { it.seq })
         assertEquals((1..120).map { it.toString() }, pc.accepted.map { it.cantidad })
-        assertEquals(Message("HELLO", listOf("1", "dev-test-1", "Teléfono de prueba")), pc.hello)
+        assertEquals(Message("HELLO", listOf("3", "dev-test-1", "Teléfono de prueba")), pc.hello)
+        assertEquals(Message("ACCT", listOf("ana.gomez", "Ana Gómez")), pc.acct)
+        assertEquals(listOf(EstadoCuentaPc("ana.gomez", "ACTIVO", "OPERADOR", null)), estadosCuenta)
         assertTrue(estados().all { it == Estado.CONFIRMADO })
         assertEquals(SyncProgress.Connected(ultimoSeqServidor = 0, porEnviar = 120), eventos.first())
         assertEquals(listOf(25L, 50L, 75L, 100L, 120L),
@@ -145,16 +149,34 @@ class SyncClientTest {
     fun test_catalog_sent_by_the_pc_replaces_the_local_one() {
         catalog.reemplazarTodo(Catalog(
             conteos = listOf(ConteoEntity("VIEJO", "Conteo anterior")),
-            ubicaciones = listOf(UbicacionEntity("X9", "ZX", "ya no existe")),
             productos = listOf(ProductoEntity("SKU-VIEJO", "Descontinuado", "Otros", "UND"))))
 
         val eventos = sync(FakePc())  // sin lecturas pendientes: solo baja el catálogo
 
         assertEquals(listOf("T-01"), catalog.conteos().map { it.id })
-        assertEquals(listOf("U1", "U2"), catalog.ubicaciones().map { it.cod })
         assertEquals(listOf("A1", "A2"), catalog.productos().map { it.sku })
         assertEquals(ProductoEntity("A2", "Café | molido", "Abarrotes", "UND"), catalog.producto("A2"))
         assertNull(catalog.producto("SKU-VIEJO"))
         assertEquals(SyncProgress.Done(aceptados = 0, rechazados = 0, pendientes = 0), eventos.last())
+    }
+
+    @Test
+    fun conCuentaSuspendidaNoEnviaRegistrosYLosConserva() {
+        cargar(5)
+        val pc = FakePc(estadoCuenta = "SUSPENDIDO", motivoCuenta = "Vacaciones | hasta el lunes")
+        val eventos = sync(pc)
+        assertTrue(pc.received.isEmpty())                       // ni un REC salió del teléfono
+        assertTrue(estados().all { it == Estado.PENDIENTE })    // siguen en el búfer para cuando la reactiven
+        assertEquals(listOf(EstadoCuentaPc("ana.gomez", "SUSPENDIDO", null, "Vacaciones | hasta el lunes")), estadosCuenta)
+        assertEquals(SyncProgress.CuentaNoActiva("SUSPENDIDO", "Vacaciones | hasta el lunes", pendientes = 5), eventos.last())
+    }
+
+    @Test
+    fun conCuentaActivaEnviaRegistros() {
+        cargar(3)
+        val pc = FakePc()
+        val eventos = sync(pc)
+        assertEquals(listOf(1L, 2L, 3L), pc.accepted.map { it.seq })
+        assertEquals(SyncProgress.Done(aceptados = 3, rechazados = 0, pendientes = 0), eventos.last())
     }
 }

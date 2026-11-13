@@ -1,52 +1,60 @@
 package com.sebasarchive.kardex.ui
 
-import android.content.Intent
 import android.os.Bundle
-import android.widget.TextView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import com.sebasarchive.kardex.auth.Rol
+import com.sebasarchive.kardex.ui.pantallas.HomeScreen
+import com.sebasarchive.kardex.ui.pantallas.HomeUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Inicio: dónde está contando el operario y a dónde ir. Sin operador, lo pide primero. */
+/** Inicio: dónde está contando el operario y a dónde ir. Sin sesión abierta, manda al acceso. */
 class HomeActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
-    private lateinit var resumen: TextView
-    private lateinit var alerta: TextView
-    private var pidioOperador = false
+    private var ui by mutableStateOf(HomeUi())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        montar("Inventario")
-        resumen = texto("", 16f)
-        alerta = texto("", 15f, negrita = true)
-        boton("Contar") {
-            if (s.contar.operador.value.isEmpty()) aviso("Escribe primero el nombre del operador")
-            else if (s.contar.conteo.value == null || s.contar.ubicacion.value == null) aviso("Elige primero el conteo y la ubicación")
-            else startActivity(Intent(this, ContarActivity::class.java))
+        val abierta = s.auth.sesion()
+        if (abierta == null || !abierta.puedeTrabajar) {  // sin sesión, al acceso; sin cuenta activa, a su estado
+            reemplazarPor(if (abierta == null) AuthActivity::class.java else EstadoCuentaActivity::class.java)
+            return
         }
-        boton("Elegir conteo y ubicación") { startActivity(Intent(this, ElegirActivity::class.java)) }
-        boton("Contado en esta ubicación") { startActivity(Intent(this, LecturasActivity::class.java)) }
-        boton("Pendientes de enviar") { startActivity(Intent(this, PendientesActivity::class.java)) }
-        boton("Sincronizar con el PC") { startActivity(Intent(this, SincronizarActivity::class.java)) }
-        boton("Cambiar operador") { startActivity(Intent(this, OperadorActivity::class.java)) }
+        pantalla {
+            HomeScreen(
+                ui,
+                alContar = {
+                    when {
+                        s.contar.conteo.value == null -> abrir(ElegirActivity::class.java)
+                        else -> abrir(ContarActivity::class.java)
+                    }
+                },
+                alElegir = { abrir(ElegirActivity::class.java) },
+                alLecturas = { abrir(LecturasActivity::class.java) },
+                alPendientes = { abrir(PendientesActivity::class.java) },
+                alSincronizar = { abrir(SincronizarActivity::class.java, Transicion.HOJA) },
+                alPerfil = { abrir(PerfilActivity::class.java, Transicion.HOJA) },
+            )
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        if (s.contar.operador.value.isEmpty() && !pidioOperador) {  // primer uso: el operador es obligatorio antes de contar
-            pidioOperador = true  // una sola vez: si vuelve atrás sin escribirlo no se le encierra en un ciclo
-            startActivity(Intent(this, OperadorActivity::class.java))
+        val sesion = s.auth.sesion() ?: return
+        if (!sesion.puedeTrabajar) {  // el PC la suspendió en la última sincronización
+            reemplazarPor(EstadoCuentaActivity::class.java)
             return
         }
+        if (s.contar.operador.value != sesion.nombre) s.contar.setOperador(sesion.nombre)  // el operador es quien tiene la sesión (D20)
         lifecycleScope.launch {
-            val (pendientes, hayCatalogo) = withContext(Dispatchers.IO) { s.contar.contarPendientes() to s.contar.hayCatalogo() }
-            resumen.text = "Operador: ${s.contar.operador.value.ifEmpty { "sin definir (toca «Cambiar operador»)" }}\n" +
-                "Conteo: ${s.contar.conteo.value ?: "sin elegir"}\n" +
-                "Ubicación: ${s.contar.ubicacion.value ?: "sin elegir"}\n" +
-                "Lecturas por enviar: $pendientes"
-            alerta.text = if (hayCatalogo) "" else
-                "Todavía no hay catálogo: sincroniza una vez con el PC para descargar los conteos, ubicaciones y productos."
+            val (pendientes, total, hayCatalogo) = withContext(Dispatchers.IO) {
+                Triple(s.contar.contarPendientes(), s.contar.todasLasLecturas().size, s.contar.hayCatalogo())
+            }
+            ui = HomeUi(sesion.nombre, Rol.nombre(sesion.rol), s.contar.conteo.value, pendientes, total, hayCatalogo)
         }
     }
 }

@@ -1,53 +1,49 @@
 package com.sebasarchive.kardex.ui
 
-import android.content.Intent
 import android.os.Bundle
-import android.widget.ArrayAdapter
-import android.widget.ListView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
-import com.sebasarchive.kardex.data.LecturaEntity
+import com.sebasarchive.kardex.ui.pantallas.LecturaFila
+import com.sebasarchive.kardex.ui.pantallas.LecturasScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Lo contado en la ubicación actual; tocar una fila la corrige (recontar). */
+/** Lo contado en el conteo actual; tocar una fila la corrige (recontar). */
 class LecturasActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
-    private lateinit var lista: ListView
-    private lateinit var encabezado: android.widget.TextView
-    private var filas = emptyList<LecturaEntity>()
+    private var filas by mutableStateOf<List<LecturaFila>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        montar("Contado en esta ubicación")
-        encabezado = texto("", 15f, negrita = true)
-        lista = ListView(this).also { raiz.addView(it) }
-        lista.setOnItemClickListener { _, _, posicion, _ ->
-            val l = filas[posicion]
-            startActivity(Intent(this, ContarActivity::class.java)
-                .putExtra(ContarActivity.EXTRA_SKU, l.sku)
-                .putExtra(ContarActivity.EXTRA_CANTIDAD, l.cantidad)
-                .putExtra(ContarActivity.EXTRA_NOTA, l.nota))
+        pantalla {
+            val lista = filas ?: return@pantalla
+            LecturasScreen(
+                s.contar.conteo.value, lista,
+                alEditar = { fila ->
+                    abrir(ContarActivity::class.java, Transicion.LATERAL) {
+                        putExtra(ContarActivity.EXTRA_SKU, fila.sku)
+                        putExtra(ContarActivity.EXTRA_CANTIDAD, fila.cantidad)
+                        putExtra(ContarActivity.EXTRA_NOTA, fila.nota)
+                    }
+                },
+                alContar = { abrir(ContarActivity::class.java) },
+                alVolver = { finish() },
+            )
         }
     }
 
     override fun onResume() {
         super.onResume()
-        val ubicacion = s.contar.ubicacion.value
-        if (ubicacion == null) {
-            encabezado.text = "Elige primero el conteo y la ubicación"
-            return
-        }
+        val conteo = s.contar.conteo.value
         lifecycleScope.launch {
-            val (lecturas, nombres) = withContext(Dispatchers.IO) {
-                val ls = s.contar.lecturasDe(ubicacion)
-                ls to ls.associate { it.sku to (s.contar.producto(it.sku)?.nombre ?: "SKU fuera del catálogo") }
+            filas = if (conteo == null) emptyList() else withContext(Dispatchers.IO) {
+                s.contar.lecturas().asReversed().map {
+                    LecturaFila(it.sku, s.contar.producto(it.sku)?.nombre, it.cantidad, it.estado, it.nota)
+                }
             }
-            filas = lecturas
-            encabezado.text = "Ubicación $ubicacion · ${lecturas.size} productos · toca uno para corregirlo"
-            lista.adapter = ArrayAdapter(this@LecturasActivity, android.R.layout.simple_list_item_1,
-                lecturas.map { "${nombres[it.sku]} (${it.sku})  ×  ${it.cantidad}" })
-            lista.layoutParams = lista.layoutParams.apply { height = dp(72) * maxOf(1, lecturas.size) }
         }
     }
 }

@@ -21,9 +21,10 @@ from btsync.controller import (
     SyncController,
 )
 from btsync.protocol import frame, parse
-from btsync.store import Catalog, Store
+from btsync.store import Catalog, EstadoCuenta, Store
 from btsync.transports.base import BluetoothUnavailable
 from btsync.transports.tcp import TcpTransport
+from conftest import OPERADOR_ACTIVO
 
 NOW = 1731170400000
 STATUS_KEYS = {"estado", "codigo", "recibidos", "restante_s", "ultimo_error"}
@@ -36,6 +37,7 @@ class FakeStore:
         self.rows, self.batch_calls, self.batch_error = [], [], batch_error
 
     def register_device(self, uuid, name): pass
+    def sincronizar_cuenta(self, usuario, nombre, uuid): return EstadoCuenta("ACTIVO", "OPERADOR", None)
     def open_sync(self, uuid): return 1
     def close_sync(self, id, recibidos, aceptados): pass
     def last_seq(self, uuid): return len(self.rows)
@@ -122,11 +124,15 @@ def wait_for(predicate, timeout=5.0, what="la condición"):
 
 
 def hello(uuid="tst-ctl"):
-    return frame(["HELLO", "1", uuid, "Teléfono de prueba"])
+    return frame(["HELLO", "3", uuid, "Teléfono de prueba"])
 
 
-def rec(seq, conteo="T-01", ubic="U1", sku="A1", cant="1", operador="Ana"):
-    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, ubic, sku, cant, operador, ""])
+def acct(usuario=OPERADOR_ACTIVO):
+    return frame(["ACCT", usuario, "Operador de prueba"])
+
+
+def rec(seq, conteo="T-01", sku="A1", cant="1", operador="Ana"):
+    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, sku, cant, operador, ""])
 
 
 def end(n):
@@ -223,7 +229,7 @@ def test_timeout_returns_to_idle_and_stops_transport(ctl):
 def test_session_end_runs_batch_once_then_listo(ctl):
     controller, transport, store, changes = started(ctl)
     conn = transport.connect()
-    conn.feed(hello(), rec(1), rec(2), rec(3), end(3))
+    conn.feed(hello(), acct(), rec(1), rec(2), rec(3), end(3))
     wait_for(lambda: controller.status()["estado"] == LISTO, what="LISTO")
     seen = estados(changes)
     assert seen[-3:] == [RECIBIENDO, PROCESANDO, LISTO]
@@ -237,7 +243,7 @@ def test_batch_failure_reports_error_and_controller_keeps_running(ctl):
     store = FakeStore(batch_error=RuntimeError("ORA-12541: TNS:no listener"))
     controller, transport, _, _ = started(ctl, store=store)
     conn = transport.connect()
-    conn.feed(hello(), rec(1), end(1))
+    conn.feed(hello(), acct(), rec(1), end(1))
     wait_for(lambda: controller.status()["estado"] == ERROR, what="ERROR")
     assert controller.status()["ultimo_error"].startswith("BATCH:")
     assert "ORA-12541" in controller.status()["ultimo_error"]
@@ -252,7 +258,7 @@ def test_batch_failure_reports_error_and_controller_keeps_running(ctl):
 def test_progress_event_updates_recibidos(ctl):
     controller, transport, _, changes = started(ctl)
     conn = transport.connect()
-    conn.feed(hello(), rec(1), rec(2), rec(3))
+    conn.feed(hello(), acct(), rec(1), rec(2), rec(3))
     wait_for(lambda: controller.status()["recibidos"] == 3, what="recibidos == 3")
     assert controller.status()["estado"] == RECIBIENDO
     assert any(c["estado"] == RECIBIENDO and c["recibidos"] >= 1 for c in changes)
@@ -280,7 +286,7 @@ def test_on_change_called_on_every_transition(ctl):
     thread.join(timeout=5)
     conn = transport.connect()
     wait_for(lambda: controller.status()["estado"] == CONECTADO, what="CONECTADO")
-    conn.feed(hello(), rec(1), rec(2), end(2))
+    conn.feed(hello(), acct(), rec(1), rec(2), end(2))
     wait_for(lambda: controller.status()["estado"] == LISTO, what="LISTO")
     assert estados(changes) == [
         ESPERANDO_EMPAREJAMIENTO,
@@ -309,7 +315,7 @@ def test_cut_before_end_keeps_waiting_and_does_not_run_batch(ctl):
     """Un corte no cierra la ventana: el teléfono reintenta solo y debe poder reconectarse."""
     controller, transport, store, _ = started(ctl)
     first = transport.connect()
-    first.feed(hello(), rec(1), rec(2))
+    first.feed(hello(), acct(), rec(1), rec(2))
     wait_for(lambda: controller.status()["recibidos"] == 2, what="recibidos == 2")
     first.cut()
     wait_for(lambda: controller.status()["estado"] == ESPERANDO_EMPAREJAMIENTO, what="volver a esperar")
@@ -317,7 +323,7 @@ def test_cut_before_end_keeps_waiting_and_does_not_run_batch(ctl):
     assert store.batch_calls == [] and transport.serving
 
     second = transport.connect()  # el reintento
-    second.feed(hello(), end(0))
+    second.feed(hello(), acct(), end(0))
     wait_for(lambda: controller.status()["estado"] == LISTO, what="LISTO")
     assert store.batch_calls == ["SYNC"]
     assert controller.status()["ultimo_error"] is None
@@ -326,7 +332,7 @@ def test_cut_before_end_keeps_waiting_and_does_not_run_batch(ctl):
 def test_cancel_mid_session_returns_to_idle_without_batch(ctl):
     controller, transport, store, _ = started(ctl)
     conn = transport.connect()
-    conn.feed(hello(), rec(1))
+    conn.feed(hello(), acct(), rec(1))
     wait_for(lambda: controller.status()["recibidos"] == 1, what="recibidos == 1")
     controller.cancel()
     assert controller.status()["estado"] == IDLE
@@ -345,12 +351,12 @@ def test_tcp_transport_real_store_end_to_end(escenario, db):
     controller.start()
     try:
         wait_for(lambda: transport.port != 0, what="que TCP escuche")
-        lecturas = [("U1", "A1", "60", "Ana"), ("U2", "A1", "41", "Luis"), ("U1", "A2", "45", "Ana"),
-                    ("U1", "A3", "23", "Ana"), ("U2", "A5", "4", "Luis")]
+        lecturas = [("A1", "60", "Ana"), ("A1", "101", "Luis"), ("A2", "45", "Ana"),
+                    ("A3", "23", "Ana"), ("A5", "4", "Luis")]
         with socket.create_connection(("127.0.0.1", transport.port), timeout=10) as sock:
-            sock.sendall(hello("tst-ctl-tcp"))
-            for i, (ubic, sku, cant, operador) in enumerate(lecturas, start=1):
-                sock.sendall(rec(i, ubic=ubic, sku=sku, cant=cant, operador=operador))
+            sock.sendall(hello("tst-ctl-tcp") + acct())
+            for i, (sku, cant, operador) in enumerate(lecturas, start=1):
+                sock.sendall(rec(i, sku=sku, cant=cant, operador=operador))
             sock.sendall(end(len(lecturas)))
             replies = sock.makefile("rb")
             kinds = []

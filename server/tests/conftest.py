@@ -34,6 +34,8 @@ def db():
 # Los tests que usan Store/Session/e2e escriben con conexiones propias (COMMIT real), así que
 # limpian por prefijo de dispositivo; las filas reales de la app nunca usan estos prefijos.
 TEST_DEVICE_PATTERNS = ("tst-%", "dev-e2e%")
+# Cuenta de operador ACTIVO con la que abren sesión las pruebas (protocolo 3: HELLO + ACCT).
+OPERADOR_ACTIVO = "tst-operador"
 
 
 def purge_test_rows() -> None:
@@ -44,6 +46,23 @@ def purge_test_rows() -> None:
             cur.execute("DELETE FROM sync_sesiones WHERE uuid_dispositivo LIKE :p", p=pattern)
             cur.execute("DELETE FROM captura_transito WHERE uuid_dispositivo LIKE :p", p=pattern)
             cur.execute("DELETE FROM dispositivos WHERE uuid LIKE :p", p=pattern)
+            cur.execute("DELETE FROM usuarios WHERE usuario LIKE :p", p=pattern)
+        cur.execute("INSERT INTO usuarios (usuario, nombre, rol, clave_hash, estado, origen) "
+                    "VALUES (:u, 'Operador de prueba', 'OPERADOR', '-', 'ACTIVO', 'MOVIL')", u=OPERADOR_ACTIVO)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def operador_de_prueba():
+    """Deja la cuenta OPERADOR_ACTIVO lista antes de cualquier prueba (también las que no usan ``store``) y, al
+    terminar la corrida, borra las cuentas de prueba: no deben quedar en la tabla real (Empleados, primer admin)."""
+    purge_test_rows()
+    yield
+    conn = connect()
+    try:
+        conn.cursor().execute("DELETE FROM usuarios WHERE usuario LIKE 'tst-%'")
         conn.commit()
     finally:
         conn.close()
@@ -59,6 +78,7 @@ def store():
         yield s
     finally:
         s.rollback()
+        s.close()
         purge_test_rows()
 
 
@@ -108,11 +128,11 @@ def escenario():
         conn.close()
 
 
-def staging(conn, uuid, seq, ts_ms, conteo, ubic, sku, cant, operador="Ana", nota="") -> int:
+def staging(conn, uuid, seq, ts_ms, conteo, sku, cant, operador="Ana", nota="") -> int:
     """Inserta (con COMMIT) una línea REC sin CRC en CAPTURA_TRANSITO y devuelve su ID_TRANSITO."""
     from btsync.protocol import Rec
 
-    raw = Rec(seq, ts_ms, conteo, ubic, sku, str(cant), operador, nota).to_raw()
+    raw = Rec(seq, ts_ms, conteo, sku, str(cant), operador, nota).to_raw()
     cur = conn.cursor()
     out = cur.var(int)
     cur.execute(

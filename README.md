@@ -37,7 +37,7 @@ paquete `PKG_BATCH`, los jobs del Scheduler y las vistas: puede tardar varios mi
 docker compose up -d app
 ```
 
-La aplicación de escritorio se abre **en tu pantalla** por X11 y muestra la pestaña *Sincronización*. Con `up -d` no ves
+La aplicación de escritorio se abre **en tu pantalla** por X11 y muestra el acceso: crea tu cuenta (la primera queda como administrador) e inicia sesión. Con `up -d` no ves
 sus mensajes; para verlos usa `docker compose logs -f app`. Para no usar Bluetooth (pruebas y plan B de la demo):
 
 ```bash
@@ -61,11 +61,20 @@ adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 > **No desinstales la APK con lecturas pendientes:** la bandeja de salida vive en el teléfono y se borra con la
 > aplicación (D18). Reinstalar crea un dispositivo nuevo con `seq` desde 1.
 >
+> **Toda cuenta nueva espera aprobación.** Las del PC (Administrador, Inventario) y las del teléfono (Operador de
+> Inventario) quedan **PENDIENTES** hasta que el administrador las aprueba en **Solicitudes**; también puede rechazarlas
+> o suspenderlas con un motivo que la persona ve al intentar entrar. La cuenta del teléfono llega al PC al sincronizar
+> (su contraseña nunca sale del teléfono; se recupera con la pregunta de seguridad). Qué ve cada rol se ajusta en
+> **Roles y permisos**.
+>
+> **Categorías, almacenes y existencias** (Fase 2) se crean solos al arrancar la app con datos de ejemplo: dos almacenes
+> (`ALM-01`, `ALM-02`) y las existencias del conteo más reciente en `ALM-01`.
+>
 > **Solo se sincroniza un teléfono a la vez** (D19): un segundo teléfono recibe «PC ocupado» y debe esperar.
 
 ### Uso en una frase
 
-En el celular: operador → conteo y ubicación → escanear o digitar → guardar (sin red). En el PC: **Iniciar
+En el celular: crear cuenta (queda pendiente: sincroniza una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → conteo → escanear el código de barras o el QR, o digitar → guardar (sin red). En el PC: **Iniciar
 sincronización** (el PC se anuncia como `gestion_inventario` durante 120 s). En el celular: **Sincronizar**; la primera
 vez se busca y se elige `gestion_inventario`, y desde entonces conecta directo, sin claves ni códigos (D22).
 

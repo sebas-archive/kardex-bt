@@ -1,7 +1,7 @@
 """Conciliación contra el stock del sistema, cierre de conteo y vistas.
 
 Valores exactos del escenario fijo T-01 (ver server/tests/fixtures/escenario_conciliacion.sql):
-lecturas U1 A1 60, U2 A1 41, U1 A2 45, U1 A3 23, U2 A5 4; stock A1 100, A2 50, A3 20, A4 10.
+lecturas A1 60 (Ana) y luego A1 101 (Luis, recuento que la reemplaza), A2 45, A3 23, A5 4; stock A1 100, A2 50, A3 20, A4 10.
 """
 
 import threading
@@ -80,17 +80,17 @@ def test_cerrar_conteo_turns_sin_contar_into_faltante(contado, db):
 
 def test_tolerance_boundary_is_inclusive(escenario, db):
     # A1: sistema 100, tolerancia 2 % -> hasta 2 unidades de diferencia es OK.
-    staging(db, "tst-c1", 1, T0, C, "U1", "A1", 102)
+    staging(db, "tst-c1", 1, T0, C, "A1", 102)
     procesar(db)
     assert conciliacion(db)["A1"] == (100, 102, 2, 2.00, 4000, "OK")
-    staging(db, "tst-c1", 2, T0 + 1000, C, "U1", "A1", 103)  # recuento
+    staging(db, "tst-c1", 2, T0 + 1000, C, "A1", 103)  # recuento
     procesar(db)
     assert conciliacion(db)["A1"] == (100, 103, 3, 3.00, 6000, "SOBRANTE")
 
 
 def test_recount_updates_conciliation(contado, db):
     assert conciliacion(db)["A2"][5] == "FALTANTE"
-    staging(db, "tst-c1", 1, T0 + 60_000, C, "U1", "A2", 50)  # más reciente que la lectura de 45
+    staging(db, "tst-c1", 1, T0 + 60_000, C, "A2", 50)  # más reciente que la lectura de 45
     procesar(db)
     assert conciliacion(db)["A2"] == (50, 50, 0, 0.00, 0, "OK")
     assert conciliacion(db)["A1"] == ABIERTO["A1"]  # lo demás no cambia
@@ -129,16 +129,6 @@ def test_v_top_desvios_order(contado, db):
     assert rows[0][2:] == ("SOBRANTE", "Producto A3", "Aseo", 3)
 
 
-def test_v_avance_zona(contado, db):
-    cur = db.cursor()
-    cur.execute(
-        "SELECT zona, ubicaciones_con_lectura, ubicaciones_totales FROM v_avance_zona "
-        "WHERE id_conteo = :c AND zona IN ('Z1', 'Z2')",
-        c=C,
-    )
-    assert {r[0]: (r[1], r[2]) for r in cur} == {"Z1": (2, 2), "Z2": (0, 1)}
-
-
 def test_v_actividad_counts_by_operator(contado, db):
     cur = db.cursor()
     cur.execute(
@@ -158,10 +148,10 @@ def test_v_estado_batch_counts(escenario, db):
         return cur.fetchone()
 
     antes = estado_batch()
-    staging(db, "tst-c1", 1, T0, C, "U1", "ZZ9", 1)       # quedará en ERROR
-    staging(db, "tst-c1", 2, T0, C, "U1", "A1", 1)        # quedará PROCESADO
+    staging(db, "tst-c1", 1, T0, C, "ZZ9", 1)       # quedará en ERROR
+    staging(db, "tst-c1", 2, T0, C, "A1", 1)        # quedará PROCESADO
     procesar(db)
-    staging(db, "tst-c1", 3, T0, C, "U1", "A2", 1)        # se queda PENDIENTE
+    staging(db, "tst-c1", 3, T0, C, "A2", 1)        # se queda PENDIENTE
     ahora = estado_batch()
     assert (ahora[0] - antes[0], ahora[1] - antes[1], ahora[2] - antes[2], ahora[3] - antes[3]) == (1, 0, 1, 1)
     assert ahora[4] is not None and ahora[5] == "MANUAL"
@@ -200,7 +190,7 @@ def test_concurrent_batches_leave_same_conciliation_as_single_run(escenario, db)
 
 def test_reading_after_close_is_error_and_close_is_stable(contado, db):
     db.cursor().callproc("pkg_batch.cerrar_conteo", [C])
-    tid = staging(db, "tst-c1", 1, T0 + 60_000, C, "U3", "A4", 10)  # llega tarde
+    tid = staging(db, "tst-c1", 1, T0 + 60_000, C, "A4", 10)  # llega tarde
     procesar(db)
     cur = db.cursor()
     cur.execute("SELECT estado, mensaje_error FROM captura_transito WHERE id_transito = :i", i=tid)

@@ -26,7 +26,6 @@ data class Rec(
     val seq: Long,
     val tsMs: Long,
     val idConteo: String,
-    val ubicacion: String,
     val sku: String,
     val cantidad: String,
     val operador: String,
@@ -34,7 +33,7 @@ data class Rec(
 ) {
     private fun wireFields(): List<String> =
         listOf("REC", seq.toString(), tsMs.toString()) +
-            listOf(idConteo, ubicacion, sku, cantidad, operador, nota).map(Protocol::encodeText)
+            listOf(idConteo, sku, cantidad, operador, nota).map(Protocol::encodeText)
 
     /** La línea `REC` como va por el cable, sin el CRC. */
     fun toRaw(): String = wireFields().joinToString("|")
@@ -44,10 +43,20 @@ data class Rec(
 
     companion object {
         fun fromMessage(m: Message): Rec {
-            if (m.kind != "REC" || m.fields.size != 8) throw FrameError("FORMAT", "REC exige exactamente 8 campos")
+            if (m.kind != "REC" || m.fields.size != 7) throw FrameError("FORMAT", "REC exige exactamente 7 campos")
             val seq = m.fields[0].toLongOrNull() ?: throw FrameError("FORMAT", "seq debe ser entero")
             val ts = m.fields[1].toLongOrNull() ?: throw FrameError("FORMAT", "epoch_ms debe ser entero")
-            return Rec(seq, ts, m.fields[2], m.fields[3], m.fields[4], m.fields[5], m.fields[6], m.fields[7])
+            return Rec(seq, ts, m.fields[2], m.fields[3], m.fields[4], m.fields[5], m.fields[6])
+        }
+    }
+}
+
+/** Lo que el PC responde en `ACCTST`: el estado de la cuenta del operador. Rol y motivo vacíos llegan como null. */
+data class EstadoCuentaPc(val usuario: String, val estado: String, val rol: String?, val motivo: String?) {
+    companion object {
+        fun fromMessage(m: Message): EstadoCuentaPc {
+            if (m.kind != "ACCTST" || m.fields.size < 4) throw FrameError("FORMAT", "ACCTST exige 4 campos")
+            return EstadoCuentaPc(m.fields[0], m.fields[1], m.fields[2].ifEmpty { null }, m.fields[3].ifEmpty { null })
         }
     }
 }
@@ -55,10 +64,16 @@ data class Rec(
 object Protocol {
     const val MAX_LINE_BYTES = 4000
 
+    /**
+     * Versión del protocolo que viaja en `HELLO`. La 2 quitó la ubicación del `REC` y el mensaje `CATUBIC`; la 3
+     * añadió `ACCT`/`ACCTST` (la cuenta del operador y su estado).
+     */
+    const val VERSION = "3"
+
     // Cantidad mínima de partes (incluido el tipo) de cada mensaje.
     private val MIN_PARTS = mapOf(
-        "HELLO" to 4, "REC" to 9, "END" to 2,
-        "READY" to 3, "CATCONTEO" to 3, "CATUBIC" to 4, "CATPROD" to 5, "CAT_END" to 1,
+        "HELLO" to 4, "ACCT" to 3, "ACCTST" to 5, "REC" to 8, "END" to 2,
+        "READY" to 3, "CATCONTEO" to 3, "CATPROD" to 5, "CAT_END" to 1,
         "ACK" to 2, "NAK" to 3, "BYE" to 3,
     )
     private val ESCAPE = Regex("%(?:25|7C|0D|0A)")

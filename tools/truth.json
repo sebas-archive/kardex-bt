@@ -2,419 +2,244 @@
   "conteo": "CONT-2026-11",
   "fisico": [
     {
+      "cantidad": 18,
+      "sku": "7701234000001"
+    },
+    {
       "cantidad": 201,
-      "sku": "7701234000002",
-      "ubicacion": "A-01"
+      "sku": "7701234000002"
     },
     {
       "cantidad": 83,
-      "sku": "7701234000003",
-      "ubicacion": "A-01"
+      "sku": "7701234000003"
     },
     {
       "cantidad": 74,
-      "sku": "7701234000004",
-      "ubicacion": "A-01"
+      "sku": "7701234000004"
     },
     {
-      "cantidad": 40,
-      "sku": "7701234000005",
-      "ubicacion": "A-01"
+      "cantidad": 69,
+      "sku": "7701234000005"
     },
     {
       "cantidad": 46,
-      "sku": "7701234000006",
-      "ubicacion": "A-01"
+      "sku": "7701234000006"
     },
     {
-      "cantidad": 103,
-      "sku": "7701234000007",
-      "ubicacion": "A-01"
-    },
-    {
-      "cantidad": 4,
-      "sku": "7701234000008",
-      "ubicacion": "A-01"
-    },
-    {
-      "cantidad": 191,
-      "sku": "7701234000011",
-      "ubicacion": "A-01"
-    },
-    {
-      "cantidad": 18,
-      "sku": "7701234000001",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 29,
-      "sku": "7701234000005",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 97,
-      "sku": "7701234000007",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 11,
-      "sku": "7701234000008",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 35,
-      "sku": "7701234000009",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 185,
-      "sku": "7701234000010",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 10,
-      "sku": "7701234000011",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 240,
-      "sku": "7701234000012",
-      "ubicacion": "A-02"
-    },
-    {
-      "cantidad": 163,
-      "sku": "7701234000015",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 120,
-      "sku": "7701234000016",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 20,
-      "sku": "7701234000017",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 3,
-      "sku": "7701234000018",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 66,
-      "sku": "7701234000020",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 71,
-      "sku": "7701234000021",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 3,
-      "sku": "7701234000024",
-      "ubicacion": "A-03"
-    },
-    {
-      "cantidad": 151,
-      "sku": "7701234000013",
-      "ubicacion": "A-04"
-    },
-    {
-      "cantidad": 34,
-      "sku": "7701234000014",
-      "ubicacion": "A-04"
-    },
-    {
-      "cantidad": 16,
-      "sku": "7701234000018",
-      "ubicacion": "A-04"
-    },
-    {
-      "cantidad": 35,
-      "sku": "7701234000019",
-      "ubicacion": "A-04"
-    },
-    {
-      "cantidad": 141,
-      "sku": "7701234000022",
-      "ubicacion": "A-04"
-    },
-    {
-      "cantidad": 166,
-      "sku": "7701234000023",
-      "ubicacion": "A-04"
+      "cantidad": 200,
+      "sku": "7701234000007"
     },
     {
       "cantidad": 15,
-      "sku": "7701234000024",
-      "ubicacion": "A-04"
+      "sku": "7701234000008"
     },
     {
-      "cantidad": 25,
-      "sku": "7701234000025",
-      "ubicacion": "B-01"
+      "cantidad": 35,
+      "sku": "7701234000009"
     },
     {
-      "cantidad": 195,
-      "sku": "7701234000027",
-      "ubicacion": "B-01"
+      "cantidad": 185,
+      "sku": "7701234000010"
     },
     {
-      "cantidad": 154,
-      "sku": "7701234000028",
-      "ubicacion": "B-01"
+      "cantidad": 201,
+      "sku": "7701234000011"
     },
     {
-      "cantidad": 93,
-      "sku": "7701234000029",
-      "ubicacion": "B-01"
-    },
-    {
-      "cantidad": 11,
-      "sku": "7701234000031",
-      "ubicacion": "B-01"
-    },
-    {
-      "cantidad": 68,
-      "sku": "7701234000032",
-      "ubicacion": "B-01"
-    },
-    {
-      "cantidad": 126,
-      "sku": "7701234000033",
-      "ubicacion": "B-01"
-    },
-    {
-      "cantidad": 94,
-      "sku": "7701234000034",
-      "ubicacion": "B-01"
-    },
-    {
-      "cantidad": 238,
-      "sku": "7701234000036",
-      "ubicacion": "B-01"
-    },
-    {
-      "cantidad": 130,
-      "sku": "7701234000025",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 65,
-      "sku": "7701234000026",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 24,
-      "sku": "7701234000028",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 98,
-      "sku": "7701234000029",
-      "ubicacion": "B-02"
+      "cantidad": 240,
+      "sku": "7701234000012"
     },
     {
       "cantidad": 151,
-      "sku": "7701234000030",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 102,
-      "sku": "7701234000031",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 68,
-      "sku": "7701234000034",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 83,
-      "sku": "7701234000035",
-      "ubicacion": "B-02"
-    },
-    {
-      "cantidad": 87,
-      "sku": "7701234000040",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 1,
-      "sku": "7701234000041",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 5,
-      "sku": "7701234000042",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 86,
-      "sku": "7701234000044",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 99,
-      "sku": "7701234000045",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 38,
-      "sku": "7701234000047",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 12,
-      "sku": "7701234000048",
-      "ubicacion": "B-03"
-    },
-    {
-      "cantidad": 276,
-      "sku": "7701234000037",
-      "ubicacion": "B-04"
-    },
-    {
-      "cantidad": 13,
-      "sku": "7701234000038",
-      "ubicacion": "B-04"
-    },
-    {
-      "cantidad": 206,
-      "sku": "7701234000039",
-      "ubicacion": "B-04"
-    },
-    {
-      "cantidad": 131,
-      "sku": "7701234000040",
-      "ubicacion": "B-04"
-    },
-    {
-      "cantidad": 8,
-      "sku": "7701234000041",
-      "ubicacion": "B-04"
-    },
-    {
-      "cantidad": 47,
-      "sku": "7701234000042",
-      "ubicacion": "B-04"
-    },
-    {
-      "cantidad": 190,
-      "sku": "7701234000043",
-      "ubicacion": "B-04"
+      "sku": "7701234000013"
     },
     {
       "cantidad": 34,
-      "sku": "7701234000044",
-      "ubicacion": "B-04"
+      "sku": "7701234000014"
+    },
+    {
+      "cantidad": 163,
+      "sku": "7701234000015"
+    },
+    {
+      "cantidad": 120,
+      "sku": "7701234000016"
+    },
+    {
+      "cantidad": 20,
+      "sku": "7701234000017"
+    },
+    {
+      "cantidad": 19,
+      "sku": "7701234000018"
+    },
+    {
+      "cantidad": 35,
+      "sku": "7701234000019"
+    },
+    {
+      "cantidad": 66,
+      "sku": "7701234000020"
+    },
+    {
+      "cantidad": 71,
+      "sku": "7701234000021"
+    },
+    {
+      "cantidad": 141,
+      "sku": "7701234000022"
+    },
+    {
+      "cantidad": 166,
+      "sku": "7701234000023"
+    },
+    {
+      "cantidad": 18,
+      "sku": "7701234000024"
+    },
+    {
+      "cantidad": 155,
+      "sku": "7701234000025"
+    },
+    {
+      "cantidad": 65,
+      "sku": "7701234000026"
+    },
+    {
+      "cantidad": 195,
+      "sku": "7701234000027"
+    },
+    {
+      "cantidad": 178,
+      "sku": "7701234000028"
+    },
+    {
+      "cantidad": 191,
+      "sku": "7701234000029"
+    },
+    {
+      "cantidad": 151,
+      "sku": "7701234000030"
+    },
+    {
+      "cantidad": 113,
+      "sku": "7701234000031"
+    },
+    {
+      "cantidad": 68,
+      "sku": "7701234000032"
+    },
+    {
+      "cantidad": 126,
+      "sku": "7701234000033"
+    },
+    {
+      "cantidad": 162,
+      "sku": "7701234000034"
     },
     {
       "cantidad": 83,
-      "sku": "7701234000046",
-      "ubicacion": "B-04"
+      "sku": "7701234000035"
+    },
+    {
+      "cantidad": 238,
+      "sku": "7701234000036"
+    },
+    {
+      "cantidad": 276,
+      "sku": "7701234000037"
     },
     {
       "cantidad": 13,
-      "sku": "7701234000047",
-      "ubicacion": "B-04"
+      "sku": "7701234000038"
     },
     {
-      "cantidad": 55,
-      "sku": "7701234000048",
-      "ubicacion": "B-04"
+      "cantidad": 206,
+      "sku": "7701234000039"
     },
     {
-      "cantidad": 181,
-      "sku": "7701234000049",
-      "ubicacion": "C-01"
+      "cantidad": 218,
+      "sku": "7701234000040"
     },
     {
-      "cantidad": 98,
-      "sku": "7701234000050",
-      "ubicacion": "C-01"
+      "cantidad": 9,
+      "sku": "7701234000041"
     },
     {
-      "cantidad": 22,
-      "sku": "7701234000051",
-      "ubicacion": "C-01"
+      "cantidad": 52,
+      "sku": "7701234000042"
     },
     {
-      "cantidad": 7,
-      "sku": "7701234000052",
-      "ubicacion": "C-01"
+      "cantidad": 190,
+      "sku": "7701234000043"
+    },
+    {
+      "cantidad": 120,
+      "sku": "7701234000044"
     },
     {
       "cantidad": 99,
-      "sku": "7701234000053",
-      "ubicacion": "C-01"
+      "sku": "7701234000045"
+    },
+    {
+      "cantidad": 83,
+      "sku": "7701234000046"
+    },
+    {
+      "cantidad": 51,
+      "sku": "7701234000047"
+    },
+    {
+      "cantidad": 67,
+      "sku": "7701234000048"
+    },
+    {
+      "cantidad": 181,
+      "sku": "7701234000049"
+    },
+    {
+      "cantidad": 98,
+      "sku": "7701234000050"
+    },
+    {
+      "cantidad": 38,
+      "sku": "7701234000051"
+    },
+    {
+      "cantidad": 35,
+      "sku": "7701234000052"
+    },
+    {
+      "cantidad": 109,
+      "sku": "7701234000053"
     },
     {
       "cantidad": 36,
-      "sku": "7701234000054",
-      "ubicacion": "C-01"
+      "sku": "7701234000054"
     },
     {
-      "cantidad": 97,
-      "sku": "7701234000055",
-      "ubicacion": "C-01"
-    },
-    {
-      "cantidad": 123,
-      "sku": "7701234000058",
-      "ubicacion": "C-01"
+      "cantidad": 103,
+      "sku": "7701234000055"
     },
     {
       "cantidad": 228,
-      "sku": "7701234000056",
-      "ubicacion": "C-02"
-    },
-    {
-      "cantidad": 109,
-      "sku": "7701234000060",
-      "ubicacion": "C-02"
-    },
-    {
-      "cantidad": 16,
-      "sku": "7701234000051",
-      "ubicacion": "C-03"
-    },
-    {
-      "cantidad": 28,
-      "sku": "7701234000052",
-      "ubicacion": "C-04"
-    },
-    {
-      "cantidad": 10,
-      "sku": "7701234000053",
-      "ubicacion": "C-04"
-    },
-    {
-      "cantidad": 6,
-      "sku": "7701234000055",
-      "ubicacion": "C-04"
+      "sku": "7701234000056"
     },
     {
       "cantidad": 100,
-      "sku": "7701234000057",
-      "ubicacion": "C-04"
+      "sku": "7701234000057"
     },
     {
-      "cantidad": 43,
-      "sku": "7701234000058",
-      "ubicacion": "C-04"
+      "cantidad": 166,
+      "sku": "7701234000058"
     },
     {
       "cantidad": 79,
-      "sku": "7701234000059",
-      "ubicacion": "C-04"
+      "sku": "7701234000059"
     },
     {
-      "cantidad": 109,
-      "sku": "7701234000060",
-      "ubicacion": "C-04"
+      "cantidad": 218,
+      "sku": "7701234000060"
     }
   ],
   "sistema": {
@@ -476,19 +301,5 @@
     "7701234000058": 166,
     "7701234000059": 79,
     "7701234000060": 218
-  },
-  "ubicaciones": [
-    "A-01",
-    "A-02",
-    "A-03",
-    "A-04",
-    "B-01",
-    "B-02",
-    "B-03",
-    "B-04",
-    "C-01",
-    "C-02",
-    "C-03",
-    "C-04"
-  ]
+  }
 }

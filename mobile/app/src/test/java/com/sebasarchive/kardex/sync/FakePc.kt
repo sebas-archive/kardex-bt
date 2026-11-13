@@ -25,13 +25,13 @@ class FakePc(
     private val cutAfterRecs: Int? = null,                // corta la conexión al recibir el REC número N
     private val busy: Boolean = false,                    // ya hay otra sincronización: NAK|0|OCUPADO
     private val stallBeforeAck: Boolean = false,          // retiene los ACK hasta que el teléfono deja de enviar
+    private val estadoCuenta: String = "ACTIVO",          // lo que responde ACCTST; sin ACTIVO rechaza todo REC
+    private val motivoCuenta: String = "",
 ) {
     companion object {
         const val SERVER_NOW = 1_731_170_400_000L
         val CATALOGO = listOf(
             listOf("CATCONTEO", "T-01", "Conteo de prueba"),
-            listOf("CATUBIC", "U1", "Z1", "Estante 1"),
-            listOf("CATUBIC", "U2", "Z1", "Estante 2"),
             listOf("CATPROD", "A1", "Producto A1", "Abarrotes", "UND"),
             listOf("CATPROD", "A2", "Café | molido", "Abarrotes", "UND"),
         )
@@ -41,6 +41,7 @@ class FakePc(
     val accepted = CopyOnWriteArrayList<Rec>()   // lo que quedó "con COMMIT"
     val bursts = CopyOnWriteArrayList<Int>()     // con stallBeforeAck: cuántos REC llegaron en cada ráfaga
     @Volatile var hello: Message? = null
+    @Volatile var acct: Message? = null
     @Volatile private var error: Throwable? = null
 
     private val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
@@ -91,6 +92,12 @@ class FakePc(
         val first = Protocol.parse(reader.readLine() ?: error("el teléfono cerró sin HELLO"))
         check(first.kind == "HELLO") { "se esperaba HELLO y llegó ${first.kind}" }
         hello = first
+        val cuenta = Protocol.parse(reader.readLine() ?: error("el teléfono cerró sin ACCT"))
+        check(cuenta.kind == "ACCT") { "se esperaba ACCT y llegó ${cuenta.kind}" }
+        acct = cuenta
+        val activa = estadoCuenta == "ACTIVO"
+        send("ACCTST", Protocol.encodeText(cuenta.fields[0]), estadoCuenta, if (activa) "OPERADOR" else "",
+            Protocol.encodeText(motivoCuenta))
         send("READY", lastSeq.toString(), serverNowMs.toString())
         for (linea in CATALOGO) send(linea[0], *linea.drop(1).map(Protocol::encodeText).toTypedArray())
         send("CAT_END")
@@ -157,6 +164,7 @@ class FakePc(
                     if (cutAfterRecs != null && recs >= cutAfterRecs) return  // corte: lo no confirmado se pierde
                     val corrupt = if (rec.seq == expected) pendingNaks.remove(rec.seq) else null
                     when {
+                        !activa -> reject("CUENTA_NO_ACTIVA")
                         corrupt != null -> reject(corrupt)
                         rec.seq < expected -> Unit                 // duplicado
                         rec.seq > expected -> reject("SECUENCIA")  // hueco
