@@ -2,16 +2,18 @@ package com.sebasarchive.kardex.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.sebasarchive.kardex.auth.EstadoCuenta
 import com.sebasarchive.kardex.auth.Rol
 import com.sebasarchive.kardex.auth.Sesion
-import com.sebasarchive.kardex.data.ConteoEntity
+import com.sebasarchive.kardex.data.TareaEntity
 import com.sebasarchive.kardex.data.Estado
 import com.sebasarchive.kardex.data.ProductoEntity
 import com.sebasarchive.kardex.ui.pantallas.ContarScreen
 import com.sebasarchive.kardex.ui.pantallas.ContarUi
-import com.sebasarchive.kardex.ui.pantallas.ElegirScreen
+import com.sebasarchive.kardex.ui.pantallas.TareaFila
+import com.sebasarchive.kardex.ui.pantallas.TareasScreen
 import com.sebasarchive.kardex.ui.pantallas.HomeScreen
 import com.sebasarchive.kardex.ui.pantallas.HomeUi
 import com.sebasarchive.kardex.ui.pantallas.LecturaFila
@@ -87,11 +89,23 @@ class CapturasTest {
         HomeScreen(HomeUi(operador = "Ana María", hayCatalogo = false), {}, {}, {}, {}, {}, {})
     }
 
-    @Test fun elegir() = capturar("08-conteo") {
-        ElegirScreen(
-            conteos = listOf(ConteoEntity("CONT-2026-11", "Inventario físico noviembre 2026"), ConteoEntity("CONT-2026-12", "Conteo cíclico de bebidas")),
-            conteoInicial = "CONT-2026-11", alConfirmar = {}, alVolver = {}, alSincronizar = {},
+    @Test fun mis_tareas() = capturar("08-mis-tareas") {
+        TareasScreen(
+            tareas = listOf(
+                TareaFila(TareaEntity("T-014", "Bodega Norte, estantería A", "ALM-01", "Contar solo la estantería A, de arriba abajo",
+                    "ENVIADA_PARCIALMENTE", 12, 7), iniciada = true, porRecontar = 2),
+                TareaFila(TareaEntity("T-015", "Bebidas", "ALM-02", "", "ASIGNADA", 5, 0), iniciada = false, porRecontar = 0),
+                TareaFila(TareaEntity("CONT-2026-11", "Inventario físico noviembre 2026", "", "", "", 0, 0), iniciada = false, porRecontar = 0),
+            ),
+            actual = "T-014", alIniciar = {}, alVolver = {}, alSincronizar = {},
         )
+    }
+
+    @Test fun mis_tareas_vacia() {
+        capturar("08b-mis-tareas-vacia") {
+            TareasScreen(tareas = emptyList(), actual = null, alIniciar = {}, alVolver = {}, alSincronizar = {})
+        }
+        compose.onNodeWithText("No tienes tareas asignadas").assertExists()
     }
 
     @Test fun contar() = capturar("09-contar") {

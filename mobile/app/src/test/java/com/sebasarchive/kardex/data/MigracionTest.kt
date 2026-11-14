@@ -33,14 +33,46 @@ class MigracionTest {
         }
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, "migracion.db")
-            .addMigrations(AppDatabase.MIGRACION_1_2).allowMainThreadQueries().build()
+            .addMigrations(AppDatabase.MIGRACION_1_2, AppDatabase.MIGRACION_2_3).allowMainThreadQueries().build()
         try {
             val lecturas = db.outbox().todas()  // abrirla valida el esquema nuevo: si la migración lo dejara distinto, falla aquí
             assertEquals(listOf(1L, 2L), lecturas.map { it.seq })
             assertEquals(listOf(Estado.CONFIRMADO, Estado.PENDIENTE), lecturas.map { it.estado })
             assertEquals(LecturaEntity(2, 2000, "T-01", "A2", "7.5", "Ana", "caja rota", Estado.PENDIENTE), lecturas[1])
             assertEquals(3L, db.outbox().insertar(LecturaEntity(tsOriginalMs = 3000, idConteo = "T-01", sku = "A3", cantidad = "1", operador = "Ana", nota = "")))
-            assertEquals(listOf("T-01"), db.catalogo().conteos().map { it.id })
+            assertEquals(emptyList<String>(), db.catalogo().tareas().map { it.id })   // el catálogo vuelve en la próxima sincronización
+        } finally {
+            db.close()
+        }
+    }
+
+    /** Fase 3 (versión 2 → 3): los conteos pasan a ser tareas. Las lecturas pendientes no se tocan. */
+    @Test
+    fun deV2aV3ConservaLasLecturasPendientes() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val archivo = context.getDatabasePath("migracion3.db").apply { parentFile?.mkdirs(); delete() }
+        SQLiteDatabase.openOrCreateDatabase(archivo, null).use { v2 ->
+            v2.execSQL("CREATE TABLE lecturas (seq INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, tsOriginalMs INTEGER NOT NULL, " +
+                "idConteo TEXT NOT NULL, sku TEXT NOT NULL, cantidad TEXT NOT NULL, operador TEXT NOT NULL, " +
+                "nota TEXT NOT NULL, estado TEXT NOT NULL)")
+            v2.execSQL("CREATE INDEX index_lecturas_idConteo_sku ON lecturas (idConteo, sku)")
+            v2.execSQL("CREATE TABLE conteos (id TEXT NOT NULL, nombre TEXT NOT NULL, PRIMARY KEY(id))")
+            v2.execSQL("CREATE TABLE productos (sku TEXT NOT NULL, nombre TEXT NOT NULL, categoria TEXT NOT NULL, unidad TEXT NOT NULL, PRIMARY KEY(sku))")
+            v2.execSQL("INSERT INTO conteos VALUES ('CONT-2026-11', 'Inventario')")
+            v2.execSQL("INSERT INTO productos VALUES ('A1', 'Producto A1', 'Abarrotes', 'UND')")
+            v2.execSQL("INSERT INTO lecturas VALUES (7, 1000, 'CONT-2026-11', 'A1', '5', 'Ana', 'caja rota', 'PENDIENTE')")
+            v2.version = 2
+        }
+
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, "migracion3.db")
+            .addMigrations(AppDatabase.MIGRACION_1_2, AppDatabase.MIGRACION_2_3).allowMainThreadQueries().build()
+        try {
+            assertEquals(listOf(LecturaEntity(7, 1000, "CONT-2026-11", "A1", "5", "Ana", "caja rota", Estado.PENDIENTE)),
+                db.outbox().todas())
+            assertEquals(listOf("A1"), db.catalogo().productos().map { it.sku })
+            assertEquals(emptyList<String>(), db.catalogo().tareas().map { it.id })
+            CatalogRepository(db.catalogo()).marcarIniciada("T-001")
+            assertEquals(setOf("T-001"), CatalogRepository(db.catalogo()).iniciadas())
         } finally {
             db.close()
         }

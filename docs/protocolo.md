@@ -12,14 +12,15 @@ con la app Android están en `protocol-vectors.json`.
 - En campos de texto libre se codifican `%` → `%25`, `|` → `%7C`, `\r` → `%0D` y `\n` → `%0A`
   (el `%` se codifica primero y se decodifica en una sola pasada).
 
-Ejemplo: `HELLO|3|dev-0001|Bodega Norte*9545800D`.
+Ejemplo: `HELLO|4|dev-0001|Bodega Norte*E3FC18A3`.
 
 ## Móvil → PC
 
 | Mensaje | Campos |
 |---|---|
-| `HELLO` | `3` (versión del protocolo), `<uuid_dispositivo>`, `<nombre>` |
+| `HELLO` | `4` (versión del protocolo), `<uuid_dispositivo>`, `<nombre>` |
 | `ACCT` | `<usuario>`, `<nombre>` — la cuenta del operador; va justo después de `HELLO` |
+| `INICIO` | `<id_tarea>` — el operador empezó esa tarea en el teléfono; se envía tras el catálogo, solo si el PC la ve `ASIGNADA`. Sin respuesta: si la tarea es ajena, está cerrada o la cuenta no está activa, el PC la ignora |
 | `REC` | `<seq>`, `<epoch_ms>`, `<id_conteo>`, `<sku>`, `<cantidad>`, `<operador>`, `<nota>` |
 | `END` | `<n_registros>` |
 
@@ -32,7 +33,8 @@ dispositivo.
 |---|---|
 | `ACCTST` | `<usuario>`, `<estado>`, `<rol>`, `<motivo>` — estado de la cuenta: `PENDIENTE`, `ACTIVO`, `RECHAZADO` o `SUSPENDIDO`; `rol` y `motivo` pueden ir vacíos |
 | `READY` | `<ultimo_seq_confirmado>`, `<epoch_ms_servidor>` |
-| `CATCONTEO` | `<id>`, `<nombre>` |
+| `CATTAREA` | `<id>`, `<nombre>`, `<almacen>`, `<instrucciones>`, `<estado>`, `<total>`, `<contados>` — las tareas abiertas del operador (estado `ASIGNADA`, `EN_PROGRESO`...) y los conteos generales, con almacén y estado vacíos y avance 0. Sin cuenta activa, solo los generales |
+| `CATITEM` | `<id_tarea>`, `<sku>`, `<recuento>` — un producto de la tarea; `recuento` es `S` si Inventario pidió contarlo otra vez, si no `N`. Nunca lleva la cantidad del sistema (conteo ciego) |
 | `CATPROD` | `<sku>`, `<nombre>`, `<categoria>`, `<unidad>` |
 | `CAT_END` | (sin campos) |
 | `ACK` | `<seq>` — acumulativo: todo `seq ≤ n` está persistido con COMMIT |
@@ -58,7 +60,8 @@ Con `esperado = último_persistido + 1`:
 
 1. El móvil envía `HELLO` y `ACCT`; el PC responde `ACCTST`, `READY` y luego el catálogo completo (`CAT*`) y `CAT_END`.
    Si después de `HELLO` no llega `ACCT`, el PC responde `NAK|0|FORMAT` y cierra.
-2. El móvil envía hasta 50 `REC` sin esperar `ACK`.
+2. Si la cuenta está activa, el móvil envía un `INICIO` por cada tarea que el operador empezó y el PC aún ve `ASIGNADA`.
+   Después, hasta 50 `REC` sin esperar `ACK`.
 3. El servidor hace COMMIT cada 25 registros insertados o al `END`, y recién entonces envía `ACK`.
 4. Tras `END` el servidor envía `BYE|<aceptados>|<rechazados>`: `aceptados` son las filas nuevas
    insertadas en esa sesión y `rechazados` la cantidad de `NAK` enviados; los duplicados no cuentan.
@@ -99,3 +102,16 @@ Oracle, el PC la crea **PENDIENTE** (origen `MOVIL`) para que el administrador l
 - `ACCT` se valida como en los clientes: usuario `[a-z0-9._-]{3,30}` y nombre de 1 a 60 caracteres; si no, `NAK|0|FORMAT`.
 
 Los vectores de `protocol-vectors.json` (11) incluyen `ACCT`, dos `ACCTST` y el `NAK` de cuenta no activa.
+
+## Versión 4 (tareas de conteo)
+
+El catálogo ya no manda todos los conteos abiertos con `CATCONTEO`. En su lugar llegan:
+
+- `CATTAREA`: las tareas abiertas asignadas a la cuenta, con su almacén, instrucciones, estado y avance;
+- `CATITEM`: los productos de cada tarea, con la marca de recuento;
+- los conteos generales, que no tienen operador asignado y llegan como `CATTAREA` con almacén y estado vacíos.
+
+Una cuenta que no está activa solo recibe los conteos generales. El móvil avisa con `INICIO|<id_tarea>` que el operador
+empezó una tarea; así el PC la pasa a `EN_PROGRESO` antes de que llegue la primera lectura. Un teléfono con la
+versión 3 recibe `NAK|0|FORMAT`. Hay 4 vectores nuevos (`cattarea`, `cattarea_general`, `catitem` e `inicio`), y
+`hello` se regeneró para la versión 4.

@@ -196,7 +196,7 @@ def test_retry_does_not_apply_offset_twice(server, db, tmp_path):
 def test_second_connection_while_busy_gets_nak_ocupado(server):
     first = socket.create_connection(("127.0.0.1", server.port), timeout=10)
     try:
-        first.sendall(frame(["HELLO", "3", "dev-e2e-a", "Primero"]) + frame(["ACCT", OPERADOR_ACTIVO, "Operador de prueba"]))
+        first.sendall(frame(["HELLO", "4", "dev-e2e-a", "Primero"]) + frame(["ACCT", OPERADOR_ACTIVO, "Operador de prueba"]))
         first_in = first.makefile("rb")
         assert parse(first_in.readline()).kind == "ACCTST"
         assert parse(first_in.readline()).kind == "READY"

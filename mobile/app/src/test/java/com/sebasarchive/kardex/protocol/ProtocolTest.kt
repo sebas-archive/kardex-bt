@@ -27,7 +27,7 @@ class ProtocolTest {
     @Test
     fun test_frame_and_parse_match_all_shared_vectors() {
         val vectors = vectors()
-        assertEquals(11, vectors.size)
+        assertEquals(15, vectors.size)
         for (v in vectors) {
             val name = v.getString("name")
             val line = v.getString("line").toByteArray(Charsets.UTF_8)
@@ -41,7 +41,7 @@ class ProtocolTest {
 
     @Test
     fun acctYAcctstCoincidenConLosVectores() {
-        assertEquals("3", Protocol.VERSION)
+        assertEquals("4", Protocol.VERSION)
         val acct = vector("acct")
         assertArrayEquals((acct.getString("line") + "\n").toByteArray(Charsets.UTF_8),
             Protocol.frame(listOf("ACCT", Protocol.encodeText("luis.ortiz"), Protocol.encodeText("Luis Ortiz"))))
@@ -50,6 +50,17 @@ class ProtocolTest {
             EstadoCuentaPc.fromMessage(st))
         val pendiente = EstadoCuentaPc.fromMessage(Protocol.parse(vector("acctst_pendiente").getString("line").toByteArray(Charsets.UTF_8)))
         assertEquals(EstadoCuentaPc("luis.ortiz", "PENDIENTE", null, null), pendiente)  // vacíos → null
+    }
+
+    @Test
+    fun mensajesDeTareasExigenSusCampos() {
+        val tarea = Protocol.parse(vector("cattarea").getString("line").toByteArray(Charsets.UTF_8))
+        assertEquals("Solo estantería A | pasillo 2", tarea.fields[3])
+        fun formato(fields: List<String>) = try { Protocol.parse(Protocol.frame(fields)); "" } catch (e: FrameError) { e.reason }
+        assertEquals("FORMAT", formato(listOf("CATTAREA", "T-001", "Tarea", "ALM-01", "", "ASIGNADA", "2")))
+        assertEquals("FORMAT", formato(listOf("CATITEM", "T-001", "A1")))
+        assertEquals("FORMAT", formato(listOf("INICIO")))
+        assertEquals("FORMAT", formato(listOf("CATCONTEO", "T-001", "Viejo")))  // ya no existe en el protocolo 4
     }
 
     @Test

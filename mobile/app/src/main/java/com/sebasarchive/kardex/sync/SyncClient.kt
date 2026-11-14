@@ -2,7 +2,8 @@ package com.sebasarchive.kardex.sync
 
 import com.sebasarchive.kardex.data.Catalog
 import com.sebasarchive.kardex.data.CatalogRepository
-import com.sebasarchive.kardex.data.ConteoEntity
+import com.sebasarchive.kardex.data.ItemTareaEntity
+import com.sebasarchive.kardex.data.TareaEntity
 import com.sebasarchive.kardex.data.Outbox
 import com.sebasarchive.kardex.data.ProductoEntity
 import com.sebasarchive.kardex.protocol.EstadoCuentaPc
@@ -115,7 +116,8 @@ class SyncClient(
         val offset = first.fields[1].toLong() - nowMs()  // D15: un desfase por sesión, nunca guardado
         outbox.reconciliar(last)
 
-        catalog.reemplazarTodo(readCatalog(::read))
+        val nuevo = readCatalog(::read)
+        catalog.reemplazarTodo(nuevo)
 
         if (!activa) {  // sin cuenta activa no sale ninguna lectura: quedan en el búfer
             out.write(Protocol.frame(listOf("END", "0")))
@@ -123,6 +125,12 @@ class SyncClient(
             while (read().kind != "BYE") { /* el PC cierra la sesión */ }
             emit(SyncProgress.CuentaNoActiva(cuenta.estado, cuenta.motivo, outbox.contarPendientes()))
             return
+        }
+
+        // Las tareas que el operador empezó y el PC aún ve como ASIGNADA: se avisa antes de las lecturas.
+        val iniciadas = catalog.iniciadas()
+        for (t in nuevo.tareas) {
+            if (t.estado == "ASIGNADA" && t.id in iniciadas) out.write(Protocol.frame(listOf("INICIO", Protocol.encodeText(t.id))))
         }
 
         var total = outbox.ultimoSeq()
@@ -169,14 +177,17 @@ class SyncClient(
     }
 
     private fun readCatalog(read: () -> Message): Catalog {
-        val conteos = ArrayList<ConteoEntity>()
+        val tareas = ArrayList<TareaEntity>()
+        val items = ArrayList<ItemTareaEntity>()
         val productos = ArrayList<ProductoEntity>()
         while (true) {
             val m = read()
+            val f = m.fields
             when (m.kind) {
-                "CATCONTEO" -> conteos += ConteoEntity(m.fields[0], m.fields[1])
-                "CATPROD" -> productos += ProductoEntity(m.fields[0], m.fields[1], m.fields[2], m.fields[3])
-                "CAT_END" -> return Catalog(conteos, productos)
+                "CATTAREA" -> tareas += TareaEntity(f[0], f[1], f[2], f[3], f[4], f[5].toInt(), f[6].toInt())
+                "CATITEM" -> items += ItemTareaEntity(f[0], f[1], f[2] == "S")
+                "CATPROD" -> productos += ProductoEntity(f[0], f[1], f[2], f[3])
+                "CAT_END" -> return Catalog(tareas, items, productos)
                 else -> throw FrameError("FORMAT", "se esperaba el catálogo y llegó ${m.kind}")
             }
         }

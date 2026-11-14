@@ -18,7 +18,7 @@ destroy ses
 note over st : readline() = None → rollback()\nquedan 25 filas, las confirmadas
 
 == Reconexión (el cliente reintenta solo) ==
-apk -> ses : HELLO|3|uuid|nombre
+apk -> ses : HELLO|4|uuid|nombre
 apk -> ses : ACCT|usuario|nombre
 ses -> st : sincronizar_cuenta() = ACTIVO
 ses -> apk : ACCTST|usuario|ACTIVO|OPERADOR|

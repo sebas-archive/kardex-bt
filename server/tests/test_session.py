@@ -32,7 +32,7 @@ class FakeConnection:
 
 
 def hello(uuid=UUID) -> bytes:
-    return frame(["HELLO", "3", uuid, "Bodega Test"])
+    return frame(["HELLO", "4", uuid, "Bodega Test"])
 
 
 def acct(usuario=OPERADOR_ACTIVO, nombre="Operador de prueba") -> bytes:
@@ -87,7 +87,7 @@ def test_happy_path_sends_ready_catalog_acks_and_bye(store, db):
     assert (out[0].kind, out[0].fields) == ("ACCTST", [OPERADOR_ACTIVO, "ACTIVO", "OPERADOR", ""])
     assert (out[1].kind, out[1].fields) == ("READY", ["0", str(NOW)])
     kinds = [m.kind for m in out]
-    assert "CATCONTEO" in kinds and "CATPROD" in kinds and "CATUBIC" not in kinds
+    assert "CATPROD" in kinds and "CATCONTEO" not in kinds and "CATUBIC" not in kinds
     assert kinds.index("CAT_END") > kinds.index("CATPROD")
     assert (out[-2].kind, out[-2].fields) == ("ACK", ["3"])
     assert (out[-1].kind, out[-1].fields) == ("BYE", ["3", "0"])
@@ -113,8 +113,8 @@ def test_catalog_never_contains_system_stock(store):
     try:
         conn, _ = run(store, [*inicio(), end(0)])
         out = sent(conn)
-        conteos = [m.fields[0] for m in out if m.kind == "CATCONTEO"]
-        assert "TST-OPEN" in conteos and "CONT-2026-11" in conteos
+        conteos = [m.fields[0] for m in out if m.kind == "CATTAREA"]
+        assert "TST-OPEN" in conteos
         assert "TST-CLOSED" not in conteos
         assert all(len(m.fields) == 4 for m in out if m.kind == "CATPROD")
         assert b"987654" not in b"".join(conn.out)
@@ -289,3 +289,61 @@ def test_otro_telefono_con_el_mismo_usuario_no_entrega_lecturas(store, db):
     out = [(m.kind, m.fields) for m in sent(conn)]
     assert out[0][0] == "ACCTST" and out[0][1][1] == "SUSPENDIDO"
     assert ("NAK", ["1", "CUENTA_NO_ACTIVA"]) in out and rows(db, uuid="tst-sess-2") == 0
+
+
+# ------------------------------------------------------------------ protocolo 4: tareas
+@pytest.fixture
+def tarea_propia():
+    conn_db = connect()
+    cur = conn_db.cursor()
+
+    def limpiar():
+        cur.execute("DELETE FROM stock_sistema WHERE id_conteo LIKE 'TT-S%'")
+        cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TT-S%'")
+        conn_db.commit()
+
+    limpiar()
+    cur.execute("INSERT INTO conteos (id_conteo, nombre, estado, almacen, operador, instrucciones) "
+                "VALUES ('TT-S1', 'Tarea de sesion', 'ABIERTO', 'ALM-01', :o, 'Pasillo 2')", o=OPERADOR_ACTIVO)
+    cur.execute("INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) VALUES ('TT-S1', '7701234000001', 41)")
+    conn_db.commit()
+    try:
+        yield cur
+    finally:
+        limpiar()
+        conn_db.close()
+
+
+def _iniciada(cur) -> bool:
+    cur.execute("SELECT iniciada FROM conteos WHERE id_conteo = 'TT-S1'")
+    return cur.fetchone()[0] is not None
+
+
+def test_version_3_se_rechaza(store, db):
+    conn, _ = run(store, [frame(["HELLO", "3", UUID, "APK de la fase 2"]), acct(), end(0)])
+    assert [(m.kind, m.fields) for m in sent(conn)] == [("NAK", ["0", "FORMAT"])]
+
+
+def test_sesion_envia_las_tareas_del_operador_y_sus_items(store, tarea_propia):
+    conn, _ = run(store, [*inicio(), end(0)])
+    out = sent(conn)
+    tareas = [m.fields for m in out if m.kind == "CATTAREA"]
+    assert ["TT-S1", "Tarea de sesion", "ALM-01", "Pasillo 2", "ASIGNADA", "1", "0"] in tareas
+    assert ["TT-S1", "7701234000001", "N"] in [m.fields for m in out if m.kind == "CATITEM"]
+    kinds = [m.kind for m in out]
+    assert kinds.index("CATTAREA") < kinds.index("CATITEM") < kinds.index("CAT_END")
+
+
+def test_inicio_marca_la_tarea_con_cuenta_activa(store, tarea_propia):
+    conn, _ = run(store, [*inicio(), frame(["INICIO", "TT-S1"]), frame(["INICIO", "NO-EXISTE"]), rec(1), end(1)])
+    out = [(m.kind, m.fields) for m in sent(conn)]
+    assert _iniciada(tarea_propia)
+    assert not [o for o in out if o[0] == "NAK"] and out[-1] == ("BYE", ["1", "0"])
+
+
+def test_inicio_con_cuenta_no_activa_no_marca(store, tarea_propia):
+    run(store, [*inicio(), end(0)])                                    # el teléfono del operador ya sincronizó
+    conn, _ = run(store, [*inicio(uuid="tst-sess-2"), frame(["INICIO", "TT-S1"]), end(0)])  # otro teléfono
+    assert sent(conn)[0].fields[1] == "SUSPENDIDO"
+    assert not _iniciada(tarea_propia)
+    assert "TT-S1" not in [m.fields[0] for m in sent(conn) if m.kind == "CATTAREA"]

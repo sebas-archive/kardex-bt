@@ -66,14 +66,15 @@ object Protocol {
 
     /**
      * Versión del protocolo que viaja en `HELLO`. La 2 quitó la ubicación del `REC` y el mensaje `CATUBIC`; la 3
-     * añadió `ACCT`/`ACCTST` (la cuenta del operador y su estado).
+     * añadió `ACCT`/`ACCTST` (la cuenta del operador y su estado); la 4 cambió `CATCONTEO` por `CATTAREA` + `CATITEM`
+     * (las tareas del operador) y añadió `INICIO` (el operador empezó una tarea).
      */
-    const val VERSION = "3"
+    const val VERSION = "4"
 
     // Cantidad mínima de partes (incluido el tipo) de cada mensaje.
     private val MIN_PARTS = mapOf(
         "HELLO" to 4, "ACCT" to 3, "ACCTST" to 5, "REC" to 8, "END" to 2,
-        "READY" to 3, "CATCONTEO" to 3, "CATPROD" to 5, "CAT_END" to 1,
+        "READY" to 3, "CATTAREA" to 8, "CATITEM" to 4, "INICIO" to 2, "CATPROD" to 5, "CAT_END" to 1,
         "ACK" to 2, "NAK" to 3, "BYE" to 3,
     )
     private val ESCAPE = Regex("%(?:25|7C|0D|0A)")

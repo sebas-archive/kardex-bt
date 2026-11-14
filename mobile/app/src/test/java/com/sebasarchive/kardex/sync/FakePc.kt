@@ -31,7 +31,10 @@ class FakePc(
     companion object {
         const val SERVER_NOW = 1_731_170_400_000L
         val CATALOGO = listOf(
-            listOf("CATCONTEO", "T-01", "Conteo de prueba"),
+            listOf("CATTAREA", "T-01", "Conteo de prueba", "ALM-01", "Pasillo | 2", "ASIGNADA", "2", "0"),
+            listOf("CATTAREA", "T-02", "Bebidas", "ALM-02", "", "EN_PROGRESO", "5", "1"),
+            listOf("CATITEM", "T-01", "A1", "N"),
+            listOf("CATITEM", "T-01", "A2", "S"),
             listOf("CATPROD", "A1", "Producto A1", "Abarrotes", "UND"),
             listOf("CATPROD", "A2", "Café | molido", "Abarrotes", "UND"),
         )
@@ -40,6 +43,8 @@ class FakePc(
     val received = CopyOnWriteArrayList<Rec>()   // todo REC bien formado que llegó (incluye reenvíos)
     val accepted = CopyOnWriteArrayList<Rec>()   // lo que quedó "con COMMIT"
     val bursts = CopyOnWriteArrayList<Int>()     // con stallBeforeAck: cuántos REC llegaron en cada ráfaga
+    val recibidos = CopyOnWriteArrayList<String>()  // tipo de cada mensaje que llegó después de ACCT, en orden
+    val inicios = CopyOnWriteArrayList<String>()    // las tareas de cada INICIO
     @Volatile var hello: Message? = null
     @Volatile var acct: Message? = null
     @Volatile private var error: Throwable? = null
@@ -155,7 +160,9 @@ class FakePc(
             if (line == null) return  // el teléfono cerró
 
             val msg = Protocol.parse(line)
+            recibidos += msg.kind
             when (msg.kind) {
+                "INICIO" -> inicios += msg.fields[0]
                 "REC" -> {
                     val rec = Rec.fromMessage(msg)
                     received += rec

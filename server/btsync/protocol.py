@@ -23,7 +23,9 @@ _MIN_PARTS = {
     "REC": 8,
     "END": 2,
     "READY": 3,
-    "CATCONTEO": 3,
+    "CATTAREA": 8,
+    "CATITEM": 4,
+    "INICIO": 2,
     "CATPROD": 5,
     "CAT_END": 1,
     "ACK": 2,
@@ -33,7 +35,8 @@ _MIN_PARTS = {
 
 # Versión del protocolo que viaja en HELLO. La 2 quitó la ubicación del REC y el mensaje CATUBIC.
 # La 3 añadió ACCT/ACCTST: el móvil identifica la cuenta del operador y el PC responde su estado.
-PROTOCOL_VERSION = "3"
+# La 4 cambió CATCONTEO por CATTAREA + CATITEM (las tareas del operador) y añadió INICIO (el móvil empezó una tarea).
+PROTOCOL_VERSION = "4"
 
 _CRC_HEX = re.compile(rb"[0-9A-F]{8}")
 _ESCAPES = {"%25": "%", "%7C": "|", "%0D": "\r", "%0A": "\n"}
