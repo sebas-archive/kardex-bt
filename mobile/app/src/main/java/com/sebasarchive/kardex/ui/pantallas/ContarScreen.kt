@@ -81,6 +81,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.sebasarchive.kardex.data.ProductoEntity
 import com.sebasarchive.kardex.ui.CountViewModel
+import com.sebasarchive.kardex.ui.Textos
 import com.sebasarchive.kardex.ui.componentes.Iconos
 import com.sebasarchive.kardex.ui.componentes.Pantalla
 import com.sebasarchive.kardex.ui.componentes.escalaAlPulsar
@@ -88,7 +89,6 @@ import com.sebasarchive.kardex.ui.theme.Cifra
 import com.sebasarchive.kardex.ui.theme.Marca
 
 data class ContarUi(
-    val conteo: String,
     val sku: String = "",
     val cantidad: String = "",
     val nota: String = "",
@@ -124,17 +124,17 @@ fun ContarScreen(
 ) {
     Box(Modifier.fillMaxSize()) {
         Pantalla(
-            titulo = if (ui.edicion) "Corregir lectura" else "Contar",
-            subtitulo = ui.conteo,
+            titulo = Textos.t(if (ui.edicion) "Corregir lectura" else "Contar"),
+            subtitulo = Textos.t("Conteo actual"),
             alVolver = alVolver,
             barraInferior = {
                 Button(onClick = alGuardar, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                     Icon(Icons.Default.Check, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (ui.edicion) "Guardar corrección" else "Guardar")
+                    Text(Textos.t(if (ui.edicion) "Guardar corrección" else "Guardar"))
                 }
                 AnimatedVisibility(ui.guardadas > 0) {
-                    Text("${ui.guardadas} guardadas en esta sesión", style = MaterialTheme.typography.bodySmall,
+                    Text(Textos.t("{n} guardadas en esta sesión", "n" to ui.guardadas), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
@@ -147,7 +147,7 @@ fun ContarScreen(
                 if (!ui.edicion) BotonEscanear(alEscanear)
                 OutlinedTextField(
                     value = ui.sku, onValueChange = { if (it.length <= 40) alCambiarSku(it.replace("\n", "")) },
-                    label = { Text("SKU, código de barras o QR") }, singleLine = true, enabled = !ui.edicion,
+                    label = { Text(Textos.t("SKU, código de barras o QR")) }, singleLine = true, enabled = !ui.edicion,
                     textStyle = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -164,8 +164,8 @@ fun ContarScreen(
                 ) { clave ->
                     when (clave) {
                         "" -> Spacer(Modifier.fillMaxWidth())
-                        "?" -> TarjetaProducto(Icons.Default.Warning, "SKU fuera del catálogo",
-                            "Se puede guardar igual; quedará pendiente de darlo de alta.",
+                        "?" -> TarjetaProducto(Icons.Default.Warning, Textos.t("SKU fuera del catálogo"),
+                            Textos.t("Se puede guardar igual; quedará pendiente de darlo de alta."),
                             MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.onSecondaryContainer)
                         else -> TarjetaProducto(Icons.Default.CheckCircle, ui.producto?.nombre ?: clave,
                             ui.producto?.let { "${it.categoria} · ${it.unidad}" }.orEmpty(),
@@ -179,23 +179,23 @@ fun ContarScreen(
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Ya contado: ${ui.previa}. Guardar lo reemplaza.", style = MaterialTheme.typography.bodyMedium,
+                        Text(Textos.t("Ya contado: {n}. Guardar lo reemplaza.", "n" to ui.previa), style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onTertiaryContainer)
                     }
                 }
                 Cantidad(ui.cantidad, ui.producto?.unidad, alCambiarCantidad, alSumar)
                 OutlinedTextField(
                     value = ui.danados, onValueChange = { if (it.length <= 13) alCambiarDanados(it.replace(',', '.')) },
-                    label = { Text("Dañados o defectuosos (opcional)") }, singleLine = true,
+                    label = { Text(Textos.t("Dañados o defectuosos (opcional)")) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    supportingText = { Text("De las unidades contadas, cuántas están dañadas") },
+                    supportingText = { Text(Textos.t("De las unidades contadas, cuántas están dañadas")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Evidencia(ui.foto, alCamara, alGaleria, alQuitarFoto)
                 OutlinedTextField(
                     value = ui.nota,
                     onValueChange = { if (it.codePointCount(0, it.length) <= CountViewModel.MAX_NOTA) alCambiarNota(it) },
-                    label = { Text("Nota (opcional)") }, maxLines = 3,
+                    label = { Text(Textos.t("Nota (opcional)")) }, maxLines = 3,
                     supportingText = { Text("${ui.nota.codePointCount(0, ui.nota.length)}/${CountViewModel.MAX_NOTA}") },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -224,7 +224,7 @@ fun ContarScreen(
                     scaleX = 1f + 2.4f * onda.value; scaleY = 1f + 2.4f * onda.value; alpha = (1f - onda.value) * 0.45f
                 }.clip(CircleShape).background(Marca.Confirmado))
                 Box(Modifier.size(136.dp).shadow(16.dp, CircleShape).clip(CircleShape).background(Marca.Confirmado), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Check, contentDescription = "Guardado", tint = Color.White, modifier = Modifier.size(76.dp))
+                    Icon(Icons.Default.Check, contentDescription = Textos.t("Guardado"), tint = Color.White, modifier = Modifier.size(76.dp))
                 }
             }
         }
@@ -238,19 +238,19 @@ private fun Evidencia(foto: String?, alCamara: () -> Unit, alGaleria: () -> Unit
         foto?.let { BitmapFactory.decodeFile(it, BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap() }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Foto de evidencia (opcional)", style = MaterialTheme.typography.labelLarge,
+        Text(Textos.t("Foto de evidencia (opcional)"), style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalButton(onClick = alCamara) { Text("📷  Cámara") }
-            OutlinedButton(onClick = alGaleria) { Text("Galería") }
+            FilledTonalButton(onClick = alCamara) { Text(Textos.t("📷  Cámara")) }
+            OutlinedButton(onClick = alGaleria) { Text(Textos.t("Galería")) }
         }
         if (miniatura != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Image(miniatura, contentDescription = "Foto adjunta", contentScale = ContentScale.Crop,
+                Image(miniatura, contentDescription = Textos.t("Foto adjunta"), contentScale = ContentScale.Crop,
                     modifier = Modifier.size(84.dp).clip(RoundedCornerShape(12.dp)))
                 Column {
-                    Text("Se adjuntará al guardar", style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = alQuitar) { Text("Quitar") }
+                    Text(Textos.t("Se adjuntará al guardar"), style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = alQuitar) { Text(Textos.t("Quitar")) }
                 }
             }
         }
@@ -277,8 +277,8 @@ private fun BotonEscanear(alPulsar: () -> Unit) {
             ) { Icon(Iconos.Qr, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp)) }
             Spacer(Modifier.width(14.dp))
             Column {
-                Text("Escanear código de barras o QR", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimary)
-                Text("Con la cámara · funciona sin red", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
+                Text(Textos.t("Escanear código de barras o QR"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimary)
+                Text(Textos.t("Con la cámara · funciona sin red"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
             }
         }
     }
@@ -313,13 +313,13 @@ private fun Cantidad(valor: String, unidad: String?, alCambiar: (String) -> Unit
         containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
     Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.large, shadowElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (unidad.isNullOrBlank()) "Cantidad" else "Cantidad ($unidad)", style = MaterialTheme.typography.labelLarge,
+            Text(if (unidad.isNullOrBlank()) Textos.t("Cantidad") else Textos.t("Cantidad ({u})", "u" to unidad), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FilledTonalIconButton(
                     onClick = { haptica.performHapticFeedback(HapticFeedbackType.TextHandleMove); alSumar(-1) },
                     modifier = Modifier.size(60.dp), colors = colores,
-                ) { Icon(Iconos.Menos, contentDescription = "Restar uno", modifier = Modifier.size(28.dp)) }
+                ) { Icon(Iconos.Menos, contentDescription = Textos.t("Restar uno"), modifier = Modifier.size(28.dp)) }
                 BasicTextField(
                     value = valor,
                     onValueChange = { nuevo -> if (nuevo.length <= 13 && nuevo.all { it.isDigit() || it == '.' }) alCambiar(nuevo) },
@@ -338,7 +338,7 @@ private fun Cantidad(valor: String, unidad: String?, alCambiar: (String) -> Unit
                 FilledTonalIconButton(
                     onClick = { haptica.performHapticFeedback(HapticFeedbackType.TextHandleMove); alSumar(1) },
                     modifier = Modifier.size(60.dp), colors = colores,
-                ) { Icon(Icons.Default.Add, contentDescription = "Sumar uno", modifier = Modifier.size(28.dp)) }
+                ) { Icon(Icons.Default.Add, contentDescription = Textos.t("Sumar uno"), modifier = Modifier.size(28.dp)) }
             }
         }
     }

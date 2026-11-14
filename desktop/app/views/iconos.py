@@ -6,6 +6,8 @@ from PyQt6.QtCore import QByteArray, QRectF, Qt
 from PyQt6.QtGui import QIcon, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 
+from .. import tema
+
 _TRAZOS = {
     "Dashboard": '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/>'
                  '<rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
@@ -24,6 +26,7 @@ _TRAZOS = {
     "Movimientos": '<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>',
     "Ajustes": '<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
     "Configuración": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    "Notificaciones": '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     "Respaldos": '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     "Auditoría": '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/>',
     "Existencias": '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>'
@@ -37,6 +40,7 @@ _TRAZOS = {
     "campana_aviso": '<path d="M6 8a6 6 0 0 1 8-5.65"/><path d="M18 8c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'
                      '<circle cx="18" cy="6" r="3.5" fill="#E5484D" stroke="#E5484D"/>',
     "panel": '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+    "Perfil": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
 }
 
 
@@ -53,8 +57,11 @@ def _mapa(trazos: str, color: str, tam: int) -> QPixmap:
     return mapa
 
 
-def icono(nombre: str, color: str = "#A3A3A3", tam: int = 20, color_activo: str = "#FFFFFF") -> QIcon:
-    """Icono gris sobre fondo oscuro; marcado (botón seleccionado) o con el cursor encima se ve blanco."""
+def icono(nombre: str, color: str | None = None, tam: int = 20, color_activo: str | None = None) -> QIcon:
+    """Icono del color secundario del tema; marcado (seleccionado) o con el cursor encima, del color principal."""
+    colores = tema.colores()
+    color = color or colores["texto_tenue"]
+    color_activo = color_activo or colores["texto_fuerte"]
     trazos = _TRAZOS.get(nombre, _TRAZOS["Dashboard"])
     ic = QIcon()
     ic.addPixmap(_mapa(trazos, color, tam), QIcon.Mode.Normal, QIcon.State.Off)

@@ -16,7 +16,7 @@ component "SyncController" as ctrl {
 
   component "Estado y candado\n(_estado, _gen, _lock)" as estado
   component "Apertura\n(_abrir: hilo)" as apertura
-  component "Plazo\n(_vigilar: temporizador 120 s)" as plazo
+  component "Plazo\n(_vigilar: visibilidad que el servicio renueva)" as plazo
   component "Agente de emparejamiento\n(_on_passkey, solo con código)" as agente
   component "Session\n(una por conexión)" as sesion
 }

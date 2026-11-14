@@ -10,15 +10,26 @@ from __future__ import annotations
 import os
 from typing import Callable
 
-from PyQt6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation
+from PyQt6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QStackedLayout, QVBoxLayout, QWidget
+
+from .. import tema
 
 ANIMAR = os.environ.get("APP_SIN_ANIMACIONES") != "1"
 
-# Paleta (la misma familia de colores de la app del celular).
+# Paleta (la misma familia de colores de la app del celular). ``refrescar_paleta`` la pone al día con el tema.
 VERDE, VERDE_OSCURO = "#10B981", "#0B8A62"
 TINTA, TINTA_SUAVE, LINEA, FONDO, PISTA = "#EDEDED", "#8A8A8A", "#2E2E2E", "#0A0A0A", "#1F1F1F"
+
+
+def refrescar_paleta() -> None:
+    """Actualiza los colores que se usan al pintar a mano (se llama al aplicar un tema)."""
+    global VERDE, VERDE_OSCURO, TINTA, TINTA_SUAVE, LINEA, FONDO, PISTA
+    c = tema.colores()
+    VERDE, VERDE_OSCURO = c["acento"], c["acento_suave"]
+    TINTA, TINTA_SUAVE = c["texto"], c["texto_suave"]
+    LINEA, FONDO, PISTA = c["borde"], c["fondo"], c["tarjeta_alt"]
 COLOR_CLASIFICACION = {"OK": "#12B76A", "FALTANTE": "#F04438", "SOBRANTE": "#F79009", "SIN_CONTAR": "#98A2B3"}
 NOMBRE_CLASIFICACION = {"OK": "OK", "FALTANTE": "Faltante", "SOBRANTE": "Sobrante", "SIN_CONTAR": "Sin contar"}
 
@@ -54,25 +65,53 @@ def _detener(anim: QVariantAnimation | None) -> None:
 
 
 class TarjetaKpi(QFrame):
-    """Tarjeta de un indicador: título y una cifra que cuenta hasta su valor."""
+    """Tarjeta de un indicador: título y una cifra que cuenta hasta su valor.
+
+    Al pasar el mouse la cifra se voltea y muestra el detalle desglosado (``set_detalle``), la tarjeta se eleva y un
+    clic avisa para abrir el panel lateral. El dato final (``texto``) está disponible aunque el dibujo esté animado.
+    """
+
+    clicked = pyqtSignal()
 
     def __init__(self, titulo: str, color: str = VERDE, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("card")
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._final, self._numero, self._anim = "—", 0.0, None
+        self._detalle_texto = ""
+        self._volteada = False
+        self._anim_volteo = None
         self._titulo = QLabel(titulo)
         self._titulo.setObjectName("cardTitulo")
         self._valor = QLabel("—")
         self._valor.setObjectName("cardValor")
+        self._valor.setMinimumHeight(34)
         self._detalle = QLabel("")
         self._detalle.setObjectName("cardDetalle")
+        self._detalle.setMinimumHeight(34)
+        self._detalle.setWordWrap(True)
         self._detalle.hide()
+        self._pista = QLabel("↗  Ver detalle")
+        self._pista.setObjectName("cardPista")
+        self._pista.hide()
+        self._op_valor = QGraphicsOpacityEffect(self._valor)
+        self._valor.setGraphicsEffect(self._op_valor)
+        self._op_detalle = QGraphicsOpacityEffect(self._detalle)
+        self._detalle.setGraphicsEffect(self._op_detalle)
+        self._op_detalle.setOpacity(0.0)
+        self._capa = QStackedLayout()
+        self._capa.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        self._capa.addWidget(self._valor)
+        self._capa.addWidget(self._detalle)
         texto = QVBoxLayout()
         texto.setSpacing(2)
-        for w in (self._titulo, self._valor, self._detalle):
+        for w in (self._titulo,):
             texto.addWidget(w)
+        texto.addLayout(self._capa)
+        texto.addWidget(self._pista)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setContentsMargins(14, 10, 14, 10)
         lay.addLayout(texto, 1)
         if color != VERDE:  # solo las cifras con significado (faltante, sobrante) llevan color
             self._valor.setStyleSheet(f"color: {color};")
@@ -84,9 +123,13 @@ class TarjetaKpi(QFrame):
     def texto_visible(self) -> str:
         return self._valor.text()
 
+    def detalle(self) -> str:
+        return self._detalle_texto
+
     def set_detalle(self, texto: str) -> None:
+        self._detalle_texto = texto
         self._detalle.setText(texto)
-        self._detalle.setVisible(bool(texto))
+        self._detalle.setVisible(self._volteada and bool(texto))
 
     def set_texto(self, texto: str) -> None:
         _detener(self._anim)
@@ -105,6 +148,55 @@ class TarjetaKpi(QFrame):
             return
         self._anim = animar(self, inicio, float(numero), 650, lambda v: self._valor.setText(formato(v)),
                             lambda: self._valor.setText(self._final))
+
+    # ------------------------------------------------------------------ hover y clic
+    def enterEvent(self, evento) -> None:
+        self.setProperty("hover", True)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        # Sin QGraphicsDropShadowEffect aquí: el hover ya cambia borde/fondo por QSS y este widget tiene
+        # efectos de opacidad en sus hijos; anidar efectos provoca avisos de QPainter y artefactos.
+        if not ANIMAR:
+            self._voltear(True)
+        else:
+            _detener(self._anim_volteo)
+            self._anim_volteo = animar(self, 0.0, 1.0, 220, lambda v: self._mezclar(v, True))
+        self._pista.setVisible(bool(self._detalle_texto))
+        super().enterEvent(evento)
+
+    def leaveEvent(self, evento) -> None:
+        self.setProperty("hover", False)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self._pista.hide()
+        if not ANIMAR:
+            self._voltear(False)
+        else:
+            _detener(self._anim_volteo)
+            self._anim_volteo = animar(self, 0.0, 1.0, 220, lambda v: self._mezclar(v, False))
+        super().leaveEvent(evento)
+
+    def _mezclar(self, v: float, hacia_detalle: bool) -> None:
+        """Volteo 2D: la cifra se desvanece mientras el detalle aparece (sin bloquear el dato)."""
+        hay = bool(self._detalle_texto)
+        self._detalle.setVisible(hay)
+        if hacia_detalle:
+            self._op_valor.setOpacity(max(0.0, 1.0 - v))
+            self._op_detalle.setOpacity(v if hay else 0.0)
+        else:
+            self._op_valor.setOpacity(v)
+            self._op_detalle.setOpacity(max(0.0, 1.0 - v) if hay else 0.0)
+
+    def _voltear(self, hacia_detalle: bool) -> None:
+        self._volteada = hacia_detalle and bool(self._detalle_texto)
+        self._detalle.setVisible(self._volteada)
+        self._op_detalle.setOpacity(1.0 if self._volteada else 0.0)
+        self._op_valor.setOpacity(0.0 if self._volteada else 1.0)
+
+    def mouseReleaseEvent(self, evento) -> None:
+        if evento.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(evento)
 
 
 class Anillo(QWidget):
@@ -159,14 +251,23 @@ class Anillo(QWidget):
 
 
 class BarraSegmentada(QWidget):
-    """Una barra partida en segmentos proporcionales (crece de izquierda a derecha) con su leyenda debajo."""
+    """Una barra partida en segmentos proporcionales (crece de izquierda a derecha) con su leyenda debajo.
+
+    Al hacer clic en una entrada de la leyenda se oculta o muestra esa serie (con atenuación de la leyenda).
+    """
+
+    alternada = pyqtSignal(str)
 
     def __init__(self, colores: dict[str, str], nombres: dict[str, str] | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._colores, self._nombres = colores, nombres or {}
         self._segmentos: list[tuple[str, int]] = []
         self._avance, self._anim = 1.0, None
+        self._ocultas: set[str] = set()
+        self._leyenda: list[tuple[QRectF, str]] = []
         self.setMinimumHeight(58)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def segmentos(self) -> list[tuple[str, int]]:
         return list(self._segmentos)
@@ -190,11 +291,12 @@ class BarraSegmentada(QWidget):
         fondo = QPainterPath()
         fondo.addRoundedRect(QRectF(0, 4, ancho, alto), 8, 8)
         p.fillPath(fondo, QColor(PISTA))
-        total = sum(n for _, n in self._segmentos)
+        visibles = [(c, n) for c, n in self._segmentos if c not in self._ocultas]
+        total = sum(n for _, n in visibles)
         if total > 0:
             p.setClipPath(fondo)
             x = 0.0
-            for clave, n in self._segmentos:
+            for clave, n in visibles:
                 tramo = ancho * n / total * self._avance
                 p.fillRect(QRectF(x, 4, tramo, alto), QColor(self._colores.get(clave, VERDE)))
                 x += tramo
@@ -202,15 +304,22 @@ class BarraSegmentada(QWidget):
         fuente = QFont(self.font())
         fuente.setPixelSize(12)
         p.setFont(fuente)
+        self._leyenda = []
         x = 0.0
         for clave, n in self._segmentos:
-            p.setBrush(QColor(self._colores.get(clave, VERDE)))
+            oculta = clave in self._ocultas
+            tono = QColor(self._colores.get(clave, VERDE))
+            if oculta:
+                tono.setAlpha(70)
+            p.setBrush(tono)
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QPointF(x + 5, 40), 5, 5)
-            p.setPen(QColor(TINTA))
+            p.setPen(QColor(TINTA_SUAVE if oculta else TINTA))
             texto = f"{self._nombres.get(clave, clave)}  {n}"
+            ancho_texto = p.fontMetrics().horizontalAdvance(texto)
             p.drawText(QRectF(x + 15, 30, 200, 20), Qt.AlignmentFlag.AlignVCenter, texto)
-            x += 28 + p.fontMetrics().horizontalAdvance(texto)
+            self._leyenda.append((QRectF(x, 28, 18 + ancho_texto, 24), clave))
+            x += 28 + ancho_texto
 
 
 class Dona(QWidget):
@@ -221,7 +330,12 @@ class Dona(QWidget):
         self._colores, self._nombres = colores, nombres or {}
         self._datos: list[tuple[str, float]] = []
         self._avance, self._anim = 1.0, None
+        self._ocultas: set[str] = set()
+        self._leyenda: list[tuple[QRectF, str]] = []
         self.setMinimumHeight(230)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.alternada = pyqtSignal(str)
 
     def datos(self) -> list[tuple[str, float]]:
         return list(self._datos)
@@ -245,12 +359,13 @@ class Dona(QWidget):
         caja = QRectF(16, (self.height() - lado) / 2, lado, lado)
         grosor = lado * 0.2
         aro = caja.adjusted(grosor / 2, grosor / 2, -grosor / 2, -grosor / 2)
-        total = sum(v for _, v in self._datos)
+        visibles = [(c, v) for c, v in self._datos if c not in self._ocultas]
+        total = sum(v for _, v in visibles)
         p.setPen(QPen(QColor(PISTA), grosor))
         p.drawArc(aro, 0, 360 * 16)
         angulo = 90.0
         if total > 0:
-            for clave, v in self._datos:
+            for clave, v in visibles:
                 barrido = 360.0 * v / total * self._avance
                 p.setPen(QPen(QColor(self._colores.get(clave, VERDE)), grosor, cap=Qt.PenCapStyle.FlatCap))
                 p.drawArc(aro, int(angulo * 16), -int(barrido * 16))
@@ -270,15 +385,34 @@ class Dona(QWidget):
         x, y = caja.right() + 24, caja.top() + max(0.0, (lado - 28 * len(self._datos)) / 2)
         fuente.setPixelSize(13)
         p.setFont(fuente)
+        self._leyenda = []
         for clave, v in self._datos:
-            p.setBrush(QColor(self._colores.get(clave, VERDE)))
+            oculta = clave in self._ocultas
+            tono = QColor(self._colores.get(clave, VERDE))
+            if oculta:
+                tono.setAlpha(70)
+            p.setBrush(tono)
             p.setPen(Qt.PenStyle.NoPen)
             p.drawRoundedRect(QRectF(x, y + 4, 12, 12), 3, 3)
-            p.setPen(QColor(TINTA))
+            p.setPen(QColor(TINTA_SUAVE if oculta else TINTA))
             pct = f"{100 * v / total:.0f} %" if total > 0 else "—"
             p.drawText(QRectF(x + 20, y, self.width() - x - 24, 20), Qt.AlignmentFlag.AlignVCenter,
                        f"{self._nombres.get(clave, clave)}  ·  {v:.0f}  ({pct})")
+            self._leyenda.append((QRectF(x, y, max(40, self.width() - x - 20), 24), clave))
             y += 28
+
+    def mousePressEvent(self, evento) -> None:
+        for caja, clave in self._leyenda:
+            if caja.contains(evento.position()):
+                if clave in self._ocultas:
+                    self._ocultas.discard(clave)
+                else:
+                    self._ocultas.add(clave)
+                self.alternada.emit(clave)
+                self.update()
+                evento.accept()
+                return
+        super().mousePressEvent(evento)
 
 
 class MapaUbicaciones(QWidget):
@@ -364,7 +498,7 @@ class Pasos(QWidget):
     def __init__(self, nombres: list[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._nombres, self._actual, self._fase = list(nombres), None, 0.0
-        self.setMinimumHeight(74)
+        self.setMinimumHeight(64)
         self._latido = QVariantAnimation(self)
         self._latido.setStartValue(0.0)
         self._latido.setEndValue(1.0)
@@ -444,7 +578,7 @@ class Indicador(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._modo, self._fase, self._entrada = "reposo", 0.0, 1.0
-        self.setMinimumSize(230, 230)
+        self.setMinimumSize(190, 190)
         self._ciclo = QVariantAnimation(self)
         self._ciclo.setStartValue(0.0)
         self._ciclo.setEndValue(1.0)
@@ -536,42 +670,101 @@ class Indicador(QWidget):
 
 
 class Aviso(QFrame):
-    """Aviso flotante («toast»): sube desde la esquina inferior derecha de la ventana y se va solo."""
+    """Aviso flotante («toast»): sube desde la esquina inferior derecha, se puede arrastrar para descartar y, si
+    lleva una acción, espera a que la persona decida. Al pasar el mouse se pausa el cierre automático."""
 
     COLORES = {"ok": COLOR_CLASIFICACION["OK"], "error": COLOR_CLASIFICACION["FALTANTE"], "info": "#3B5BDB"}
+    cerrado = pyqtSignal(object)
 
-    def __init__(self, texto: str, tipo: str, parent: QWidget) -> None:
+    def __init__(self, texto: str, tipo: str, parent: QWidget, accion: tuple[str, Callable[[], None]] | None = None) -> None:
         super().__init__(parent)
         self.texto = texto
+        self._accion = accion
+        self._arrastre = False
+        self._x0 = 0
+        self._origen = 0
         self.setObjectName("toast")
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setStyleSheet(f"QFrame#toast {{ background: #262626; border-radius: 10px; border-left: 5px solid "
                            f"{self.COLORES.get(tipo, VERDE)}; }} QFrame#toast QLabel {{ color: #FFFFFF; background: transparent; }}")
         etiqueta = QLabel(texto)
         etiqueta.setWordWrap(True)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(16, 12, 16, 12)
-        lay.addWidget(etiqueta)
-        self.setMaximumWidth(420)
+        lay.setSpacing(10)
+        lay.addWidget(etiqueta, 1)
+        self.btn_accion = None
+        if accion is not None:
+            self.btn_accion = QPushButton(accion[0])
+            self.btn_accion.setObjectName("accionToast")
+            self.btn_accion.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_accion.clicked.connect(lambda: (accion[1](), self.cerrar()))
+            lay.addWidget(self.btn_accion)
+        self.setMaximumWidth(440)
         self.adjustSize()
         self._vida = QTimer(self)
         self._vida.setSingleShot(True)
         self._vida.timeout.connect(self.cerrar)
 
+    # ------------------------------------------------------------------ mostrar / cerrar
     def mostrar(self, destino_y: int, duracion_ms: int = 4200) -> None:
-        x = self.parentWidget().width() - self.width() - 20
+        x = self.parentWidget().width() - self.width() - 24
         self.move(x, destino_y + 40)
         self.show()
         self.raise_()
         animar(self, destino_y + 40, destino_y, 320, lambda v: self.move(x, int(v)))
-        self._vida.start(duracion_ms)
+        if self._accion is None:
+            self._vida.start(duracion_ms)
 
     def cerrar(self) -> None:
+        if self.isHidden():
+            return
+        self._vida.stop()
         x, y = self.x(), self.y()
-        animar(self, 0, 1, 260, lambda v: self.move(x + int(60 * v), y), self._quitar, QEasingCurve.Type.InCubic)
+        animar(self, 0, 1, 240, lambda v: self.move(x + int(70 * v), y), self._quitar, QEasingCurve.Type.InCubic)
 
     def _quitar(self) -> None:
         self.hide()
+        self.cerrado.emit(self)
         self.deleteLater()
+
+    # ------------------------------------------------------------------ hover
+    def enterEvent(self, evento) -> None:
+        self._vida.stop()
+        super().enterEvent(evento)
+
+    def leaveEvent(self, evento) -> None:
+        if self._accion is None and not self._arrastre:
+            self._vida.start(1800)
+        super().leaveEvent(evento)
+
+    # ------------------------------------------------------------------ arrastre
+    def mousePressEvent(self, evento) -> None:
+        if evento.button() == Qt.MouseButton.LeftButton:
+            self._arrastre = True
+            self._x0 = int(evento.globalPosition().x())
+            self._origen = self.x()
+            self._vida.stop()
+        super().mousePressEvent(evento)
+
+    def mouseMoveEvent(self, evento) -> None:
+        if self._arrastre:
+            dx = int(evento.globalPosition().x()) - self._x0
+            self.move(self._origen + dx, self.y())
+        super().mouseMoveEvent(evento)
+
+    def mouseReleaseEvent(self, evento) -> None:
+        if self._arrastre:
+            self._arrastre = False
+            dx = self.x() - self._origen
+            if abs(dx) > 80:
+                self.cerrar()
+            else:
+                x, y = self.x(), self.y()
+                animar(self, x, self._origen, 180, lambda v: self.move(int(v), y))
+                if self._accion is None:
+                    self._vida.start(1800)
+        super().mouseReleaseEvent(evento)
 
 
 class Transicion(QWidget):

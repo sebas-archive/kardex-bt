@@ -1,8 +1,9 @@
-"""Configuración general (Fase 5): los valores que antes estaban fijos en el código, guardados en Oracle.
+"""Configuración general: los valores que antes estaban fijos en el código, guardados en Oracle.
 
-Una fila por clave cambiada en ``CONFIGURACION``; lo que no tiene fila vale lo de ``DEFAULTS``. La leen el escritorio
-(umbrales de ajuste, jobs) y el servicio Bluetooth (límite de foto, respaldo automático). Validar y auditar es cosa de
-quien escribe (``desktop/app/configuracion.py``).
+Una fila por clave en ``CONFIGURACION``; lo que no tiene fila vale lo de ``DEFAULTS``. La pantalla
+Configuración edita ``lote.intervalo_min`` y ``fotos.max_mb``; ``fotos.dir`` es informativa (el servicio usa
+``FOTOS_DIR``) y las claves ``respaldos.*`` las edita la pantalla Respaldos. El servicio Bluetooth lee el límite de
+foto y la programación del respaldo automático.
 """
 
 from __future__ import annotations
@@ -14,23 +15,18 @@ from .store import ddl_tolerante
 TABLA = "configuracion"   # las pruebas usan «configuracion_tst»
 
 DEFAULTS: dict[str, str] = {
-    "ajustes.umbral_pct": "10",
-    "ajustes.umbral_valor": "200000",
-    "lote.intervalo_s": "60",
-    "staging.purga_dias": "7",
+    "lote.intervalo_min": "1",
     "fotos.max_mb": "2",
+    "fotos.dir": "/work/fotos",
+    # Programación del respaldo automático (pantalla Respaldos, no Configuración).
     "respaldos.auto": "S",
     "respaldos.hora": "23:00",
     "respaldos.conservar": "7",
 }
 
-
 # clave -> (nombre en pantalla, mínimo, máximo, unidad) de las claves enteras.
 RANGOS: dict[str, tuple[str, int, int, str]] = {
-    "ajustes.umbral_pct": ("Cambio de existencia desde", 1, 100, "%"),
-    "ajustes.umbral_valor": ("Diferencia de valor desde", 0, 1_000_000_000, "$"),
-    "lote.intervalo_s": ("Procesar lecturas cada", 10, 3600, "segundos"),
-    "staging.purga_dias": ("Conservar lecturas recibidas", 1, 365, "días"),
+    "lote.intervalo_min": ("Procesar lecturas cada", 1, 60, "minutos"),
     "fotos.max_mb": ("Tamaño máximo de foto", 1, 10, "MB"),
     "respaldos.conservar": ("Conservar respaldos automáticos", 1, 90, "respaldos"),
 }
@@ -42,6 +38,8 @@ def valido(clave: str, texto: str) -> bool:
     if clave in RANGOS:
         _n, minimo, maximo, _u = RANGOS[clave]
         return re.fullmatch(r"\d{1,10}", texto) is not None and minimo <= int(texto) <= maximo
+    if clave == "fotos.dir":
+        return bool(texto) and len(texto) <= 200
     if clave == "respaldos.hora":
         return HORA.fullmatch(texto) is not None
     if clave == "respaldos.auto":

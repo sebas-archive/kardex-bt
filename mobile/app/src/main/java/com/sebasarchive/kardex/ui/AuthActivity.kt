@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.sebasarchive.kardex.auth.AuthResult
 import com.sebasarchive.kardex.auth.EstadoCuenta
+import com.sebasarchive.kardex.data.PantallaAviso
+import com.sebasarchive.kardex.data.TipoAviso
 import com.sebasarchive.kardex.ui.pantallas.AuthScreen
 import com.sebasarchive.kardex.ui.pantallas.AuthUi
 import com.sebasarchive.kardex.ui.pantallas.ModoAuth
@@ -28,7 +30,12 @@ class AuthActivity : PantallaActivity() {
                 alCambiarModo = { if (!ui.cargando) ui = AuthUi(modo = it) },
                 alEntrar = { usuario, clave -> intentar({ s.auth.iniciarSesion(usuario, clave) }, ::entrar) },
                 alRegistrar = { d ->
-                    intentar({ s.auth.registrar(d.usuario, d.nombre, d.clave, d.confirmacion, d.pregunta, d.respuesta) }, ::entrar)
+                    intentar({ s.auth.registrar(d.usuario, d.nombre, d.clave, d.confirmacion, d.pregunta, d.respuesta, d.correo) }) { resultado ->
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            s.notificaciones.crear(TipoAviso.CUENTA_CREADA, "", PantallaAviso.ESTADO_CUENTA)
+                        }
+                        entrar(resultado)
+                    }
                 },
                 alBuscarPregunta = { usuario ->
                     if (!ui.cargando) lifecycleScope.launch {
@@ -40,7 +47,10 @@ class AuthActivity : PantallaActivity() {
                 },
                 alRestablecer = { usuario, respuesta, clave, confirmacion ->
                     intentar({ s.auth.restablecer(usuario, respuesta, clave, confirmacion) }) {
-                        ui = AuthUi(modo = ModoAuth.ENTRAR, aviso = "Contraseña cambiada. Entra con la nueva.")
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            s.notificaciones.crear(TipoAviso.CLAVE_RESTABLECIDA, "", PantallaAviso.INICIO)
+                        }
+                        ui = AuthUi(modo = ModoAuth.ENTRAR, aviso = Textos.t("Contraseña restablecida. Entra con la nueva."))
                     }
                 },
             )

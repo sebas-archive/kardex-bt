@@ -1,4 +1,4 @@
-"""Configuración general (Fase 5): el Administrador cambia los valores que antes estaban fijos."""
+"""Configuración general: intervalo del lote, tamaño de foto y carpeta de fotos de solo lectura."""
 
 import re
 
@@ -7,7 +7,9 @@ import pytest
 from app import db as dbq
 from app.auth import INVENTARIO, ErrorDeAcceso
 
-ARROZ = "7701234000001"   # costo 2400
+ANA = ("ana.gomez", "Ana Gómez", "ana@example.com")
+LUIS = ("luis", "Luis Ortiz", "luis@example.com")
+CLAVE = "conteo2026"
 
 
 def _sql(sql, **binds):
@@ -21,10 +23,13 @@ def _sql(sql, **binds):
 
 @pytest.fixture
 def gente(cuentas, config_db):
-    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
-    cuentas.registrar("luis", "Luis Ortiz", "conteo2026", "conteo2026")
+    from app.auth import PREGUNTAS
+
+    ana = cuentas.registrar(ANA[0], ANA[1], CLAVE, CLAVE, correo=ANA[2],
+                            pregunta=PREGUNTAS[0], respuesta="firulais")
+    cuentas.registrar(LUIS[0], LUIS[1], CLAVE, CLAVE, correo=LUIS[2])
     cuentas.aprobar(ana, "luis", INVENTARIO)
-    return config_db, ana, cuentas.iniciar_sesion("luis", "conteo2026")
+    return config_db, ana, cuentas.iniciar_sesion("luis", CLAVE)
 
 
 def _job(nombre):
@@ -33,40 +38,47 @@ def _job(nombre):
 
 def test_valores_iniciales(gente):
     c, _ana, _luis = gente
-    assert c.valores()["ajustes.umbral_pct"] == "10" and c.valores()["staging.purga_dias"] == "7"
+    v = c.valores()
+    assert v["lote.intervalo_min"] == "1" and v["fotos.max_mb"] == "2"
+    assert v["respaldos.hora"] == "23:00" and v["respaldos.conservar"] == "7"
 
 
 @pytest.mark.parametrize("clave, valor, mensaje", [
-    ("ajustes.umbral_pct", "0", "Cambio de existencia desde: entre 1 y 100 %"),
-    ("ajustes.umbral_pct", "101", "Cambio de existencia desde: entre 1 y 100 %"),
-    ("ajustes.umbral_valor", "-1", "Diferencia de valor desde: entre 0 y 1.000.000.000 $"),
-    ("lote.intervalo_s", "9", "Procesar lecturas cada: entre 10 y 3600 segundos"),
-    ("lote.intervalo_s", "abc", "Procesar lecturas cada: entre 10 y 3600 segundos"),
-    ("staging.purga_dias", "366", "Conservar lecturas recibidas: entre 1 y 365 días"),
+    ("lote.intervalo_min", "0", "Procesar lecturas cada: entre 1 y 60 minutos"),
+    ("lote.intervalo_min", "61", "Procesar lecturas cada: entre 1 y 60 minutos"),
+    ("lote.intervalo_min", "abc", "Procesar lecturas cada: entre 1 y 60 minutos"),
     ("fotos.max_mb", "11", "Tamaño máximo de foto: entre 1 y 10 MB"),
+    ("respaldos.conservar", "91", "Conservar respaldos automáticos: entre 1 y 90 respaldos"),
+    ("respaldos.auto", "X", "valor válido"),
+    ("respaldos.hora", "25:00", "valor válido"),
 ])
 def test_fuera_de_rango_no_guarda(gente, clave, valor, mensaje):
     c, ana, _luis = gente
-    with pytest.raises(ErrorDeAcceso, match=re.escape(mensaje)):
+    with pytest.raises(ErrorDeAcceso, match=re.escape(mensaje) if "valor válido" not in mensaje else "valor válido"):
         c.guardar(ana, {"fotos.max_mb": "3", clave: valor})
     assert c.valores()["fotos.max_mb"] == "2"
 
 
 def test_guardar_audita_cada_cambio(gente, auditoria_db):
     c, ana, _luis = gente
-    c.guardar(ana, {"ajustes.umbral_pct": "20", "fotos.max_mb": "2", "lote.intervalo_s": "30"})
+    c.guardar(ana, {"lote.intervalo_min": "5", "fotos.max_mb": "2"})
     filas = sorted((e.modulo, e.accion, e.detalle) for e in auditoria_db.listar(ana) if e.modulo == "configuracion")
-    assert filas == [("configuracion", "Cambió configuración", "ajustes.umbral_pct: 10 → 20"),
-                     ("configuracion", "Cambió configuración", "lote.intervalo_s: 60 → 30")]
-    c.guardar(ana, {"ajustes.umbral_pct": "20"})          # sin cambios: sin filas nuevas
-    assert len([e for e in auditoria_db.listar(ana) if e.modulo == "configuracion"]) == 2
+    assert filas == [("configuracion", "Cambió configuración", "lote.intervalo_min: 1 → 5")]
+    c.guardar(ana, {"lote.intervalo_min": "5"})          # sin cambios: sin filas nuevas
+    assert len([e for e in auditoria_db.listar(ana) if e.modulo == "configuracion"]) == 1
 
 
-def test_guardar_ajusta_los_jobs(gente):
+def test_guardar_ajusta_el_job(gente):
     c, ana, _luis = gente
-    c.guardar(ana, {"lote.intervalo_s": "30", "staging.purga_dias": "3"})
-    assert _job("JOB_PROCESAR_TST")[0] == "FREQ=SECONDLY;INTERVAL=30"
-    assert "purgar_transito(3)" in _job("JOB_PURGA_TST")[1]
+    c.guardar(ana, {"lote.intervalo_min": "5"})
+    assert _job("JOB_PROCESAR_TST")[0] == "FREQ=MINUTELY;INTERVAL=5"
+    assert _job("JOB_PROCESAR_TST")[1] == "BEGIN NULL; END;"
+
+
+def test_la_carpeta_de_fotos_no_se_edita(gente):
+    c, ana, _luis = gente
+    with pytest.raises(ErrorDeAcceso, match="no se edita"):
+        c.guardar(ana, {"fotos.dir": "/tmp/otra"})
 
 
 def test_inventario_no_guarda(gente):
@@ -74,12 +86,3 @@ def test_inventario_no_guarda(gente):
     with pytest.raises(ErrorDeAcceso):
         c.guardar(luis, {"fotos.max_mb": "3"})
     assert c.valores()["fotos.max_mb"] == "2"
-
-
-def test_el_umbral_decide_si_un_ajuste_es_critico(gente, movimientos_db):
-    c, ana, luis = gente
-    _sql("UPDATE existencias_tst SET cantidad = 100 WHERE sku = :s AND codigo_almacen = 'ALM-01'", s=ARROZ)
-    assert movimientos_db.solicitar_ajuste(luis, ARROZ, "ALM-01", 85, "Merma") == movimientos_db.PENDIENTE  # 15 %
-    _sql(f"DELETE FROM {movimientos_db.TABLA}")
-    c.guardar(ana, {"ajustes.umbral_pct": "20"})
-    assert movimientos_db.solicitar_ajuste(luis, ARROZ, "ALM-01", 85, "Merma") == movimientos_db.APLICADO

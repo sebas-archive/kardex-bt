@@ -21,6 +21,7 @@ cada avance de ``recibidos``) desde esos hilos: la GUI debe convertirlo en una s
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import sys
 import threading
@@ -279,11 +280,15 @@ class SyncController:
 
         # D9: el teléfono ya recibió su BYE; el batch corre aquí, fuera de la sesión.
         try:
-            self.store.run_batch("SYNC")
+            _procesados, errores = self.store.run_batch("SYNC") or (0, 0)
         except Exception as exc:
             resultado = {"estado": ERROR, "ultimo_error": f"BATCH: {exc}"}
         else:
             resultado = {"estado": LISTO}
+            try:   # el aviso es lo de menos: si falla, la sincronización ya está hecha
+                self.store.notificar_sincronizacion(errores)
+            except Exception:
+                logging.getLogger("btsync.controller").exception("no se pudo crear la notificación de la sincronización")
         with self._lock:
             if gen == self._gen:
                 self._set(**resultado)

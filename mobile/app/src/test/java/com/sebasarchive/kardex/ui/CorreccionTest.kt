@@ -14,14 +14,22 @@ class CorreccionTest {
     @Test
     fun corregir_conserva_cantidad_nota_y_danados() {
         val fila = LecturaFila("7701234000001", "Arroz", "10", "PENDIENTE", "caja rota", danados = "2")
-        val ui = ContarActivity.uiInicial("T-01", ContarActivity.correccion(Intent(), fila))
+        val ui = ContarActivity.uiInicial(ContarActivity.correccion(Intent(), fila))
         assertTrue(ui.edicion)
         assertEquals(listOf("10", "caja rota", "2"), listOf(ui.cantidad, ui.nota, ui.danados))
     }
 
     @Test
+    fun desdeElCatalogoNoEsModoCorreccion() {
+        val intent = Intent().putExtra(ContarActivity.EXTRA_SKU, "7701234000001")
+            .putExtra(ContarActivity.EXTRA_NUEVO, true)
+        val ui = ContarActivity.uiInicial(intent)
+        assertTrue(!ui.edicion)
+    }
+
+    @Test
     fun contar_nuevo_empieza_vacio() {
-        val ui = ContarActivity.uiInicial("T-01", Intent())
+        val ui = ContarActivity.uiInicial(Intent())
         assertEquals(listOf(false, "", "", ""), listOf(ui.edicion, ui.cantidad, ui.nota, ui.danados))
     }
 }

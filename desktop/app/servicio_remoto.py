@@ -49,6 +49,10 @@ class ServicioRemoto(QObject):
 
     def _recibir(self, estado: servicio.EstadoServicio) -> None:
         nuevo = estado.como_dict()
+        if (self._listos is not None and estado.estado == servicio.DETENIDO
+                and self._status["estado"] != servicio.DETENIDO):
+            # Lo vimos activo y ahora no late: aviso (uno por arranque del servicio, aunque lo vean varios escritorios).
+            self._runner.run(servicio.avisar_detenido, lambda _r: None, lambda _m: None, self._status.get("desde"))
         if self._listos is not None and estado.listos > self._listos:
             self._status = nuevo
             self.status_changed.emit(self.status())

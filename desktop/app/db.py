@@ -1,15 +1,14 @@
-"""Consultas de la app de escritorio.
+"""Consultas de la app de escritorio contra Oracle.
 
-Los agregados salen de las vistas de Oracle (``V_*``): nunca se traen filas a Python para sumar.
-Lo que no tiene vista (filas de conciliación, lecturas de un SKU, errores, conteos) se lee de
-las tablas. **Ninguna función se debe llamar desde el hilo de la interfaz** (usar ``QueryWorker``).
+El conteo es **continuo y único** (``ACTUAL``): no hay varios conteos, cierres, almacenes ni tareas. Los
+agregados salen de las vistas ``V_*`` y lo que no tiene vista se lee de las tablas.
+
+**Ninguna función se debe llamar desde el hilo de la interfaz** (usar ``QueryWorker``/``QueryRunner``).
 
 Conexiones: **una por hilo**, reutilizada entre consultas. Abrir una por consulta llegó a miles de
-conexiones en pocos minutos y la XE 11g respondía a veces ``ORA-12516``. Antes de reutilizarla se
-hace ``ping``; si falla, o cambian el DSN o las credenciales, se abre otra; tras cualquier error se
-descarta (puede haber quedado con una transacción a medias). Se abren siempre con
-``btsync.store.connect_oracle``: varios hilos llamando a ``oracledb.connect`` a la vez abortan el
-Instant Client.
+conexiones en pocos minutos y la XE respondía a veces ``ORA-12516``. Antes de reutilizarla se hace
+``ping``; si falla, o cambian el DSN o las credenciales, se abre otra; tras cualquier error se
+descarta (puede haber quedado con una transacción a medias).
 """
 
 from __future__ import annotations
@@ -17,23 +16,22 @@ from __future__ import annotations
 import os
 import threading
 from contextlib import contextmanager
-from datetime import datetime
 
-from btsync.store import DDL_YA_HECHO, connect_oracle, ddl_tolerante  # noqa: F401 (las usan los migrar())
+from btsync.store import DDL_YA_HECHO, connect_oracle, ddl_tolerante  # noqa: F401 (los usan los migrar())
 
 from .models import (
-    Conteo,
     ErrorFila,
     EstadoBatch,
-    FilaConciliacion,
+    FilaInventario,
     Lectura,
     ResumenConteo,
 )
 
+CONTEO = "ACTUAL"
+
 
 # Conexión de cada hilo, por su identificador. No se usa ``threading.local``: PyQt crea y destruye el estado de Python
 # de un hilo del pool en cada tarea, y lo guardado ahí se perdía entre consultas (cada una abría otra conexión).
-# Los hilos del pool no caducan (``QueryRunner``), así que hay a lo sumo una conexión por hilo vivo.
 _conexiones: dict[int, tuple[object, tuple[str, str, str]]] = {}
 _candado = threading.Lock()
 
@@ -101,183 +99,228 @@ def _like(texto: str) -> str:
     return f"%{escapado}%"
 
 
-def _fila_conciliacion(r) -> FilaConciliacion:
-    return FilaConciliacion(
-        sku=r[0], nombre=r[1], categoria=r[2], cant_sistema=_f(r[3]), cant_contada=_f(r[4]),
-        diferencia=_f(r[5]), diferencia_pct=_f(r[6]), valor_diferencia=_f(r[7]), clasificacion=r[8],
-    )
+# ------------------------------------------------------------------ conteo actual
+def conteo_actual() -> str:
+    """El identificador del único conteo: siempre ``ACTUAL``. Existe para no repetir la cadena en las vistas."""
+    return CONTEO
 
 
-def fetch_conteos() -> list[Conteo]:
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT id_conteo, nombre, estado FROM conteos ORDER BY fecha_inicio DESC, id_conteo")
-        return [Conteo(*row) for row in cur]
-
-
-def fetch_resumen(id_conteo: str) -> ResumenConteo | None:
+def fetch_resumen() -> ResumenConteo | None:
     with _conexion() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id_conteo, skus_totales, contados, avance_pct, ok, faltantes, sobrantes, "
-            "exactitud_pct, valor_faltante, valor_sobrante FROM v_resumen_conteo WHERE id_conteo = :c",
-            c=id_conteo,
+            "SELECT id_conteo, skus_totales, contados, avance_pct, ok, faltantes, sobrantes, exactitud_pct "
+            "FROM v_resumen_conteo WHERE id_conteo = :c",
+            c=CONTEO,
         )
         r = cur.fetchone()
     if r is None:
         return None
-    return ResumenConteo(r[0], int(r[1]), int(r[2]), float(r[3]), int(r[4]), int(r[5]), int(r[6]),
-                         float(r[7]), float(r[8]), float(r[9]))
+    return ResumenConteo(r[0], int(r[1]), int(r[2]), float(r[3]), int(r[4]), int(r[5]), int(r[6]), float(r[7]))
 
 
-# Órdenes permitidos de la conciliación: la clave viene de la vista, el SQL sale de aquí (nunca se concatena lo recibido).
-_ORDENES = {
-    "sku": "k.sku",
-    "valor": "ABS(k.valor_diferencia) DESC NULLS LAST, k.sku",
-    "pct": "ABS(k.diferencia_pct) DESC NULLS LAST, k.sku",
-}
-
-
-def fetch_conciliacion(
-    id_conteo: str,
-    clasificacion: str | None = None,
-    categoria: str | None = None,
-    texto: str | None = None,
-    limit: int = 1000,
-    solo_diferencia: bool = False,
-    valor_min: float | None = None,
-    orden: str = "sku",
-) -> list[FilaConciliacion]:
-    """Filas de la conciliación con los filtros de la vista.
-
-    ``solo_diferencia`` deja fuera lo que cuadra y lo no contado; ``valor_min`` exige |valor de la diferencia| ≥ ese
-    monto (falte o sobre); ``orden`` es ``sku``, ``valor`` (mayor |valor| primero) o ``pct`` (mayor |%| primero).
-    """
-    if orden not in _ORDENES:
-        raise ValueError(f"orden inválido: {orden!r}")
-    filtros, binds = [], {"c": id_conteo, "lim": limit}
-    if solo_diferencia:
-        filtros.append("AND k.diferencia IS NOT NULL AND k.diferencia <> 0")
-    if valor_min:
-        filtros.append("AND ABS(k.valor_diferencia) >= :vmin")
-        binds["vmin"] = valor_min
-    if clasificacion:
-        filtros.append("AND k.clasificacion = :cl")
-        binds["cl"] = clasificacion
-    if categoria:
-        filtros.append("AND p.categoria = :cat")
-        binds["cat"] = categoria
+# ------------------------------------------------------------------ inventario
+def fetch_conciliacion(texto: str | None = None, limit: int = 1000) -> list[FilaInventario]:
+    """Producto a producto: cantidad contada (vacía si no hay lectura) y cantidad del sistema."""
+    filtro, binds = "", {"c": CONTEO, "lim": limit}
     if texto and texto.strip():
-        filtros.append("AND (UPPER(k.sku) LIKE :t ESCAPE '\\' OR UPPER(p.nombre) LIKE :t ESCAPE '\\')")
+        filtro = "AND (UPPER(k.sku) LIKE :t ESCAPE '\\' OR UPPER(p.nombre) LIKE :t ESCAPE '\\')"
         binds["t"] = _like(texto.strip())
     sql = (
         "SELECT * FROM ("
-        " SELECT k.sku, p.nombre, p.categoria, k.cant_sistema, k.cant_contada, k.diferencia,"
-        "        k.diferencia_pct, k.valor_diferencia, k.clasificacion"
+        " SELECT k.sku, p.nombre, p.categoria, k.cant_contada, k.cant_sistema"
         "   FROM conciliacion k JOIN productos p ON p.sku = k.sku"
-        f"  WHERE k.id_conteo = :c {' '.join(filtros)}"
-        f"  ORDER BY {_ORDENES[orden]}) WHERE ROWNUM <= :lim"
+        f"  WHERE k.id_conteo = :c {filtro}"
+        "  ORDER BY k.sku) WHERE ROWNUM <= :lim"
     )
     with _conexion() as conn:
         cur = conn.cursor()
         cur.execute(sql, binds)
-        return [_fila_conciliacion(r) for r in cur]
+        return [FilaInventario(r[0], r[1], r[2], _f(r[3]), _f(r[4])) for r in cur]
 
 
-def fetch_dif_por_categoria(id_conteo: str) -> list[tuple[str, float]]:
-    """(categoría, valor de la diferencia en pesos) de V_DIF_CATEGORIA."""
+def fetch_lecturas(sku: str) -> list[Lectura]:
+    """Todas las lecturas de un SKU, de la más antigua a la más reciente, marcando cuál es la vigente.
+
+    La foto de evidencia se enlaza por la fila de staging original: ``registros_procesados.id_transito`` →
+    ``captura_transito(uuid, seq)`` → ``fotos.ruta``.
+    """
     with _conexion() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT categoria, valor_diferencia FROM v_dif_categoria WHERE id_conteo = :c ORDER BY categoria",
-            c=id_conteo,
+            "SELECT r.cantidad, r.operador, r.fecha_captura, r.vigente, r.nota, "
+            "       (SELECT f.ruta FROM captura_transito t JOIN fotos f "
+            "          ON f.uuid_dispositivo = t.uuid_dispositivo AND f.seq = t.seq "
+            "         WHERE t.id_transito = r.id_transito) "
+            "  FROM registros_procesados r "
+            " WHERE r.id_conteo = :c AND r.sku = :s "
+            " ORDER BY r.fecha_captura, r.id_registro",
+            c=CONTEO, s=sku,
         )
-        return [(r[0], float(r[1])) for r in cur]
+        return [Lectura(_f(r[0]), r[1], r[2], r[3] == "S", r[4], r[5]) for r in cur]
 
 
-def fetch_top_desvios(id_conteo: str, n: int = 10) -> list[FilaConciliacion]:
-    """Los ``n`` SKU con mayor |valor de la diferencia| (V_TOP_DESVIOS); los SIN_CONTAR van al final."""
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM ("
-            " SELECT t.sku, t.nombre, t.categoria, k.cant_sistema, k.cant_contada, t.diferencia,"
-            "        k.diferencia_pct, t.valor_diferencia, t.clasificacion"
-            "   FROM v_top_desvios t JOIN conciliacion k ON k.id_conteo = t.id_conteo AND k.sku = t.sku"
-            "  WHERE t.id_conteo = :c"
-            "  ORDER BY ABS(t.valor_diferencia) DESC NULLS LAST, t.sku) WHERE ROWNUM <= :n",
-            c=id_conteo, n=n,
-        )
-        return [_fila_conciliacion(r) for r in cur]
-
-
-def fetch_distribucion(id_conteo: str) -> dict[str, int]:
-    """Cantidad de SKU por clasificación, a partir de V_RESUMEN_CONTEO."""
-    resumen = fetch_resumen(id_conteo)
-    if resumen is None:
-        return {"OK": 0, "FALTANTE": 0, "SOBRANTE": 0, "SIN_CONTAR": 0}
-    return {"OK": resumen.ok, "FALTANTE": resumen.faltantes, "SOBRANTE": resumen.sobrantes,
-            "SIN_CONTAR": resumen.sin_contar}
-
-
-def fetch_actividad(id_conteo: str) -> list[tuple[str, str, int]]:
-    """(operador, hora 'AAAA-MM-DD HH:MM' en UTC, lecturas) de V_ACTIVIDAD."""
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT operador, TO_CHAR(hora, 'YYYY-MM-DD HH24:MI'), registros FROM v_actividad "
-            "WHERE id_conteo = :c ORDER BY hora, operador",
-            c=id_conteo,
-        )
-        return [(r[0], r[1], int(r[2])) for r in cur]
-
-
-def fetch_lecturas(id_conteo: str, sku: str) -> list[Lectura]:
-    """Todas las lecturas de un SKU, de la más antigua a la más reciente, marcando cuál es la vigente."""
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT cantidad, operador, fecha_captura, vigente, nota "
-            "FROM registros_procesados WHERE id_conteo = :c AND sku = :s "
-            "ORDER BY fecha_captura, id_registro",
-            c=id_conteo, s=sku,
-        )
-        return [Lectura(float(r[0]), r[1], r[2], r[3] == "S", r[4]) for r in cur]
-
-
+# ------------------------------------------------------------------ batch y errores
 def fetch_estado_batch() -> EstadoBatch:
     with _conexion() as conn:
         cur = conn.cursor()
         cur.execute("SELECT pendientes, procesando, procesados, errores, ultimo_run, ultimo_origen FROM v_estado_batch")
         r = cur.fetchone()
-    ultimo_run: datetime | None = r[4]
-    return EstadoBatch(int(r[0]), int(r[1]), int(r[2]), int(r[3]), ultimo_run, r[5])
+    return EstadoBatch(int(r[0]), int(r[1]), int(r[2]), int(r[3]), r[4], r[5])
 
 
-def fetch_errores(limit: int = 100) -> list[ErrorFila]:
+def fetch_errores(limit: int = 200) -> list[ErrorFila]:
+    """Lecturas que el batch dejó en ERROR, con el SKU y el motivo ya interpretados por la vista."""
     with _conexion() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM (SELECT id_transito, uuid_dispositivo, seq, mensaje_error, datos_raw, "
-            "fecha_recepcion FROM captura_transito WHERE estado = 'ERROR' ORDER BY id_transito DESC) "
-            "WHERE ROWNUM <= :n",
+            "SELECT * FROM (SELECT id_transito, uuid_dispositivo, seq, sku, cantidad, mensaje_error, fecha_recepcion "
+            "                 FROM v_errores_captura ORDER BY id_transito DESC) WHERE ROWNUM <= :n",
             n=limit,
         )
-        return [ErrorFila(int(r[0]), r[1], int(r[2]), r[3], r[4], r[5]) for r in cur]
-
-
-def cerrar_conteo(id_conteo: str) -> None:
-    """Procesa lo pendiente, cierra el conteo y lo concilia (irreversible)."""
-    with _conexion() as conn:
-        conn.cursor().callproc("pkg_batch.cerrar_conteo", [id_conteo])
-
-
-def reprocesar_errores(id_conteo: str | None = None) -> None:
-    """Devuelve a PENDIENTE las filas en ERROR (de un conteo o todas) y las procesa."""
-    with _conexion() as conn:
-        conn.cursor().callproc("pkg_batch.reprocesar_errores", [id_conteo])
+        return [ErrorFila(int(r[0]), r[1], int(r[2]), r[3] or "", r[4] or "", r[5], r[6]) for r in cur]
 
 
 def procesar_ahora() -> None:
     with _conexion() as conn:
-        conn.cursor().callproc("pkg_batch.procesar_pendientes", ["MANUAL"])
+        conn.cursor().execute("BEGIN pkg_batch.procesar_pendientes('MANUAL'); END;")
+
+
+def reprocesar_errores() -> None:
+    """Devuelve a PENDIENTE las filas en ERROR y las procesa (sin cerrar nada: el conteo es continuo)."""
+    with _conexion() as conn:
+        conn.cursor().execute("BEGIN pkg_batch.reprocesar_errores(); END;")
+
+
+def crear_producto(quien, sku: str, nombre: str, categoria: str) -> None:
+    """Alta de un SKU desconocido (solo Administrador): producto + stock 0 en ``ACTUAL``.
+
+    La lectura que estaba en error se procesa después con ``reprocesar_errores`` (lo llama la vista).
+    """
+    from . import auditoria
+    from .auth import ErrorDeAcceso
+
+    if not getattr(quien, "es_admin", False):
+        raise ErrorDeAcceso("Solo el Administrador puede dar de alta un SKU.")
+    sku, nombre, categoria = sku.strip().upper(), nombre.strip(), categoria.strip()
+    if not sku or not nombre or not categoria:
+        raise ErrorDeAcceso("El SKU, el nombre y la categoría son obligatorios.")
+    if len(sku) > 30 or len(nombre) > 120 or len(categoria) > 40:
+        raise ErrorDeAcceso("El SKU, el nombre o la categoría son demasiado largos.")
+    with _conexion() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "BEGIN pkg_batch.alta_sku(:s, :n, :c, 'UND', 0); END;",
+                s=sku, n=nombre, c=categoria,
+            )
+        except Exception as exc:
+            texto = str(exc)
+            if "ORA-20011" in texto or "SKU_YA_EXISTE" in texto:
+                raise ErrorDeAcceso(f"El SKU {sku} ya existe.") from None
+            if "ORA-20010" in texto:
+                raise ErrorDeAcceso("No se pudo dar de alta: revisa el SKU, el nombre, la categoría y la unidad.") from None
+            raise
+        auditoria.registrar(cur, quien.usuario, "inventario", "Dió de alta un SKU", f"{nombre} ({sku})")
+        conn.commit()
+
+
+# ------------------------------------------------------------------ series de las gráficas
+def fetch_actividad() -> list[tuple[str, str, int]]:
+    """(operador, hora 'AAAA-MM-DD HH:MM' en UTC, lecturas) de ``V_ACTIVIDAD``."""
+    with _conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT operador, TO_CHAR(hora, 'YYYY-MM-DD HH24:MI'), registros FROM v_actividad "
+            "WHERE id_conteo = :c ORDER BY hora, operador",
+            c=CONTEO,
+        )
+        return [(r[0], r[1], int(r[2])) for r in cur]
+
+
+def fetch_por_categoria() -> list[tuple[str, float]]:
+    """(categoría, diferencia en unidades). Negativa = faltante; positiva = sobrante.
+
+    Es una referencia del Dashboard: el inventario no muestra diferencia, porcentaje ni clasificación.
+    """
+    with _conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT p.categoria, NVL(SUM(k.diferencia), 0) "
+            "  FROM conciliacion k JOIN productos p ON p.sku = k.sku "
+            " WHERE k.id_conteo = :c GROUP BY p.categoria ORDER BY p.categoria",
+            c=CONTEO,
+        )
+        return [(r[0], float(r[1])) for r in cur]
+
+
+def fetch_series(categoria: str | None = None, top: int = 10) -> dict:
+    """Los datos de las seis gráficas, con los dos filtros de la pantalla.
+
+    ``categoria`` limita las series que se pueden desglosar; ``top`` es cuántas categorías/runs se muestran.
+    """
+    filtro_cat, binds_cat = "", {}
+    if categoria:
+        filtro_cat, binds_cat = "AND p.categoria = :cat", {"cat": categoria}
+    datos: dict = {}
+    with _conexion() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT categoria FROM productos ORDER BY categoria")
+        datos["_categorias"] = [r[0] for r in cur]
+
+        cur.execute(
+            "SELECT p.categoria, COUNT(*), COUNT(k.cant_contada) "
+            "  FROM conciliacion k JOIN productos p ON p.sku = k.sku "
+            f" WHERE k.id_conteo = :c {filtro_cat} GROUP BY p.categoria ORDER BY p.categoria",
+            c=CONTEO, **binds_cat,
+        )
+        datos["avance_categoria"] = [
+            (r[0], (100.0 * int(r[2]) / int(r[1])) if int(r[1]) else 0.0) for r in cur
+        ]
+
+        cur.execute(
+            "SELECT TO_CHAR(r.fecha_captura, 'YYYY-MM-DD HH24:MI'), COUNT(*) "
+            "  FROM registros_procesados r JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c {filtro_cat} "
+            " GROUP BY TO_CHAR(r.fecha_captura, 'YYYY-MM-DD HH24:MI') ORDER BY 1",
+            c=CONTEO, **binds_cat,
+        )
+        datos["por_hora"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT * FROM (SELECT p.categoria, COUNT(*) FROM registros_procesados r "
+            "  JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c {filtro_cat} GROUP BY p.categoria ORDER BY 2 DESC, 1) "
+            " WHERE ROWNUM <= :n",
+            c=CONTEO, n=top, **binds_cat,
+        )
+        datos["top_categorias"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT p.categoria, SUM(NVL(r.danados, 0)) "
+            "  FROM registros_procesados r JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c AND r.vigente = 'S' AND NVL(r.danados, 0) > 0 {filtro_cat} "
+            " GROUP BY p.categoria ORDER BY 2 DESC, 1",
+            c=CONTEO, **binds_cat,
+        )
+        datos["danados"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT * FROM (SELECT TO_CHAR(inicio, 'YYYY-MM-DD HH24:MI'), procesados, errores "
+            "                 FROM log_batch ORDER BY id DESC) WHERE ROWNUM <= :n",
+            n=top,
+        )
+        filas = [(r[0], int(r[1]), int(r[2])) for r in cur][::-1]
+        datos["batch"] = [(r[0], float(r[1])) for r in filas]
+        datos["batch_errores"] = [(r[0], float(r[2])) for r in filas]
+
+        cur.execute(
+            "SELECT COUNT(*), COUNT(k.cant_contada) FROM conciliacion k "
+            "  JOIN productos p ON p.sku = k.sku "
+            f" WHERE k.id_conteo = :c {filtro_cat}",
+            c=CONTEO, **binds_cat,
+        )
+        total, contados = cur.fetchone()
+        datos["contados_pendientes"] = [("contados", float(contados)), ("pendientes", float(int(total) - int(contados)))]
+        datos["dona"] = list(datos["contados_pendientes"])
+    return datos

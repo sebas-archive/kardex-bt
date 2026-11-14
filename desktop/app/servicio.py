@@ -64,7 +64,7 @@ def estado() -> EstadoServicio:
 
 
 def _escribir(quien: Sesion, sql: str, accion: str, **binds) -> None:
-    permisos.exigir(quien, "bluetooth")
+    permisos.exigir(quien, "sync")
     with db._conexion() as conn:
         cur = conn.cursor()
         cur.execute(f"UPDATE {bt.TABLA} SET {sql} WHERE id = 1", binds)
@@ -87,3 +87,16 @@ def reanudar(quien: Sesion) -> None:
 
 def responder_codigo(quien: Sesion, aceptar: bool) -> None:
     _escribir(quien, "respuesta = :r", "Aceptó código" if aceptar else "Rechazó código", r="S" if aceptar else "N")
+
+
+def avisar_detenido(desde: datetime | None) -> bool:
+    """Notifica al Administrador que el servicio se detuvo: una sola vez por arranque del servicio (la clave es su
+    ``desde``), aunque lo vean caer varios escritorios."""
+    from btsync import notificaciones
+
+    with db._conexion() as conn:
+        creada = notificaciones.crear(conn.cursor(), "SERVICIO_DETENIDO", "El servicio Bluetooth se detuvo",
+                                      "Sincronización", rol="ADMIN",
+                                      clave=desde.isoformat() if desde is not None else "sin-arranque")
+        conn.commit()
+    return creada

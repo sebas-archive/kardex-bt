@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import os
 import threading
+import time
 from pathlib import Path
 
 import oracledb
@@ -24,7 +25,16 @@ def connect_oracle(dsn: str, user: str, password: str) -> oracledb.Connection:
     """
     with _connect_lock:
         _init_client()
-        return oracledb.connect(user=user, password=password, dsn=dsn)
+        # La XE tiene pocos procesos: bajo una ráfaga de conexiones el listener puede responder ORA-12516
+        # aunque haya hueco un instante después. Reintentar es inocuo: la conexión no llegó a abrirse.
+        for intento in range(3):
+            try:
+                return oracledb.connect(user=user, password=password, dsn=dsn)
+            except oracledb.DatabaseError as exc:
+                if "ORA-12516" not in str(exc) or intento == 2:
+                    raise
+                time.sleep(0.4 * (intento + 1))
+        raise RuntimeError("no se pudo conectar a Oracle")
 
 
 def _init_client() -> None:
@@ -58,8 +68,9 @@ def ddl_tolerante(cur, sql: str, tambien: tuple[str, ...] = ()) -> bool:
 class Catalog:
     """Lo que el móvil necesita para contar. Nunca incluye el stock del sistema (conteo ciego).
 
-    ``tareas``: (id, nombre, almacen, instrucciones, estado, total, contados); los conteos generales (sin operador)
-    van con almacén y estado vacíos y avance 0. ``items``: (id_tarea, sku, 'S' si hay que recontarlo o 'N').
+    ``tareas``: un único pseudo registro ``CATALOGO`` con (id, nombre, almacén, instrucciones, estado, total,
+    contados); almacén e instrucciones van vacíos. ``items``: (id_catalogo, sku, 'N') por producto; el móvil puede
+    ignorarlo. ``productos``: (sku, nombre, categoria, unidad).
     """
 
     tareas: list[tuple[str, str, str, str, str, int, int]] = field(default_factory=list)
@@ -131,6 +142,9 @@ class Store:
         try:
             cur.execute("INSERT INTO usuarios (usuario, nombre, clave_hash, estado, origen, uuid_dispositivo) "
                         "VALUES (:u, :n, '-', 'PENDIENTE', 'MOVIL', :d)", u=usuario, n=nombre, d=uuid)
+            from . import notificaciones
+
+            notificaciones.crear(cur, "SOLICITUD", f"Nueva solicitud de cuenta: {nombre}", "Solicitudes", rol="ADMIN")
             conn.commit()
         except oracledb.IntegrityError as exc:
             conn.rollback()
@@ -152,9 +166,9 @@ class Store:
 
     @staticmethod
     def _operador_puede_sincronizar(cur) -> bool:
-        """Nivel de GESTION en el módulo Bluetooth para el rol Operador (matriz de permisos). Sin fila: el inicial (sí)."""
+        """Nivel de GESTION en el módulo SYNC para el rol Operador (matriz de permisos). Sin fila: el inicial (sí)."""
         try:
-            cur.execute("SELECT nivel FROM permisos WHERE rol = 'OPERADOR' AND modulo = 'bluetooth'")
+            cur.execute("SELECT nivel FROM permisos WHERE rol = 'OPERADOR' AND modulo = 'sync'")
         except oracledb.DatabaseError:   # base anterior a la tabla de permisos
             return True
         fila = cur.fetchone()
@@ -201,20 +215,20 @@ class Store:
             self._conn.rollback()
 
     def catalog(self, usuario: str | None = None) -> Catalog:
-        """Las tareas abiertas de ``usuario`` y sus productos, más los conteos generales. ``None`` (cuenta no
-        activa): solo los generales."""
-        from . import tareas
-
+        """El catálogo completo bajo un pseudo conteo ``CATALOGO``. No hay tareas ni almacenes: el operador cuenta
+        cualquier SKU del catálogo. ``usuario`` se conserva en la firma por compatibilidad y no cambia el resultado.
+        """
         cur = self._connection().cursor()
-        cur.execute("SELECT id_conteo, nombre FROM conteos WHERE estado = 'ABIERTO' AND operador IS NULL "
-                    "ORDER BY id_conteo")
-        generales = [(r[0], r[1], "", "", "", 0, 0) for r in cur]
-        propias = [] if usuario is None else [r for r in tareas.listar(cur, operador=usuario) if r.estado != tareas.CERRADA]
-        items = tareas.items(cur, [r.id for r in propias])
+        cur.execute("SELECT COUNT(*) FROM productos")
+        total = int(cur.fetchone()[0])
+        cur.execute("SELECT COUNT(DISTINCT sku) FROM registros_procesados "
+                    "WHERE id_conteo = 'ACTUAL' AND vigente = 'S'")
+        contados = int(cur.fetchone()[0])
         cur.execute("SELECT sku, nombre, categoria, unidad FROM productos ORDER BY sku")
         productos = [(r[0], r[1], r[2], r[3]) for r in cur]
-        return Catalog([(r.id, r.nombre, r.almacen, r.instrucciones, r.estado, r.total, r.contados) for r in propias]
-                       + generales, items, productos)
+        items = [("CATALOGO", sku, "N") for sku, _n, _c, _u in productos]
+        tareas = [("CATALOGO", "Catálogo", "", "", "ABIERTO", total, contados)]
+        return Catalog(tareas, items, productos)
 
     def existe_rec(self, uuid: str, seq: int) -> bool:
         cur = self._connection().cursor()
@@ -241,12 +255,22 @@ class Store:
             u=uuid, s=seq, r=ruta, b=len(datos))
         return ruta
 
-    def marcar_iniciada(self, usuario: str, id_tarea: str) -> None:
-        """El móvil avisó que empezó la tarea. Solo cuenta si es suya y sigue abierta; si no, no hace nada.
-        Confirma con el COMMIT de la sesión."""
-        self._connection().cursor().execute(
-            "UPDATE conteos SET iniciada = NVL(iniciada, SYSTIMESTAMP) "
-            "WHERE id_conteo = :t AND operador = :u AND estado = 'ABIERTO'", t=id_tarea, u=usuario)
+    def notificar_sincronizacion(self, errores: int) -> None:
+        """Avisa a Administración e Inventario de la última sincronización cerrada (teléfono y lecturas)."""
+        from . import notificaciones
+
+        conn = self._connection()
+        cur = conn.cursor()
+        cur.execute("SELECT s.recibidos, NVL(d.nombre, s.uuid_dispositivo) FROM sync_sesiones s "
+                    "LEFT JOIN dispositivos d ON d.uuid = s.uuid_dispositivo WHERE s.fin IS NOT NULL "
+                    "ORDER BY s.fin DESC, s.id DESC")
+        fila = cur.fetchone()
+        if fila is None:
+            return
+        texto = notificaciones.texto_sincronizacion(fila[1], int(fila[0]), errores)
+        for rol in ("ADMIN", "INVENTARIO"):
+            notificaciones.crear(cur, "SINCRONIZACION", texto, "Sincronización", rol=rol)
+        conn.commit()
 
     def run_batch(self, origen: str) -> tuple[int, int]:
         """Ejecuta PKG_BATCH.PROCESAR_PENDIENTES y devuelve ``(procesados, errores)`` de esa corrida.

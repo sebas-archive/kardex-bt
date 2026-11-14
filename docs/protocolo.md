@@ -1,16 +1,19 @@
 # Protocolo móvil ↔ PC
 
-Implementación de referencia: `server/btsync/protocol.py`. Los vectores de prueba compartidos
-con la app Android están en `protocol-vectors.json`.
+Implementación de referencia: `server/btsync/protocol.py`. Los vectores de prueba compartidos con la app Android
+están en `protocol-vectors.json`.
+
+El sistema final usa la **versión 5 sin cambios de mensajes ni de campos**. Lo que cambió es el contenido: hay un
+solo conteo continuo (`ACTUAL`) y un solo catálogo pseudo (`CATALOGO`).
 
 ## Formato de línea
 
 - UTF-8, **una línea por mensaje**, terminada en `\n`.
-- Campos separados por `|`. Al final, `*` y el **CRC32** en 8 dígitos hexadecimales
-  mayúsculos, calculado sobre los bytes que preceden al último `*`.
+- Campos separados por `|`. Al final, `*` y el **CRC32** en 8 dígitos hexadecimales mayúsculos, calculado sobre los
+  bytes que preceden al último `*`.
 - **Máximo 4000 bytes por línea**, sin el `\n` y con el CRC incluido.
-- En campos de texto libre se codifican `%` → `%25`, `|` → `%7C`, `\r` → `%0D` y `\n` → `%0A`
-  (el `%` se codifica primero y se decodifica en una sola pasada).
+- En campos de texto libre se codifican `%` → `%25`, `|` → `%7C`, `\r` → `%0D` y `\n` → `%0A` (el `%` se codifica
+  primero y se decodifica en una sola pasada).
 
 Ejemplo: `HELLO|5|dev-0001|Bodega Norte*788FF277`.
 
@@ -20,13 +23,12 @@ Ejemplo: `HELLO|5|dev-0001|Bodega Norte*788FF277`.
 |---|---|
 | `HELLO` | `5` (versión del protocolo), `<uuid_dispositivo>`, `<nombre>` |
 | `ACCT` | `<usuario>`, `<nombre>` — la cuenta del operador; va justo después de `HELLO` |
-| `INICIO` | `<id_tarea>` — el operador empezó esa tarea en el teléfono; se envía tras el catálogo, solo si el PC la ve `ASIGNADA`. Sin respuesta: si la tarea es ajena, está cerrada o la cuenta no está activa, el PC la ignora |
-| `REC` | `<seq>`, `<epoch_ms>`, `<id_conteo>`, `<sku>`, `<cantidad>`, `<operador>`, `<nota>`, `<danados>` (vacío si no se indicó; nunca mayor que la cantidad) |
+| `INICIO` | `<id>` — se tolera y **se ignora**; la app puede omitirlo |
+| `REC` | `<seq>`, `<epoch_ms>`, `ACTUAL`, `<sku>`, `<cantidad>`, `<operador>`, `<nota>`, `<danados>` (vacío si no se indicó; nunca mayor que la cantidad) |
 | `FOTO` | `<seq>`, `<parte>`, `<total>`, `<crc32>`, `<base64>` — una parte de la foto de la lectura `seq` (hasta 2700 caracteres de base64 por línea); `crc32` es el del archivo JPG completo |
 | `END` | `<n_registros>` |
 
-`cantidad` es decimal con punto, `^\d{1,9}(\.\d{1,3})?$`. `seq` empieza en 1 y es contiguo por
-dispositivo.
+`cantidad` es decimal con punto, `^\d{1,9}(\.\d{1,3})?$`. `seq` empieza en 1 y es contiguo por dispositivo.
 
 ## PC → móvil
 
@@ -34,8 +36,8 @@ dispositivo.
 |---|---|
 | `ACCTST` | `<usuario>`, `<estado>`, `<rol>`, `<motivo>` — estado de la cuenta: `PENDIENTE`, `ACTIVO`, `RECHAZADO` o `SUSPENDIDO`; `rol` y `motivo` pueden ir vacíos |
 | `READY` | `<ultimo_seq_confirmado>`, `<epoch_ms_servidor>` |
-| `CATTAREA` | `<id>`, `<nombre>`, `<almacen>`, `<instrucciones>`, `<estado>`, `<total>`, `<contados>` — las tareas abiertas del operador (estado `ASIGNADA`, `EN_PROGRESO`...) y los conteos generales, con almacén y estado vacíos y avance 0. Sin cuenta activa, solo los generales |
-| `CATITEM` | `<id_tarea>`, `<sku>`, `<recuento>` — un producto de la tarea; `recuento` es `S` si Inventario pidió contarlo otra vez, si no `N`. Nunca lleva la cantidad del sistema (conteo ciego) |
+| `CATTAREA` | `<id>`, `<nombre>`, `<texto1>`, `<texto2>`, `<estado>`, `<total_productos>`, `<contados>` — en el sistema final hay **una sola área**: `CATALOGO`, `Catálogo`, los dos campos de texto **vacíos**, estado `ABIERTO`, total de productos del catálogo y SKU con lectura vigente |
+| `CATITEM` | `<id_catalogo>`, `<sku>`, `<recuento>` — un producto del catálogo; en el sistema final `recuento` es `N` (el campo se conserva por compatibilidad). Nunca lleva la cantidad del sistema (conteo ciego) |
 | `CATPROD` | `<sku>`, `<nombre>`, `<categoria>`, `<unidad>` |
 | `CAT_END` | (sin campos) |
 | `ACK` | `<seq>` — acumulativo: todo `seq ≤ n` está persistido con COMMIT |
@@ -44,14 +46,13 @@ dispositivo.
 | `FOTOOK` | `<seq>` — la foto llegó completa y quedó guardada |
 | `FOTOERR` | `<seq>`, `<motivo>` — `CRC`, `FORMAT` (parte fuera de orden), `GRANDE` (más de 2 MB) o `SIN_LECTURA` |
 
-Solo se envían conteos en estado `ABIERTO`, y **nunca** el stock del sistema (conteo ciego).
+El catálogo **nunca** lleva el stock del sistema (conteo ciego). El área `CATALOGO` es la única que se envía.
 
 ## NAK y retroceso (go-back-N)
 
-Todo `NAK` lleva el `seq` que el servidor espera a continuación; el móvil retrocede y reenvía
-desde ahí. Motivos: `CRC`, `FORMAT`, `LINEA_LARGA`, `SECUENCIA`, `DB_NO_DISPONIBLE`, `CUENTA_NO_ACTIVA` y `OCUPADO`
-(con `seq` 0). Tras un `NAK` el servidor ignora en silencio los `REC` siguientes hasta recibir
-el `seq` esperado.
+Todo `NAK` lleva el `seq` que el servidor espera a continuación; el móvil retrocede y reenvía desde ahí. Motivos:
+`CRC`, `FORMAT`, `LINEA_LARGA`, `SECUENCIA`, `DB_NO_DISPONIBLE`, `CUENTA_NO_ACTIVA` y `OCUPADO` (con `seq` 0). Tras un
+`NAK` el servidor ignora en silencio los `REC` siguientes hasta recibir el `seq` esperado.
 
 Con `esperado = último_persistido + 1`:
 
@@ -61,75 +62,53 @@ Con `esperado = último_persistido + 1`:
 
 ## Sincronización
 
-1. El móvil envía `HELLO` y `ACCT`; el PC responde `ACCTST`, `READY` y luego el catálogo completo (`CAT*`) y `CAT_END`.
-   Si después de `HELLO` no llega `ACCT`, el PC responde `NAK|0|FORMAT` y cierra.
-2. Si la cuenta está activa, el móvil envía un `INICIO` por cada tarea que el operador empezó y el PC aún ve `ASIGNADA`.
-   Después, hasta 50 `REC` sin esperar `ACK`.
+1. El móvil envía `HELLO` y `ACCT`; el PC responde `ACCTST`, `READY` y luego el catálogo completo
+   (`CATTAREA|CATALOGO`, `CATITEM` por producto, `CATPROD` por producto y `CAT_END`). Si después de `HELLO` no llega
+   `ACCT`, el PC responde `NAK|0|FORMAT` y cierra.
+2. Si la cuenta está activa, el móvil envía las lecturas (`REC`), hasta 50 sin esperar `ACK`. `INICIO` es opcional y
+   el PC lo ignora.
 3. El servidor hace COMMIT cada 25 registros insertados o al `END`, y recién entonces envía `ACK`.
-4. Tras `END` el servidor envía `BYE|<aceptados>|<rechazados>`: `aceptados` son las filas nuevas
-   insertadas en esa sesión y `rechazados` la cantidad de `NAK` enviados; los duplicados no cuentan.
-   `BYE` no informa del resultado del batch (lo dispara el controlador después).
+4. Tras `END` el servidor envía `BYE|<aceptados>|<rechazados>`: `aceptados` son las filas nuevas insertadas en esa
+   sesión y `rechazados` la cantidad de `NAK` enviados; los duplicados no cuentan. `BYE` no informa del resultado del
+   batch (lo dispara el controlador después).
 
 ## Herramienta de línea de comandos
 
 ```bash
-python -m btsync.protocol --frame REC 1 1731170400000 CONT-2026-11 A-01 7701234000011 12.5 Ana ok
+python -m btsync.protocol --frame REC 1 1731170400000 ACTUAL A-01 7701234000011 12.5 Ana ok
 python -m btsync.protocol --parse 'ACK|3*6A8544FA'
 ```
 
 `--frame` recibe el tipo y los campos en **texto plano** (los codifica solo).
 
-## Versión 2 (sin ubicación)
+## Cuentas y permisos
 
-La versión 1 llevaba la ubicación en el `REC` y el PC enviaba `CATUBIC`. La **versión 2** las quitó: un `REC` tiene 8 partes
-(`REC` más 7 campos) y el catálogo ya no incluye ubicaciones. El `HELLO` lleva la versión; un teléfono con la versión 1 recibe
-`NAK|0|FORMAT` y no se guarda nada. Los 7 vectores de `protocol-vectors.json` se regeneraron para la versión 2.
-
-## Versión 3 (cuentas de operador)
-
-El móvil identifica la cuenta del operador con `ACCT|<usuario>|<nombre>` justo después de `HELLO`. Si la cuenta no existe en
-Oracle, el PC la crea **PENDIENTE** (origen `MOVIL`) para que el administrador la apruebe en «Solicitudes». El PC responde
-`ACCTST` con el estado, el rol y, si la rechazaron o suspendieron, el motivo (texto libre codificado como cualquier otro).
-
-- Solo una cuenta `ACTIVO` entrega lecturas. Con otro estado, el primer `REC` recibe `NAK|<seq>|CUENTA_NO_ACTIVA` y los demás
-  se ignoran; el `BYE` cuenta ese rechazo. El móvil conserva las lecturas en su búfer y las envía cuando la cuenta se active.
+- Si la cuenta del móvil no existe en Oracle, el PC la crea **PENDIENTE** (origen `MOVIL`) para que el Administrador
+  la apruebe en «Solicitudes». Solo puede quedar como **Operador de Inventario**.
+- Solo una cuenta `ACTIVO` entrega lecturas. Con otro estado, el primer `REC` recibe
+  `NAK|<seq>|CUENTA_NO_ACTIVA` y los demás se ignoran; el `BYE` cuenta ese rechazo. El móvil conserva las lecturas y
+  las envía cuando la cuenta se active.
 - El estado se lee al empezar y vale para toda la sesión: una aprobación a mitad de sesión rige desde la siguiente.
 - Un usuario que ya existe como cuenta del PC (origen `ESCRITORIO`) no se toca: el móvil recibe
   `ACCTST|<usuario>|RECHAZADO||Ese usuario ya existe en el PC`.
-- Para solo consultar el estado (botón «Comprobar estado» del móvil) basta `HELLO`, `ACCT` y `END|0`.
 - La cuenta queda **vinculada al teléfono** (UUID del `HELLO`) que la registró. Desde otro teléfono el PC responde
   `SUSPENDIDO` con el motivo «Esta cuenta está vinculada a otro teléfono…» y no acepta lecturas, hasta que el
-  administrador pulse **Desvincular teléfono** en «Empleados» (p. ej. tras reinstalar la app).
-- Si la matriz quita al rol Operador la gestión de **Bluetooth**, el PC responde `SUSPENDIDO` con el motivo
-  «Tu rol no tiene permiso para sincronizar…».
-- `ACCT` se valida como en los clientes: usuario `[a-z0-9._-]{3,30}` y nombre de 1 a 60 caracteres; si no, `NAK|0|FORMAT`.
+  Administrador pulse **Desvincular teléfono** en «Empleados» (por ejemplo, tras reinstalar la app).
+- Si la matriz quita al rol Operador la gestión de **Sincronización** (`sync`), el PC responde `SUSPENDIDO` con el
+  motivo «Tu rol no tiene permiso para sincronizar…».
+- `ACCT` se valida como en los clientes: usuario `[a-z0-9._-]{3,30}` y nombre de 1 a 60 caracteres; si no,
+  `NAK|0|FORMAT`.
+- La contraseña del Operador **no viaja** en el protocolo: vive en el teléfono. El Administrador no la resetea desde
+  el PC; el Operador la recupera con su pregunta de seguridad local.
 
-Los vectores de `protocol-vectors.json` (11) incluyen `ACCT`, dos `ACCTST` y el `NAK` de cuenta no activa.
+## Versiones
 
-## Versión 4 (tareas de conteo)
-
-El catálogo ya no manda todos los conteos abiertos con `CATCONTEO`. En su lugar llegan:
-
-- `CATTAREA`: las tareas abiertas asignadas a la cuenta, con su almacén, instrucciones, estado y avance;
-- `CATITEM`: los productos de cada tarea, con la marca de recuento;
-- los conteos generales, que no tienen operador asignado y llegan como `CATTAREA` con almacén y estado vacíos.
-
-Una cuenta que no está activa solo recibe los conteos generales. El móvil avisa con `INICIO|<id_tarea>` que el operador
-empezó una tarea; así el PC la pasa a `EN_PROGRESO` antes de que llegue la primera lectura. Un teléfono con la
-versión 3 recibe `NAK|0|FORMAT`. Hay 4 vectores nuevos (`cattarea`, `cattarea_general`, `catitem` e `inicio`), y
-`hello` se regeneró para la versión 4.
-
-## Versión 5 (dañados y fotos)
-
-- **El `REC` gana un campo final, `danados`:** cuántas de las unidades contadas están dañadas. Un `REC` de la versión 4 (8 partes) no se acepta. El job lo guarda en `registros_procesados.danados`; si es mayor que la cantidad, la lectura queda en `ERROR` con `DANADOS_INVALIDO`.
-- **Cuándo viajan las fotos:** después de que el PC confirmó todas las lecturas de la sesión y antes de `END`, una foto a la vez. El móvil espera `FOTOOK` o `FOTOERR` antes de mandar la siguiente.
-- **Qué hace el PC con una foto:**
-  - junta las partes en memoria;
-  - comprueba el CRC;
-  - escribe `<FOTOS_DIR>/<uuid>/<seq>.jpg` (primero a un temporal);
-  - registra la ruta relativa en la tabla `fotos`.
-- **Si algo sale mal:**
-  - un corte a mitad no deja nada; la foto se reenvía entera la próxima vez;
-  - una foto repetida reemplaza la anterior;
-  - con `GRANDE` el móvil no la reintenta; con `CRC` o `FORMAT`, sí.
-- **Vectores:** 3 nuevos (`rec_danados`, `foto` y `fotoerr`). `hello` y los `REC` se regeneraron para la versión 5.
+- **Versión 2 (sin ubicación):** la 1 llevaba la ubicación en el `REC` y el PC enviaba `CATUBIC`. La 2 las quitó: un
+  `REC` tiene 8 partes y el catálogo no incluye ubicaciones. Un teléfono con otra versión recibe
+  `NAK|0|FORMAT` y no se guarda nada.
+- **Versión 3 (cuentas):** `HELLO`, `ACCT` y `ACCTST`; la cuenta del móvil llega al PC y queda pendiente. Los
+  vectores incluyen `ACCT`, dos `ACCTST` y el `NAK` de cuenta no activa.
+- **Versión 4 (catálogo por área):** `CATTAREA` + `CATITEM` para agrupar productos e `INICIO` para avisar que se
+  empezó. En el sistema final el único grupo es el pseudo `CATALOGO`; `INICIO` se ignora.
+- **Versión 5 (dañados y fotos):** el `REC` gana el campo `danados`; las fotos viajan después de las lecturas y antes
+  del `END`, una a la vez, con `FOTOOK`/`FOTOERR`. Un `REC` de la versión 4 (8 partes) no se acepta.

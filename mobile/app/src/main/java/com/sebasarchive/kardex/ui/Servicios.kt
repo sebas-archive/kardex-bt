@@ -9,6 +9,9 @@ import com.sebasarchive.kardex.auth.CuentasDatabase
 import com.sebasarchive.kardex.data.AppDatabase
 import com.sebasarchive.kardex.data.CatalogRepository
 import com.sebasarchive.kardex.data.FotoRepository
+import com.sebasarchive.kardex.data.NotificacionRepository
+import com.sebasarchive.kardex.data.PantallaAviso
+import com.sebasarchive.kardex.data.TipoAviso
 import com.sebasarchive.kardex.sync.PcConnector
 import com.sebasarchive.kardex.sync.SyncClient
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +35,7 @@ class Servicios private constructor(val contexto: Context) {
 
     /** Compartido por todas las pantallas: el operador y el conteo son los mismos en todas. */
     val fotos = FotoRepository(db.fotos(), java.io.File(contexto.filesDir, "fotos"))
+    val notificaciones = NotificacionRepository(db.notificaciones())
     val contar = CountViewModel(db.outbox(), catalogo, settings, fotos)
 
     companion object {
@@ -59,13 +63,50 @@ class SyncViewModel(private val servicios: Servicios) : ViewModel() {
             // El PC responde el estado de la cuenta (ACCTST): se guarda para que la app sepa si puede trabajar.
             val cliente = SyncClient(servicios.db.outbox(), servicios.catalogo, uuid, Build.MODEL ?: "Android",
                 sesion.usuario, sesion.nombre,
-                alEstado = { servicios.auth.aplicarEstado(sesion.usuario, it.estado, it.rol, it.motivo) },
+                alEstado = { estadoPc ->
+                    servicios.auth.aplicarEstado(sesion.usuario, estadoPc.estado, estadoPc.rol, estadoPc.motivo)
+                    if (estadoPc.estado == "ACTIVO" && sesion.estado != "ACTIVO") {
+                        servicios.notificaciones.crear(TipoAviso.CUENTA_ACTIVA, "", PantallaAviso.INICIO)
+                    }
+                },
                 fotos = servicios.fotos)
             val runner = SyncRunner(
                 conectar = { servicios.conector.conectar(direccion).also { socket = it } },
                 sincronizar = cliente::sync,
             )
-            runner.ejecutar().collect { _estado.value = it }
+            runner.ejecutar().collect { estado ->
+                _estado.value = estado
+                avisar(estado)
+            }
+        }
+    }
+
+    /** Deja un aviso local por los hitos de la sincronización (no llegan notificaciones en tiempo real). */
+    private fun avisar(estado: SyncEstado) {
+        viewModelScope.launch(Dispatchers.IO) {
+            when (estado) {
+                is SyncEstado.Listo -> {
+                    if (estado.pendientes > 0) {
+                        servicios.notificaciones.crear(TipoAviso.SYNC_CON_PENDIENTES, estado.pendientes.toString(), PantallaAviso.PENDIENTES)
+                    } else {
+                        servicios.notificaciones.crear(TipoAviso.SYNC_OK, estado.aceptados.toString(), PantallaAviso.PENDIENTES)
+                    }
+                }
+                is SyncEstado.CuentaNoActiva -> {
+                    val tipo = when (estado.estado) {
+                        "PENDIENTE" -> TipoAviso.CUENTA_PENDIENTE
+                        "SUSPENDIDO" -> TipoAviso.CUENTA_SUSPENDIDA
+                        "RECHAZADO" -> TipoAviso.CUENTA_RECHAZADA
+                        "ACTIVO" -> TipoAviso.CUENTA_ACTIVA
+                        else -> TipoAviso.CUENTA_PENDIENTE
+                    }
+                    servicios.notificaciones.crear(tipo, estado.motivo.orEmpty(), PantallaAviso.ESTADO_CUENTA)
+                }
+                is SyncEstado.Cortado, is SyncEstado.PcNoDisponible -> {
+                    servicios.notificaciones.crear(TipoAviso.SYNC_SIN_CONEXION, "", PantallaAviso.SINCRONIZAR)
+                }
+                else -> Unit
+            }
         }
     }
 

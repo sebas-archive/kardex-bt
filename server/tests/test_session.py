@@ -10,7 +10,7 @@ from conftest import OPERADOR_ACTIVO, connect
 
 NOW = 1731170400000
 UUID = "tst-sess-1"
-CONTEO = "CONT-2026-11"
+CONTEO = "ACTUAL"
 
 
 class FakeConnection:
@@ -101,26 +101,22 @@ def test_happy_path_sends_ready_catalog_acks_and_bye(store, db):
 def test_catalog_never_contains_system_stock(store):
     conn_db = connect()
     cur = conn_db.cursor()
-    cur.execute("DELETE FROM stock_sistema WHERE id_conteo LIKE 'TST-%'")
-    cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TST-%'")
-    cur.execute("INSERT INTO conteos (id_conteo, nombre, estado) VALUES ('TST-OPEN', 'Abierto', 'ABIERTO')")
-    cur.execute("INSERT INTO conteos (id_conteo, nombre, estado) VALUES ('TST-CLOSED', 'Cerrado', 'CERRADO')")
-    cur.execute(
-        "INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) "
-        "VALUES ('TST-OPEN', (SELECT MIN(sku) FROM productos), 987654.321)"
-    )
+    cur.execute("SELECT cantidad_sistema FROM stock_sistema WHERE id_conteo = 'ACTUAL' "
+                "AND sku = '7701234000001'")
+    antes = cur.fetchone()[0]
+    cur.execute("UPDATE stock_sistema SET cantidad_sistema = 987654.321 "
+                "WHERE id_conteo = 'ACTUAL' AND sku = '7701234000001'")
     conn_db.commit()
     try:
         conn, _ = run(store, [*inicio(), end(0)])
         out = sent(conn)
         conteos = [m.fields[0] for m in out if m.kind == "CATTAREA"]
-        assert "TST-OPEN" in conteos
-        assert "TST-CLOSED" not in conteos
+        assert conteos == ["CATALOGO"]
         assert all(len(m.fields) == 4 for m in out if m.kind == "CATPROD")
         assert b"987654" not in b"".join(conn.out)
     finally:
-        cur.execute("DELETE FROM stock_sistema WHERE id_conteo LIKE 'TST-%'")
-        cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TST-%'")
+        cur.execute("UPDATE stock_sistema SET cantidad_sistema = :c "
+                    "WHERE id_conteo = 'ACTUAL' AND sku = '7701234000001'", c=antes)
         conn_db.commit()
         conn_db.close()
 
@@ -213,6 +209,7 @@ def test_oracle_down_replies_nak_db_unavailable(db):
         conn, _ = run(store, [*inicio(), rec(1), rec(2), end(2)])
     finally:
         store.rollback()
+        store.close()
         from conftest import purge_test_rows
 
         purge_test_rows()
@@ -238,6 +235,7 @@ def test_session_never_calls_run_batch(store, db):
         assert rows(db, estado="PENDIENTE") == 2
     finally:
         spy.rollback()
+        spy.close()
         from conftest import purge_test_rows
 
         purge_test_rows()
@@ -291,59 +289,28 @@ def test_otro_telefono_con_el_mismo_usuario_no_entrega_lecturas(store, db):
     assert ("NAK", ["1", "CUENTA_NO_ACTIVA"]) in out and rows(db, uuid="tst-sess-2") == 0
 
 
-# ------------------------------------------------------------------ protocolo 4: tareas
-@pytest.fixture
-def tarea_propia():
-    conn_db = connect()
-    cur = conn_db.cursor()
-
-    def limpiar():
-        cur.execute("DELETE FROM stock_sistema WHERE id_conteo LIKE 'TT-S%'")
-        cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TT-S%'")
-        conn_db.commit()
-
-    limpiar()
-    cur.execute("INSERT INTO conteos (id_conteo, nombre, estado, almacen, operador, instrucciones) "
-                "VALUES ('TT-S1', 'Tarea de sesion', 'ABIERTO', 'ALM-01', :o, 'Pasillo 2')", o=OPERADOR_ACTIVO)
-    cur.execute("INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) VALUES ('TT-S1', '7701234000001', 41)")
-    conn_db.commit()
-    try:
-        yield cur
-    finally:
-        limpiar()
-        conn_db.close()
-
-
-def _iniciada(cur) -> bool:
-    cur.execute("SELECT iniciada FROM conteos WHERE id_conteo = 'TT-S1'")
-    return cur.fetchone()[0] is not None
-
-
+# ------------------------------------------------------------------ protocolo 5: catálogo continuo
 def test_version_4_se_rechaza(store, db):
     conn, _ = run(store, [frame(["HELLO", "4", UUID, "APK de la fase 3"]), acct(), end(0)])
     assert [(m.kind, m.fields) for m in sent(conn)] == [("NAK", ["0", "FORMAT"])]
 
 
-def test_sesion_envia_las_tareas_del_operador_y_sus_items(store, tarea_propia):
+def test_sesion_envia_un_pseudo_catalogo_y_todos_los_productos(store):
     conn, _ = run(store, [*inicio(), end(0)])
     out = sent(conn)
-    tareas = [m.fields for m in out if m.kind == "CATTAREA"]
-    assert ["TT-S1", "Tarea de sesion", "ALM-01", "Pasillo 2", "ASIGNADA", "1", "0"] in tareas
-    assert ["TT-S1", "7701234000001", "N"] in [m.fields for m in out if m.kind == "CATITEM"]
+    areas = [m.fields for m in out if m.kind == "CATTAREA"]
+    assert areas == [["CATALOGO", "Catálogo", "", "", "ABIERTO", "60", "0"]]
+    items = [m.fields for m in out if m.kind == "CATITEM"]
+    productos = [m.fields for m in out if m.kind == "CATPROD"]
+    assert len(items) == 60 and all(i[0] == "CATALOGO" and i[2] == "N" for i in items)
+    assert len(productos) == 60
     kinds = [m.kind for m in out]
-    assert kinds.index("CATTAREA") < kinds.index("CATITEM") < kinds.index("CAT_END")
+    assert kinds.index("CATTAREA") < kinds.index("CATITEM") < kinds.index("CATPROD") < kinds.index("CAT_END")
 
 
-def test_inicio_marca_la_tarea_con_cuenta_activa(store, tarea_propia):
-    conn, _ = run(store, [*inicio(), frame(["INICIO", "TT-S1"]), frame(["INICIO", "NO-EXISTE"]), rec(1), end(1)])
+def test_inicio_se_acepta_y_se_ignora(store, db):
+    conn, _ = run(store, [*inicio(), frame(["INICIO", "CATALOGO"]), rec(1), end(1)])
     out = [(m.kind, m.fields) for m in sent(conn)]
-    assert _iniciada(tarea_propia)
-    assert not [o for o in out if o[0] == "NAK"] and out[-1] == ("BYE", ["1", "0"])
-
-
-def test_inicio_con_cuenta_no_activa_no_marca(store, tarea_propia):
-    run(store, [*inicio(), end(0)])                                    # el teléfono del operador ya sincronizó
-    conn, _ = run(store, [*inicio(uuid="tst-sess-2"), frame(["INICIO", "TT-S1"]), end(0)])  # otro teléfono
-    assert sent(conn)[0].fields[1] == "SUSPENDIDO"
-    assert not _iniciada(tarea_propia)
-    assert "TT-S1" not in [m.fields[0] for m in sent(conn) if m.kind == "CATTAREA"]
+    assert not [o for o in out if o[0] == "NAK"]
+    assert out[-1] == ("BYE", ["1", "0"])
+    assert rows(db, uuid=UUID) == 1

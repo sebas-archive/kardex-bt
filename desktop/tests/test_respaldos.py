@@ -3,7 +3,7 @@
 import pytest
 
 from app import db as dbq
-from app.auth import INVENTARIO, ErrorDeAcceso
+from app.auth import INVENTARIO, PREGUNTAS, ErrorDeAcceso
 
 
 def _sql(sql, **binds):
@@ -21,8 +21,9 @@ def _habilitados():
 
 @pytest.fixture
 def gente(cuentas, respaldos_db):
-    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
-    cuentas.registrar("luis", "Luis Ortiz", "conteo2026", "conteo2026")
+    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026", correo="ana@example.com",
+                            pregunta=PREGUNTAS[0], respuesta="firulais")
+    cuentas.registrar("luis", "Luis Ortiz", "conteo2026", "conteo2026", correo="luis@example.com")
     cuentas.aprobar(ana, "luis", INVENTARIO)
     return respaldos_db, ana, cuentas.iniciar_sesion("luis", "conteo2026")
 
@@ -101,7 +102,7 @@ def test_restaurar_con_error_deja_los_jobs_habilitados(gente, servicio_db, monke
 
 def test_guardar_automatico(gente, auditoria_db):
     r, ana, luis = gente
-    with pytest.raises(ErrorDeAcceso, match="HH:MM"):
+    with pytest.raises(ErrorDeAcceso, match="valor válido"):
         r.guardar_automatico(ana, True, "25:00", 7)
     r.guardar_automatico(ana, False, "22:30", 5)
     assert r.automatico() == (False, "22:30", 5)

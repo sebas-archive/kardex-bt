@@ -90,6 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.sebasarchive.kardex.auth.AuthRepository
 import com.sebasarchive.kardex.auth.Claves
+import com.sebasarchive.kardex.ui.Textos
 import com.sebasarchive.kardex.ui.componentes.Iconos
 import com.sebasarchive.kardex.ui.theme.Marca
 import kotlin.math.hypot
@@ -111,8 +112,8 @@ data class AuthUi(
 )
 
 data class DatosRegistro(
-    val nombre: String = "", val usuario: String = "", val clave: String = "", val confirmacion: String = "",
-    val pregunta: String = AuthRepository.PREGUNTAS.first(), val respuesta: String = "",
+    val nombre: String = "", val usuario: String = "", val correo: String = "", val clave: String = "",
+    val confirmacion: String = "", val pregunta: String = AuthRepository.PREGUNTAS.first(), val respuesta: String = "",
 )
 
 /**
@@ -130,8 +131,8 @@ fun AuthScreen(
     inicial: DatosRegistro = DatosRegistro(),
 ) {
     var datos by rememberSaveable(stateSaver = androidx.compose.runtime.saveable.listSaver<DatosRegistro, String>(
-        save = { listOf(it.nombre, it.usuario, it.clave, it.confirmacion, it.pregunta, it.respuesta) },
-        restore = { DatosRegistro(it[0], it[1], it[2], it[3], it[4], it[5]) },
+        save = { listOf(it.nombre, it.usuario, it.correo, it.clave, it.confirmacion, it.pregunta, it.respuesta) },
+        restore = { DatosRegistro(it[0], it[1], it[2], it[3], it[4], it[5], it[6]) },
     )) { mutableStateOf(inicial) }
     BackHandler(enabled = ui.modo != ModoAuth.ENTRAR && ui.bienvenida == null) { alCambiarModo(ModoAuth.ENTRAR) }
 
@@ -153,13 +154,13 @@ fun AuthScreen(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text("Inventario", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+            Text(Textos.t("Inventario"), color = Color.White, style = MaterialTheme.typography.headlineSmall)
             AnimatedContent(ui.modo, transitionSpec = { fadeIn(tween(250)).togetherWith(fadeOut(tween(150))) }, label = "subtitulo") { modo ->
                 Text(
                     when (modo) {
-                        ModoAuth.ENTRAR -> "Entra para empezar a contar"
-                        ModoAuth.REGISTRO -> "Crea tu cuenta en este teléfono"
-                        ModoAuth.RECUPERAR -> "Recupera tu contraseña"
+                        ModoAuth.ENTRAR -> Textos.t("Entra para empezar a contar")
+                        ModoAuth.REGISTRO -> Textos.t("Crea tu cuenta en este teléfono")
+                        ModoAuth.RECUPERAR -> Textos.t("Recupera tu contraseña")
                     },
                     color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
@@ -196,7 +197,7 @@ fun AuthScreen(
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Text("Las cuentas se guardan en este teléfono: la app funciona sin red.", style = MaterialTheme.typography.bodySmall,
+            Text(Textos.t("Las cuentas se guardan en este teléfono: la app funciona sin red."), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         Bienvenida(ui.bienvenida)
@@ -243,7 +244,7 @@ private fun Franja(icono: ImageVector, texto: String, fondo: Color, tinte: Color
 private fun CampoUsuario(valor: String, alCambiar: (String) -> Unit, ayuda: String? = null) {
     OutlinedTextField(
         value = valor, onValueChange = { if (it.length <= 24) alCambiar(it.replace(" ", "").replace("\n", "")) },
-        label = { Text("Usuario") }, singleLine = true,
+        label = { Text(Textos.t("Usuario")) }, singleLine = true,
         leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
         supportingText = ayuda?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
@@ -260,7 +261,7 @@ private fun CampoClave(valor: String, alCambiar: (String) -> Unit, etiqueta: Str
         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
         trailingIcon = {
             IconButton(onClick = { visible = !visible }) {
-                Icon(Iconos.Ojo, contentDescription = if (visible) "Ocultar contraseña" else "Mostrar contraseña",
+                Icon(Iconos.Ojo, contentDescription = Textos.t(if (visible) "Ocultar contraseña" else "Mostrar contraseña"),
                     tint = if (visible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
@@ -283,76 +284,83 @@ private fun BotonPrincipal(texto: String, cargando: Boolean, alPulsar: () -> Uni
 @Composable
 private fun FormularioEntrar(ui: AuthUi, d: DatosRegistro, alCambiar: (DatosRegistro) -> Unit,
                              alEntrar: (String, String) -> Unit, alCambiarModo: (ModoAuth) -> Unit) {
-    Text("Iniciar sesión", style = MaterialTheme.typography.titleLarge)
+    Text(Textos.t("Iniciar sesión"), style = MaterialTheme.typography.titleLarge)
     CampoUsuario(d.usuario, { alCambiar(d.copy(usuario = it)) })
-    CampoClave(d.clave, { alCambiar(d.copy(clave = it)) }, "Contraseña", accion = ImeAction.Done)
-    BotonPrincipal("Entrar", ui.cargando) { alEntrar(d.usuario, d.clave) }
-    TextButton(onClick = { alCambiarModo(ModoAuth.RECUPERAR) }, modifier = Modifier.fillMaxWidth()) { Text("¿Olvidaste tu contraseña?") }
-    OutlinedButton(onClick = { alCambiarModo(ModoAuth.REGISTRO) }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Crear cuenta") }
+    CampoClave(d.clave, { alCambiar(d.copy(clave = it)) }, Textos.t("Contraseña"), accion = ImeAction.Done)
+    BotonPrincipal(Textos.t("Entrar"), ui.cargando) { alEntrar(d.usuario, d.clave) }
+    TextButton(onClick = { alCambiarModo(ModoAuth.RECUPERAR) }, modifier = Modifier.fillMaxWidth()) { Text(Textos.t("¿Olvidaste tu contraseña?")) }
+    OutlinedButton(onClick = { alCambiarModo(ModoAuth.REGISTRO) }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text(Textos.t("Crear cuenta")) }
 }
 
 @Composable
 private fun FormularioRegistro(ui: AuthUi, d: DatosRegistro, alCambiar: (DatosRegistro) -> Unit,
                                alRegistrar: (DatosRegistro) -> Unit, alCambiarModo: (ModoAuth) -> Unit) {
-    Text("Crear cuenta", style = MaterialTheme.typography.titleLarge)
+    Text(Textos.t("Crear cuenta"), style = MaterialTheme.typography.titleLarge)
     OutlinedTextField(
         value = d.nombre, onValueChange = { if (it.length <= 70) alCambiar(d.copy(nombre = it.replace("\n", ""))) },
-        label = { Text("Nombre completo") }, singleLine = true,
-        supportingText = { Text("Aparece como operador en cada lectura") },
+        label = { Text(Textos.t("Nombre completo")) }, singleLine = true,
+        supportingText = { Text(Textos.t("Aparece como operador en cada lectura")) },
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
         modifier = Modifier.fillMaxWidth(),
     )
-    CampoUsuario(d.usuario, { alCambiar(d.copy(usuario = it)) }, ayuda = "3 a 20: letras, números, punto o guion")
-    CampoClave(d.clave, { alCambiar(d.copy(clave = it)) }, "Contraseña")
+    CampoUsuario(d.usuario, { alCambiar(d.copy(usuario = it)) }, ayuda = Textos.t("3 a 20: letras, números, punto o guion"))
+    OutlinedTextField(
+        value = d.correo, onValueChange = { if (it.length <= 120) alCambiar(d.copy(correo = it.trim())) },
+        label = { Text(Textos.t("Correo (opcional)")) }, singleLine = true,
+        supportingText = { Text(Textos.t("No se usa para entrar; es un dato de perfil")) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    CampoClave(d.clave, { alCambiar(d.copy(clave = it)) }, Textos.t("Contraseña"))
     BarraFuerza(d.clave)
-    CampoClave(d.confirmacion, { alCambiar(d.copy(confirmacion = it)) }, "Repite la contraseña",
+    CampoClave(d.confirmacion, { alCambiar(d.copy(confirmacion = it)) }, Textos.t("Repite la contraseña"),
         esError = d.confirmacion.isNotEmpty() && d.confirmacion != d.clave)
 
     Text(
-        "Tu cuenta quedará pendiente hasta que el administrador la apruebe en el PC. Se entera al sincronizar.",
+        Textos.t("Tu cuenta quedará pendiente hasta que el administrador la apruebe en el PC. Se entera al sincronizar."),
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
     SelectorPregunta(d.pregunta) { alCambiar(d.copy(pregunta = it)) }
     OutlinedTextField(
         value = d.respuesta, onValueChange = { if (it.length <= 60) alCambiar(d.copy(respuesta = it.replace("\n", ""))) },
-        label = { Text("Tu respuesta") }, singleLine = true,
-        supportingText = { Text("Sirve para recuperar la contraseña sin internet") },
+        label = { Text(Textos.t("Tu respuesta")) }, singleLine = true,
+        supportingText = { Text(Textos.t("Sirve para recuperar la contraseña sin internet")) },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), modifier = Modifier.fillMaxWidth(),
     )
-    BotonPrincipal("Crear cuenta", ui.cargando) { alRegistrar(d) }
-    TextButton(onClick = { alCambiarModo(ModoAuth.ENTRAR) }, modifier = Modifier.fillMaxWidth()) { Text("Ya tengo cuenta") }
+    BotonPrincipal(Textos.t("Crear cuenta"), ui.cargando) { alRegistrar(d) }
+    TextButton(onClick = { alCambiarModo(ModoAuth.ENTRAR) }, modifier = Modifier.fillMaxWidth()) { Text(Textos.t("Ya tengo cuenta")) }
 }
 
 @Composable
 private fun FormularioRecuperar(ui: AuthUi, d: DatosRegistro, alCambiar: (DatosRegistro) -> Unit, alBuscarPregunta: (String) -> Unit,
                                 alRestablecer: (String, String, String, String) -> Unit, alCambiarModo: (ModoAuth) -> Unit) {
-    Text("Recuperar contraseña", style = MaterialTheme.typography.titleLarge)
-    Text("Responde la pregunta de seguridad que elegiste al crear la cuenta.", style = MaterialTheme.typography.bodyMedium,
+    Text(Textos.t("Recuperar contraseña"), style = MaterialTheme.typography.titleLarge)
+    Text(Textos.t("Responde la pregunta de seguridad que elegiste al crear la cuenta."), style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
     CampoUsuario(d.usuario, { alCambiar(d.copy(usuario = it)) })
     AnimatedVisibility(ui.pregunta != null, enter = expandVertically(tween(380)) + fadeIn(tween(380)), exit = shrinkVertically() + fadeOut()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.medium) {
                 Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                    Text("Tu pregunta", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                    Text(ui.pregunta.orEmpty(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Text(Textos.t("Tu pregunta"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Text(Textos.t(ui.pregunta.orEmpty()), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
             OutlinedTextField(
                 value = d.respuesta, onValueChange = { if (it.length <= 60) alCambiar(d.copy(respuesta = it.replace("\n", ""))) },
-                label = { Text("Tu respuesta") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                label = { Text(Textos.t("Tu respuesta")) }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth(),
             )
-            CampoClave(d.clave, { alCambiar(d.copy(clave = it)) }, "Contraseña nueva")
+            CampoClave(d.clave, { alCambiar(d.copy(clave = it)) }, Textos.t("Contraseña nueva"))
             BarraFuerza(d.clave)
-            CampoClave(d.confirmacion, { alCambiar(d.copy(confirmacion = it)) }, "Repite la contraseña nueva",
+            CampoClave(d.confirmacion, { alCambiar(d.copy(confirmacion = it)) }, Textos.t("Repite la contraseña nueva"),
                 esError = d.confirmacion.isNotEmpty() && d.confirmacion != d.clave, accion = ImeAction.Done)
         }
     }
-    if (ui.pregunta == null) BotonPrincipal("Buscar mi pregunta", ui.cargando) { alBuscarPregunta(d.usuario) }
-    else BotonPrincipal("Cambiar contraseña", ui.cargando) { alRestablecer(d.usuario, d.respuesta, d.clave, d.confirmacion) }
-    TextButton(onClick = { alCambiarModo(ModoAuth.ENTRAR) }, modifier = Modifier.fillMaxWidth()) { Text("Volver a entrar") }
+    if (ui.pregunta == null) BotonPrincipal(Textos.t("Buscar mi pregunta"), ui.cargando) { alBuscarPregunta(d.usuario) }
+    else BotonPrincipal(Textos.t("Cambiar contraseña"), ui.cargando) { alRestablecer(d.usuario, d.respuesta, d.clave, d.confirmacion) }
+    TextButton(onClick = { alCambiarModo(ModoAuth.ENTRAR) }, modifier = Modifier.fillMaxWidth()) { Text(Textos.t("Volver a entrar")) }
 }
 
 /** Cuatro tramos que se llenan y cambian de color según la fuerza de la contraseña. */
@@ -377,11 +385,11 @@ fun BarraFuerza(clave: String) {
         }
         Text(
             when {
-                clave.isEmpty() -> "Mínimo 8 caracteres, con letras y números"
-                !Claves.esAceptable(clave) -> "Todavía no: mínimo 8 caracteres, con letras y números"
-                fuerza <= 2 -> "Aceptable"
-                fuerza == 3 -> "Buena"
-                else -> "Fuerte"
+                clave.isEmpty() -> Textos.t("Mínimo 8 caracteres, con letras y números")
+                !Claves.esAceptable(clave) -> Textos.t("Todavía no: mínimo 8 caracteres, con letras y números")
+                fuerza <= 2 -> Textos.t("Aceptable")
+                fuerza == 3 -> Textos.t("Buena")
+                else -> Textos.t("Fuerte")
             },
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -393,13 +401,13 @@ private fun SelectorPregunta(pregunta: String, alElegir: (String) -> Unit) {
     var abierto by remember { mutableStateOf(false) }
     Box {
         OutlinedTextField(
-            value = pregunta, onValueChange = {}, readOnly = true, label = { Text("Pregunta de seguridad") },
+            value = Textos.t(pregunta), onValueChange = {}, readOnly = true, label = { Text(Textos.t("Pregunta de seguridad")) },
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) }, modifier = Modifier.fillMaxWidth(),
         )
         Box(Modifier.matchParentSize().clip(MaterialTheme.shapes.small).clickable { abierto = true })  // el campo es de solo lectura: el toque lo recibe esta capa
         DropdownMenu(expanded = abierto, onDismissRequest = { abierto = false }) {
             AuthRepository.PREGUNTAS.forEach { opcion ->
-                DropdownMenuItem(text = { Text(opcion) }, onClick = { alElegir(opcion); abierto = false })
+                DropdownMenuItem(text = { Text(Textos.t(opcion)) }, onClick = { alElegir(opcion); abierto = false })
             }
         }
     }
@@ -417,7 +425,7 @@ private fun Bienvenida(nombre: String?) {
                 Box(Modifier.size(112.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Check, contentDescription = null, tint = Marca.Verde, modifier = Modifier.size(64.dp))
                 }
-                Text("¡Hola, ${nombre.orEmpty().substringBefore(' ')}!", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                Text(Textos.t("¡Hola, {nombre}!", "nombre" to nombre.orEmpty().substringBefore(' ')), color = Color.White, style = MaterialTheme.typography.headlineSmall)
             }
         }
     }

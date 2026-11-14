@@ -56,7 +56,7 @@ class Session:
         self.inserted = 0            # filas nuevas en esta sesión
         self.rejected = 0            # NAK enviados
         self.nak_active = False      # go-back-N: se ignora todo hasta el seq esperado
-        self.cuenta_activa = False   # según ACCTST: sin cuenta ACTIVO no se aceptan REC ni INICIO
+        self.cuenta_activa = False   # según ACCTST: sin cuenta ACTIVO no se aceptan REC
         self.usuario = ""
         self.fotos: dict[int, dict] = {}   # fotos a medio llegar, por seq de su lectura
         self.max_foto = 2 * MB             # se lee de la configuración al abrir la sesión
@@ -98,10 +98,9 @@ class Session:
             if msg.kind == "REC":
                 self._on_rec(msg, line)
             elif msg.kind == "INICIO":
-                # El operador empezó una tarea en el teléfono. Sin ACK: se confirma con el siguiente COMMIT; una
-                # tarea ajena, cerrada o inexistente no cambia nada.
-                if self.cuenta_activa:
-                    self.store.marcar_iniciada(self.usuario, msg.fields[0])
+                # El dominio continuo no tiene tareas. Se acepta por compatibilidad con APK anteriores y se ignora:
+                # sin ACK y sin efecto. El móvil nuevo puede omitirlo.
+                pass
             elif msg.kind == "FOTO":
                 self._on_foto(msg)
             elif msg.kind == "END":

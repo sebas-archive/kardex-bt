@@ -25,7 +25,7 @@ state CICLO_EN_MARCHA {
   PROCESANDO --> LISTO : run_batch("SYNC") ok
   PROCESANDO --> ERROR : el batch lanza una excepción
   RECIBIENDO --> ERROR : la sesión falla
-  CONECTADO --> VISIBLE_Y_ESPERANDO : corte antes del BYE\n[la ventana se renueva 120 s]
+  CONECTADO --> VISIBLE_Y_ESPERANDO : corte antes del BYE\n[el servicio renueva la ventana]
   RECIBIENDO --> VISIBLE_Y_ESPERANDO : corte antes del BYE\n[el teléfono puede reintentar]
   VISIBLE_Y_ESPERANDO --> ERROR : Bluetooth no disponible
   LISTO --> ESPERANDO_EMPAREJAMIENTO : start()
@@ -34,7 +34,7 @@ state CICLO_EN_MARCHA {
 
 IDLE --> ESPERANDO_EMPAREJAMIENTO : start()
 CICLO_EN_MARCHA --> IDLE : cancel()
-VISIBLE_Y_ESPERANDO --> IDLE : tiempo agotado (120 s)\n/ TIEMPO_AGOTADO
+VISIBLE_Y_ESPERANDO --> IDLE : tiempo agotado\n/ el servicio vuelve a abrir la ventana
 CONFIRMAR_CODIGO --> IDLE : confirm(False)
 
 note left of IDLE

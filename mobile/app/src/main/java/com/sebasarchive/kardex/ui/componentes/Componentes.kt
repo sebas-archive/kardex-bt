@@ -107,7 +107,7 @@ fun Pantalla(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (alVolver != null) {
-                    IconButton(onClick = alVolver) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver") }
+                    IconButton(onClick = alVolver) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = com.sebasarchive.kardex.ui.Textos.t("Volver")) }
                 }
                 Column(Modifier.weight(1f)) {
                     Text(titulo, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -176,11 +176,7 @@ fun colorDeEstado(estado: String): Color = when (estado) {
     else -> Marca.Pendiente
 }
 
-fun textoDeEstado(estado: String): String = when (estado) {
-    Estado.CONFIRMADO -> "Confirmada"
-    Estado.ENVIADO -> "Enviada"
-    else -> "Pendiente"
-}
+fun textoDeEstado(estado: String): String = com.sebasarchive.kardex.ui.Textos.estadoLectura(estado)
 
 /** Píldora con punto de color: el estado de una lectura. */
 @Composable

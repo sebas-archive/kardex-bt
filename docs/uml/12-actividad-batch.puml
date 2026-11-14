@@ -34,7 +34,7 @@ repeat while (¿Llegó END?) is (no) not (sí)
 :Reclamar pendientes (PENDIENTE → PROCESANDO);
 while (¿Quedan filas reclamadas?) is (sí)
   :Parsear la línea REC;
-  if (¿Conteo abierto, SKU conocido,\ncantidad válida?) then (sí)
+  if (¿SKU conocido, cantidad válida\ny dañados válidos?) then (sí)
     :Insertar en registros_procesados;
     :Recalcular lectura vigente\n(fecha_captura, luego id_transito);
     :Marcar PROCESADO;
@@ -42,7 +42,7 @@ while (¿Quedan filas reclamadas?) is (sí)
     :Marcar ERROR con mensaje;
   endif
 endwhile (no)
-:Conciliar los conteos tocados\n(unión sistema + lecturas vigentes);
+:Conciliar ACTUAL\n(unión sistema + lecturas vigentes);
 :Registrar en log_batch;
 |App (Controlador)|
 :Estado LISTO → refrescar la GUI;

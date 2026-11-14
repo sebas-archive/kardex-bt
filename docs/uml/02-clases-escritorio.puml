@@ -7,7 +7,7 @@ left to right direction
 class MainWindow {
   +refresh_requested : pyqtSignal
   +sesion_cambiada : pyqtSignal
-  +add_view(view, title, modulo)
+  +add_view(view, title, modulo, en_barra)
   +mostrar_estado_cuenta(cuenta)
   +iniciar(sesion)
   +cerrar_sesion()
@@ -49,8 +49,11 @@ class PerfilView
 class UsuariosView
 class SolicitudesView
 class RolesView
+class ConfiguracionView
+class RespaldosView
+class NotificacionesView
+class AuditoriaView
 class EstadoCuentaView
-class ConciliacionModel <<QAbstractTableModel>>
 class DetalleLecturas
 class EjeFormato <<AxisItem>>
 
@@ -61,8 +64,9 @@ interface RefreshableView <<Protocol>> {
 
 package "app.auth (cuentas del PC)" as authmod {
   entity "auth" as auth {
-    registrar(usuario, nombre, clave, confirmacion)
+    registrar(usuario, nombre, clave, confirmacion, correo, pregunta, respuesta)
     iniciar_sesion(usuario, clave)
+    recuperar(usuario, nueva, confirmacion, respuesta)
     cambiar_clave(usuario, actual, nueva, confirmacion)
     listar()
     cambiar_rol(quien, usuario, rol)
@@ -70,9 +74,13 @@ package "app.auth (cuentas del PC)" as authmod {
     rechazar(quien, usuario, motivo)
     suspender(quien, usuario, motivo)
     reactivar(quien, usuario)
+    desvincular_telefono(quien, usuario)
+    restablecer_clave(quien, usuario, nueva)
+    resolver_clave(quien, usuario, aprobar, motivo)
+    guardar_preferencias(usuario, tema, idioma)
+    guardar_foto(usuario, ruta)
     historial_solicitudes()
     consultar_cuenta(usuario)
-    restablecer_clave(quien, usuario, nueva)
   }
   entity "permisos" as permisos {
     nivel(rol, modulo)
@@ -87,6 +95,10 @@ class Sesion {
   +nombre
   +rol : ADMIN | INVENTARIO | OPERADOR
   +permisos : (modulo, nivel)…
+  +correo
+  +foto
+  +tema
+  +idioma
   +puede(modulo, minimo)
 }
 class ErrorDeAcceso <<Exception>>
@@ -98,19 +110,18 @@ class Solicitud
 
 package "app.db (módulo, una conexión Oracle por hilo)" as dbmod {
   entity "db" as db {
-    fetch_conteos()
-    fetch_resumen(id_conteo)
-    fetch_conciliacion(..., solo_diferencia, valor_min, orden)
-    fetch_dif_por_categoria(id_conteo)
-    fetch_top_desvios(id_conteo)
-    fetch_distribucion(id_conteo)
-    fetch_actividad(id_conteo)
-    fetch_lecturas(id_conteo, sku)
+    conteo_actual()
+    fetch_resumen()
+    fetch_conciliacion(texto, limit)
+    fetch_lecturas(sku)
     fetch_estado_batch()
-    fetch_errores()
-    cerrar_conteo(id_conteo)
-    reprocesar_errores(id_conteo)
+    fetch_errores(limit)
     procesar_ahora()
+    reprocesar_errores()
+    crear_producto(quien, sku, nombre, categoria)
+    fetch_actividad()
+    fetch_por_categoria()
+    fetch_series(categoria, top)
   }
 }
 
@@ -136,17 +147,16 @@ MainWindow o-- RefreshableView : secciones de la barra lateral
 MainWindow ..> Sesion : la del usuario que entró
 MainWindow *-- Transicion
 MainWindow ..> Aviso : avisos flotantes
-MainWindow --> QueryRunner : lista de conteos
 MainWindow *-- StateBanner
-AccesoView ..> auth : registrar / iniciar_sesion
+AccesoView ..> auth : registrar / iniciar_sesion / recuperar
 UsuariosView ..> auth : módulo «usuarios»
-SolicitudesView ..> auth : aprobar / rechazar
+SolicitudesView ..> auth : aprobar / rechazar / resolver_clave
 RolesView ..> permisos : matriz / guardar
 auth ..> permisos : exigir
 CuentaSinAcceso --|> ErrorDeAcceso
 auth ..> CuentaSinAcceso : estado ≠ ACTIVO
 auth ..> Solicitud : historial
-PerfilView ..> auth : cambiar_clave
+PerfilView ..> auth : cambiar_clave / preferencias / foto
 auth ..> db : conexión del hilo
 auth ..> ErrorDeAcceso : lanza
 auth ..> Sesion : devuelve
@@ -156,7 +166,6 @@ QueryWorker *-- WorkerSignals
 QueryWorker ..> db : fetch_*
 SyncView --> ServicioRemoto
 ServicioRemoto ..> EstadoServicio : lee SERVICIO_BT (servicio aparte)
-InventarioView *-- ConciliacionModel
 InventarioView *-- DetalleLecturas
 ChartsView *-- EjeFormato
 ChartsView *-- Dona

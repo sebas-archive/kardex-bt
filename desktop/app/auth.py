@@ -1,14 +1,18 @@
-"""Cuentas de la aplicación de escritorio: registro, inicio de sesión y roles.
+"""Cuentas de la aplicación de escritorio: registro, inicio de sesión, roles y preferencias.
 
-Dos roles en el PC: ``ADMIN`` (todo: además cierra conteos, reprocesa y administra cuentas) e ``INVENTARIO``
-(consulta, sincroniza y ve gráficas). Los clasificadores usan el celular y sus cuentas viven en el teléfono.
+Tres roles: ``ADMIN`` (el único administrador), ``INVENTARIO`` (consulta, sincroniza, gráficas) y ``OPERADOR``
+(cuentas del celular; no entran al PC).
 
-- La **primera cuenta** que se crea queda como ``ADMIN``. Las siguientes quedan **pendientes** (sin rol) hasta que
-  un administrador les asigne uno en «Solicitudes»: nadie elige su propio rol.
-- Quien olvidó su contraseña deja una **solicitud** (la nueva, ya con hash); el administrador la aprueba o la rechaza.
+- La **primera cuenta** del PC queda como ``ADMIN`` y activa; las demás quedan **pendientes** hasta que el
+  Administrador las apruebe como ``INVENTARIO``. No se pueden crear más administradores.
+- El correo es obligatorio en las cuentas del PC y opcional en las del celular. El login sigue siendo por usuario.
+- Solo el Administrador tiene pregunta y respuesta de seguridad, y con ella recupera su contraseña desde Acceso.
+- Quien olvidó su contraseña (Inventario) deja una **solicitud** con la nueva ya cifrada; el Administrador la
+  aprueba o la rechaza con motivo.
+- Cambiar la contraseña desde Perfil: el Administrador la cambia directo; Inventario deja la solicitud pendiente.
 - La contraseña nunca se guarda en claro: PBKDF2-HMAC-SHA256 con sal por usuario
   (``pbkdf2-sha256$<vueltas>$<sal>$<derivada>``).
-- Cinco fallos seguidos bloquean la cuenta 30 segundos.
+- Cinco fallos seguidos bloquean la cuenta 30 segundos; el mensaje de login es siempre el mismo.
 
 Como todo lo que toca Oracle, estas funciones se llaman fuera del hilo de la interfaz. Los errores que debe ver
 la persona llegan como ``ErrorDeAcceso`` con el mensaje listo para mostrar.
@@ -24,6 +28,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from btsync import notificaciones
+
 from . import db
 
 ADMIN, INVENTARIO, OPERADOR = "ADMIN", "INVENTARIO", "OPERADOR"
@@ -38,6 +44,19 @@ TABLA = "usuarios"          # las pruebas apuntan a una tabla aparte para no toc
 ITERACIONES = 200_000
 MAX_INTENTOS, BLOQUEO_S = 5, 30
 _USUARIO = re.compile(r"[a-z0-9._-]{3,30}")
+_CORREO = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+_TEMAS = ("claro", "sistema", "oscuro")
+_IDIOMAS = ("es", "en")
+
+MENSAJE_LOGIN = "Usuario o contraseña incorrectos."
+
+PREGUNTAS = (
+    "¿Cuál es el nombre de tu primera mascota?",
+    "¿En qué ciudad naciste?",
+    "¿Cuál es el nombre de tu mejor amigo de la infancia?",
+    "¿Cuál fue tu primer colegio?",
+    "¿Cuál es tu comida favorita?",
+)
 
 
 class ErrorDeAcceso(Exception):
@@ -60,6 +79,11 @@ class Sesion:
     # Niveles del rol al abrir la sesión ((modulo, nivel), ...), leídos de Oracle fuera del hilo de la interfaz:
     # la barra lateral los consulta sin tocar la base. None = la matriz inicial del rol (sesiones creadas a mano).
     permisos: tuple[tuple[str, str], ...] | None = field(default=None, compare=False, repr=False)
+    correo: str | None = field(default=None, compare=False)
+    foto: str | None = field(default=None, compare=False)
+    tema: str = field(default="sistema", compare=False)
+    idioma: str = field(default="es", compare=False)
+    aviso_clave: str | None = field(default=None, compare=False)   # motivo de una solicitud de contraseña rechazada
 
     @property
     def es_admin(self) -> bool:
@@ -86,6 +110,11 @@ class Usuario:
     clave_solicitada: bool = False   # pidió una contraseña nueva y el administrador no ha respondido
     registrado: datetime | None = None
     telefono: bool = False           # cuenta del celular ya vinculada a un teléfono
+    correo: str | None = None
+    foto: str | None = None
+    tema: str = "sistema"
+    idioma: str = "es"
+    motivo_clave: str | None = None
 
 
 @dataclass(frozen=True)
@@ -141,14 +170,49 @@ def _normalizar(usuario: str) -> str:
     return usuario.strip().lower()
 
 
+def _normalizar_correo(correo: str) -> str:
+    return (correo or "").strip().lower()
+
+
+def _normalizar_respuesta(respuesta: str) -> str:
+    return " ".join((respuesta or "").strip().lower().split())
+
+
+def _validar_correo(correo: str) -> str:
+    correo = _normalizar_correo(correo)
+    if not correo or len(correo) > 120 or not _CORREO.fullmatch(correo):
+        raise ErrorDeAcceso("El correo no es válido.")
+    return correo
+
+
+def _validar_pregunta(pregunta: str, respuesta: str) -> tuple[str, str]:
+    pregunta = (pregunta or "").strip()
+    respuesta = _normalizar_respuesta(respuesta)
+    if pregunta not in PREGUNTAS:
+        raise ErrorDeAcceso("Elige una pregunta de seguridad.")
+    if len(respuesta) < 2:
+        raise ErrorDeAcceso("Escribe la respuesta de seguridad.")
+    return pregunta, respuesta
+
+
 # ------------------------------------------------------------------ registro e inicio de sesión
-def registrar(usuario: str, nombre: str, clave: str, confirmacion: str) -> Sesion | None:
-    """Crea la cuenta. La primera es ``ADMIN`` y devuelve su sesión; las demás quedan pendientes y devuelve ``None``."""
+def hay_admin() -> bool:
+    """Si ya existe el Administrador (una cuenta del PC con rol ADMIN, en cualquier estado)."""
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(*) FROM {TABLA} WHERE rol = :r AND origen = 'ESCRITORIO'", r=ADMIN)
+        return cur.fetchone()[0] > 0
+
+
+def registrar(usuario: str, nombre: str, clave: str, confirmacion: str, correo: str = "",
+              pregunta: str = "", respuesta: str = "") -> Sesion | None:
+    """Crea la cuenta. La primera es el único ``ADMIN`` y devuelve su sesión; las demás quedan pendientes."""
     alias, nombre = _normalizar(usuario), nombre.strip()
     if not _USUARIO.fullmatch(alias):
         raise ErrorDeAcceso("El usuario debe tener de 3 a 30 caracteres: letras, números, punto o guion.")
     if not nombre or len(nombre) > 60:
         raise ErrorDeAcceso("Escribe tu nombre completo (máximo 60 caracteres).")
+    correo = _validar_correo(correo)
     _validar_clave(clave, confirmacion)
     with db._conexion() as conn:
         cur = conn.cursor()
@@ -157,19 +221,36 @@ def registrar(usuario: str, nombre: str, clave: str, confirmacion: str) -> Sesio
         if cur.fetchone()[0]:
             conn.rollback()
             raise ErrorDeAcceso("Ese usuario ya existe.")
-        # Primera cuenta = la primera del PC con rol ADMIN: las que llegan del celular (o de pruebas) no cuentan.
+        cur.execute(f"SELECT COUNT(*) FROM {TABLA} WHERE LOWER(correo) = :c", c=correo)
+        if cur.fetchone()[0]:
+            conn.rollback()
+            raise ErrorDeAcceso("Ese correo ya está en uso.")
+        # Primera cuenta = la primera del PC con rol ADMIN: las que llegan del celular no cuentan.
         cur.execute(f"SELECT COUNT(*) FROM {TABLA} WHERE rol = :r AND origen = 'ESCRITORIO'", r=ADMIN)
-        rol = ADMIN if cur.fetchone()[0] == 0 else None
-        cur.execute(f"INSERT INTO {TABLA} (usuario, nombre, rol, clave_hash, estado) VALUES (:u, :n, :r, :h, :e)",
-                    u=alias, n=nombre, r=rol, h=crear_hash(clave), e=ACTIVO if rol else PENDIENTE)
+        primero = cur.fetchone()[0] == 0
+        pregunta_hash = None
+        if primero:
+            pregunta, respuesta = _validar_pregunta(pregunta, respuesta)
+            pregunta_hash = crear_hash(respuesta)
+        else:
+            pregunta = None
+        cur.execute(
+            f"INSERT INTO {TABLA} (usuario, nombre, correo, rol, clave_hash, estado, origen, pregunta, respuesta_hash, tema, idioma) "
+            "VALUES (:u, :n, :c, :r, :h, :e, 'ESCRITORIO', :p, :ph, 'sistema', 'es')",
+            u=alias, n=nombre, c=correo, r=ADMIN if primero else None, h=crear_hash(clave),
+            e=ACTIVO if primero else PENDIENTE, p=pregunta, ph=pregunta_hash)
+        if not primero:   # queda pendiente: el administrador recibe el aviso (se resuelve en «Solicitudes»)
+            notificaciones.crear(cur, "SOLICITUD", f"Nueva solicitud de cuenta: {nombre}", "Solicitudes", rol=ADMIN)
         conn.commit()
-    return _sesion(alias, nombre, rol) if rol else None
+    if not primero:
+        return None
+    return Sesion(alias, nombre, ADMIN, permisos=None, correo=correo)
 
 
-def _sesion(usuario: str, nombre: str, rol: str) -> Sesion:
-    """Abre la sesión con los permisos actuales de su rol (se llama fuera del hilo de la interfaz)."""
+def _sesion_fila(usuario: str, nombre: str, rol: str, correo: str | None, foto: str | None,
+                 tema: str | None, idioma: str | None, aviso: str | None = None) -> Sesion:
     from . import permisos
-    return Sesion(usuario, nombre, rol, permisos.de_rol(rol))
+    return Sesion(usuario, nombre, rol, permisos.de_rol(rol), correo, foto, tema or "sistema", idioma or "es", aviso)
 
 
 def _auditar(cur, usuario: str, modulo: str, accion: str, detalle: str = "") -> None:
@@ -183,41 +264,46 @@ def iniciar_sesion(usuario: str, clave: str) -> Sesion:
         cur = conn.cursor()
         cur.execute(
             f"SELECT nombre, rol, clave_hash, estado, intentos, "
-            f"CASE WHEN bloqueado_hasta > SYSTIMESTAMP THEN 1 ELSE 0 END, motivo, creado FROM {TABLA} WHERE usuario = :u", u=alias)
+            f"CASE WHEN bloqueado_hasta > SYSTIMESTAMP THEN 1 ELSE 0 END, motivo, creado, correo, foto, tema, idioma, clave_motivo "
+            f"FROM {TABLA} WHERE usuario = :u", u=alias)
         fila = cur.fetchone()
         if fila is None:
             _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "usuario inexistente")
             conn.commit()
-            raise ErrorDeAcceso("Usuario o contraseña incorrectos.")  # el mismo mensaje: no revela qué cuentas existen
-        nombre, rol, guardado, estado, intentos, bloqueada, motivo, creado = fila
+            raise ErrorDeAcceso(MENSAJE_LOGIN)
+        (nombre, rol, guardado, estado, intentos, bloqueada, motivo, creado,
+         correo, foto, tema, idioma, aviso_clave) = fila
         if bloqueada:
             _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "bloqueada por intentos")
             conn.commit()
-            raise ErrorDeAcceso(f"Demasiados intentos. Espera {BLOQUEO_S} segundos y vuelve a probar.")
+            raise ErrorDeAcceso(MENSAJE_LOGIN)
         if not verificar_hash(clave, guardado):
             if intentos + 1 >= MAX_INTENTOS:
                 cur.execute(f"UPDATE {TABLA} SET intentos = 0, bloqueado_hasta = SYSTIMESTAMP + NUMTODSINTERVAL(:s, 'SECOND') "
                             "WHERE usuario = :u", s=BLOQUEO_S, u=alias)
                 _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "contraseña incorrecta; queda bloqueada")
                 conn.commit()
-                raise ErrorDeAcceso(f"Demasiados intentos. Espera {BLOQUEO_S} segundos y vuelve a probar.")
+                raise ErrorDeAcceso(MENSAJE_LOGIN)
             cur.execute(f"UPDATE {TABLA} SET intentos = intentos + 1 WHERE usuario = :u", u=alias)
             _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "contraseña incorrecta")
             conn.commit()
-            raise ErrorDeAcceso("Usuario o contraseña incorrectos.")
+            raise ErrorDeAcceso(MENSAJE_LOGIN)
         cur.execute(f"UPDATE {TABLA} SET intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u", u=alias)
         if estado != ACTIVO or rol is None:
+            if rol == ADMIN:   # el Administrador nunca pasa por Estado de cuenta
+                _auditar(cur, alias, "acceso", "Inicio de sesión rechazado", "administrador no activo")
+                conn.commit()
+                raise ErrorDeAcceso(MENSAJE_LOGIN)
             _auditar(cur, alias, "acceso", "Inicio de sesión rechazado", f"cuenta {estado.lower()}")
-        elif rol == OPERADOR:
+            conn.commit()
+            raise CuentaSinAcceso(alias, nombre, estado, motivo, creado)
+        if rol == OPERADOR:
             _auditar(cur, alias, "acceso", "Inicio de sesión rechazado", "operador: usa la app móvil")
-        else:
-            _auditar(cur, alias, "acceso", "Inicio de sesión")
+            conn.commit()
+            raise ErrorDeAcceso("Los operadores usan la app móvil.")
+        _auditar(cur, alias, "acceso", "Inicio de sesión")
         conn.commit()
-    if estado != ACTIVO or rol is None:
-        raise CuentaSinAcceso(alias, nombre, estado, motivo, creado)
-    if rol == OPERADOR:
-        raise ErrorDeAcceso("Los operadores usan la app móvil.")
-    return _sesion(alias, nombre, rol)
+    return _sesion_fila(alias, nombre, rol, correo, foto, tema, idioma, aviso_clave)
 
 
 def consultar_cuenta(usuario: str) -> CuentaSinAcceso | None:
@@ -229,26 +315,93 @@ def consultar_cuenta(usuario: str) -> CuentaSinAcceso | None:
     return None if fila is None else CuentaSinAcceso(*fila)
 
 
-def cambiar_clave(usuario: str, actual: str, nueva: str, confirmacion: str) -> None:
+def consumir_aviso_clave(usuario: str) -> None:
+    """El motivo de una solicitud rechazada se muestra una vez; después se borra."""
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE {TABLA} SET clave_motivo = NULL WHERE usuario = :u", u=usuario)
+        conn.commit()
+
+
+def pregunta_de(usuario: str) -> str | None:
+    """La pregunta de seguridad solo existe para el Administrador; para el resto, ``None``."""
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT rol, pregunta FROM {TABLA} WHERE usuario = :u", u=_normalizar(usuario))
+        fila = cur.fetchone()
+    return fila[1] if fila is not None and fila[0] == ADMIN else None
+
+
+def recuperar(usuario: str, nueva: str, confirmacion: str, respuesta: str = "") -> str:
+    """Recuperación desde Acceso. El Administrador responde su pregunta; Inventario deja una solicitud.
+
+    No se revela si la cuenta existe: para cuentas que no son del Administrador la respuesta es la misma.
+    """
+    alias = _normalizar(usuario)
+    _validar_clave(nueva, confirmacion)
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT rol, origen, estado, respuesta_hash FROM {TABLA} WHERE usuario = :u", u=alias)
+        fila = cur.fetchone()
+        if fila is None:
+            return "Solicitud enviada. Un administrador la revisará."
+        rol, origen, estado, respuesta_hash = fila
+        if rol == ADMIN:
+            if not respuesta_hash or not verificar_hash(_normalizar_respuesta(respuesta), respuesta_hash):
+                raise ErrorDeAcceso("La respuesta de seguridad no es correcta.")
+            cur.execute(f"UPDATE {TABLA} SET clave_hash = :h, clave_pendiente = NULL, clave_motivo = NULL, "
+                        "intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u", h=crear_hash(nueva), u=alias)
+            _auditar(cur, alias, "acceso", "Recuperó contraseña", "pregunta de seguridad")
+            conn.commit()
+            return "Contraseña cambiada. Entra con la nueva."
+        if origen == "ESCRITORIO":
+            cur.execute(f"UPDATE {TABLA} SET clave_pendiente = :h, clave_motivo = NULL, intentos = 0, "
+                        "bloqueado_hasta = NULL WHERE usuario = :u AND estado = 'ACTIVO'", h=crear_hash(nueva), u=alias)
+            if cur.rowcount:
+                cur.execute(f"SELECT nombre FROM {TABLA} WHERE usuario = :u", u=alias)
+                notificaciones.crear(cur, "SOLICITUD", f"{cur.fetchone()[0]} pidió restablecer su contraseña",
+                                     "Solicitudes", rol=ADMIN)
+            conn.commit()
+            return "Solicitud enviada. Un administrador la revisará."
+        conn.rollback()
+    raise ErrorDeAcceso("Los operadores no recuperan su contraseña desde el escritorio.")
+
+
+def cambiar_clave(usuario: str, actual: str, nueva: str, confirmacion: str) -> str:
+    """Cambio desde Perfil. El Administrador cambia directo; Inventario deja la solicitud pendiente."""
     alias = _normalizar(usuario)
     with db._conexion() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT clave_hash FROM {TABLA} WHERE usuario = :u", u=alias)
+        cur.execute(f"SELECT clave_hash, rol FROM {TABLA} WHERE usuario = :u", u=alias)
         fila = cur.fetchone()
         if fila is None or not verificar_hash(actual, fila[0]):
             raise ErrorDeAcceso("La contraseña actual no es correcta.")
+        rol = fila[1]
+        if rol == OPERADOR:
+            raise ErrorDeAcceso("Los operadores usan la app móvil.")
         _validar_clave(nueva, confirmacion)
-        cur.execute(f"UPDATE {TABLA} SET clave_hash = :h WHERE usuario = :u", h=crear_hash(nueva), u=alias)
+        if rol == ADMIN:
+            cur.execute(f"UPDATE {TABLA} SET clave_hash = :h WHERE usuario = :u", h=crear_hash(nueva), u=alias)
+            _auditar(cur, alias, "perfil", "Cambió contraseña")
+            conn.commit()
+            return "Contraseña cambiada."
+        cur.execute(f"UPDATE {TABLA} SET clave_pendiente = :h, clave_motivo = NULL WHERE usuario = :u",
+                    h=crear_hash(nueva), u=alias)
+        cur.execute(f"SELECT nombre FROM {TABLA} WHERE usuario = :u", u=alias)
+        notificaciones.crear(cur, "SOLICITUD", f"{cur.fetchone()[0]} pidió cambiar su contraseña", "Solicitudes", rol=ADMIN)
+        _auditar(cur, alias, "perfil", "Solicitó cambio de contraseña")
         conn.commit()
+    return "Solicitud enviada. Un administrador la aprobará."
 
 
 # ------------------------------------------------------------------ administración (solo ADMIN)
 def listar() -> list[Usuario]:
     with db._conexion() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT usuario, nombre, rol, estado, motivo, origen, clave_pendiente, creado, uuid_dispositivo "
-                    f"FROM {TABLA} ORDER BY usuario")
-        return [Usuario(r[0], r[1], r[2], r[3], r[4], r[5], r[6] is not None, r[7], r[8] is not None) for r in cur]
+        cur.execute(f"SELECT usuario, nombre, rol, estado, motivo, origen, clave_pendiente, creado, uuid_dispositivo, "
+                    f"correo, foto, tema, idioma, clave_motivo FROM {TABLA} ORDER BY usuario")
+        return [Usuario(r[0], r[1], r[2], r[3], r[4], r[5], r[6] is not None, r[7], r[8] is not None,
+                        r[9], r[10], r[11] or "sistema", r[12] or "es", r[13]) for r in cur]
 
 
 def _exigir(quien: Sesion, modulo: str) -> None:
@@ -257,31 +410,31 @@ def _exigir(quien: Sesion, modulo: str) -> None:
     permisos.exigir(quien, modulo)
 
 
-def _otros_admins_activos(cur, usuario: str) -> int:
-    """Administradores que pueden entrar al PC (origen ESCRITORIO, ACTIVO), sin contar a ``usuario``."""
-    cur.execute(f"SELECT COUNT(*) FROM {TABLA} WHERE rol = :r AND estado = :e AND origen = 'ESCRITORIO' AND usuario <> :u",
-                r=ADMIN, e=ACTIVO, u=usuario)
-    return cur.fetchone()[0]
-
-
 def _validar_rol(rol: str) -> None:
     if rol not in ROLES:
         raise ErrorDeAcceso("Ese rol no existe.")
 
 
-ROLES_POR_ORIGEN = {"MOVIL": (OPERADOR,), "ESCRITORIO": (ADMIN, INVENTARIO)}
+ROLES_POR_ORIGEN = {"MOVIL": (OPERADOR,), "ESCRITORIO": (INVENTARIO,)}
 
 
 def _validar_rol_para(cur, usuario: str, rol: str) -> None:
-    """Una cuenta del celular solo puede ser operador (no entra al PC); una del PC, administrador o inventario."""
+    """Una cuenta del celular solo puede ser Operador; una del PC solo puede ser Inventario.
+
+    El único Administrador ya existe y no se promueve a nadie más.
+    """
     _validar_rol(rol)
-    cur.execute(f"SELECT origen FROM {TABLA} WHERE usuario = :u", u=usuario)
+    if rol == ADMIN:
+        raise ErrorDeAcceso("Solo existe un Administrador y no se puede crear otro.")
+    cur.execute(f"SELECT origen, rol FROM {TABLA} WHERE usuario = :u", u=usuario)
     fila = cur.fetchone()
     if fila is None:
         raise ErrorDeAcceso("Esa cuenta no existe.")
+    if fila[1] == ADMIN:
+        raise ErrorDeAcceso("El Administrador no cambia de rol.")
     if rol not in ROLES_POR_ORIGEN.get(fila[0], ()):
         raise ErrorDeAcceso("Una cuenta del celular solo puede ser Operador de Inventario." if fila[0] == "MOVIL"
-                            else "Una cuenta del PC solo puede ser Administrador o Inventario.")
+                            else "Una cuenta del PC solo puede ser de Inventario.")
 
 
 def _validar_motivo(motivo: str) -> str:
@@ -302,12 +455,10 @@ def _transicion(cur, usuario: str, desde: str, cambios: str, **binds) -> None:
 
 def cambiar_rol(quien: Sesion, usuario: str, rol: str) -> None:
     """Cambia el rol de una cuenta ya ACTIVO (las pendientes se aprueban con ``aprobar``)."""
-    _exigir(quien, "roles")
+    _exigir(quien, "usuarios")
     with db._conexion() as conn:
         cur = conn.cursor()
         _validar_rol_para(cur, usuario, rol)
-        if rol != ADMIN and _otros_admins_activos(cur, usuario) == 0:
-            raise ErrorDeAcceso("Es el único administrador: nombra otro antes de cambiarle el rol.")
         _transicion(cur, usuario, ACTIVO, "rol = :r", r=rol)
         _auditar(cur, quien.usuario, "usuarios", "Cambió rol", f"{usuario}: {NOMBRE_ROL[rol]}")
         conn.commit()
@@ -342,8 +493,8 @@ def suspender(quien: Sesion, usuario: str, motivo: str) -> None:
         cur = conn.cursor()
         cur.execute(f"SELECT rol FROM {TABLA} WHERE usuario = :u", u=usuario)
         fila = cur.fetchone()
-        if fila and fila[0] == ADMIN and _otros_admins_activos(cur, usuario) == 0:
-            raise ErrorDeAcceso("Es el único administrador: no se puede suspender.")
+        if fila and fila[0] == ADMIN:
+            raise ErrorDeAcceso("El Administrador no se puede suspender.")
         _transicion(cur, usuario, ACTIVO, "estado = :e, motivo = :m, resuelto_por = :q, resuelto = SYSTIMESTAMP",
                     e=SUSPENDIDO, m=motivo, q=quien.usuario)
         _auditar(cur, quien.usuario, "usuarios", "Suspendió cuenta", f"{usuario} — «{motivo}»")
@@ -380,43 +531,83 @@ def historial_solicitudes() -> list[Solicitud]:
 
 
 def restablecer_clave(quien: Sesion, usuario: str, nueva: str) -> None:
-    """Un administrador pone una contraseña nueva a otra cuenta (quien la olvidó) y le quita el bloqueo."""
+    """El Administrador pone una contraseña nueva a una cuenta del PC (nunca a un operador del celular)."""
     _exigir(quien, "usuarios")
     _validar_clave(nueva, nueva)
     with db._conexion() as conn:
         cur = conn.cursor()
-        cur.execute(f"UPDATE {TABLA} SET clave_hash = :h, intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u",
-                    h=crear_hash(nueva), u=usuario)
+        cur.execute(f"SELECT origen FROM {TABLA} WHERE usuario = :u", u=usuario)
+        fila = cur.fetchone()
+        if fila is None:
+            raise ErrorDeAcceso("Esa cuenta no existe.")
+        if fila[0] == "MOVIL":
+            raise ErrorDeAcceso("La contraseña de un operador vive en el teléfono.")
+        cur.execute(f"UPDATE {TABLA} SET clave_hash = :h, clave_pendiente = NULL, clave_motivo = NULL, "
+                    "intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u", h=crear_hash(nueva), u=usuario)
         _auditar(cur, quien.usuario, "usuarios", "Restableció contraseña", usuario)
         conn.commit()
 
 
-# ------------------------------------------------------------------ solicitudes
-def solicitar_clave(usuario: str, nueva: str, confirmacion: str) -> str:
-    """Quien olvidó su contraseña deja la nueva (ya con hash) para que un administrador la apruebe.
-
-    Responde lo mismo exista o no la cuenta: así no se descubre qué usuarios hay.
-    """
-    _validar_clave(nueva, confirmacion)
-    with db._conexion() as conn:
-        conn.cursor().execute(f"UPDATE {TABLA} SET clave_pendiente = :h WHERE usuario = :u AND estado = 'ACTIVO'",
-                              h=crear_hash(nueva), u=_normalizar(usuario))
-        conn.commit()
-    return "Solicitud enviada. Cuando un administrador la apruebe, entra con la contraseña nueva."
-
-
-def resolver_clave(quien: Sesion, usuario: str, aprobar: bool) -> None:
-    """Aprueba (la contraseña pedida pasa a ser la de la cuenta y se desbloquea) o rechaza la solicitud."""
+# ------------------------------------------------------------------ solicitudes de contraseña
+def resolver_clave(quien: Sesion, usuario: str, aprobar: bool, motivo: str = "") -> None:
+    """Aprueba (la contraseña pedida pasa a ser la de la cuenta) o rechaza con motivo obligatorio."""
     _exigir(quien, "solicitudes")
+    motivo = "" if aprobar else _validar_motivo(motivo)
     with db._conexion() as conn:
         cur = conn.cursor()
         if aprobar:
-            cur.execute(f"UPDATE {TABLA} SET clave_hash = clave_pendiente, clave_pendiente = NULL, intentos = 0, "
-                        "bloqueado_hasta = NULL WHERE usuario = :u AND clave_pendiente IS NOT NULL", u=usuario)
+            cur.execute(f"UPDATE {TABLA} SET clave_hash = clave_pendiente, clave_pendiente = NULL, clave_motivo = NULL, "
+                        "intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u AND clave_pendiente IS NOT NULL", u=usuario)
         else:
-            cur.execute(f"UPDATE {TABLA} SET clave_pendiente = NULL WHERE usuario = :u", u=usuario)
-        _auditar(cur, quien.usuario, "usuarios", "Aprobó contraseña nueva" if aprobar else "Rechazó contraseña nueva", usuario)
+            cur.execute(f"UPDATE {TABLA} SET clave_pendiente = NULL, clave_motivo = :m "
+                        "WHERE usuario = :u AND clave_pendiente IS NOT NULL", u=usuario, m=motivo)
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise ErrorDeAcceso("Esta solicitud ya fue resuelta.")
+        _auditar(cur, quien.usuario, "usuarios", "Aprobó contraseña nueva" if aprobar else "Rechazó contraseña nueva",
+                 usuario + ("" if aprobar else f" — «{motivo}»"))
         conn.commit()
+
+
+# ------------------------------------------------------------------ preferencias y foto
+def guardar_preferencias(usuario: str, tema: str | None = None, idioma: str | None = None) -> tuple[str, str]:
+    """Guarda el tema y/o el idioma de una cuenta; devuelve los valores vigentes."""
+    if tema is not None and tema not in _TEMAS:
+        raise ErrorDeAcceso("Ese tema no existe.")
+    if idioma is not None and idioma not in _IDIOMAS:
+        raise ErrorDeAcceso("Ese idioma no existe.")
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        if tema is not None:
+            cur.execute(f"UPDATE {TABLA} SET tema = :t WHERE usuario = :u", t=tema, u=usuario)
+        if idioma is not None:
+            cur.execute(f"UPDATE {TABLA} SET idioma = :i WHERE usuario = :u", i=idioma, u=usuario)
+        conn.commit()
+        cur.execute(f"SELECT tema, idioma FROM {TABLA} WHERE usuario = :u", u=usuario)
+        fila = cur.fetchone()
+    return (fila[0] or "sistema", fila[1] or "es") if fila else ("sistema", "es")
+
+
+def guardar_foto(usuario: str, ruta: str | None) -> None:
+    """Guarda (o borra, con ``None``) la ruta relativa de la foto de perfil."""
+    if ruta is not None:
+        ruta = ruta.replace("\\", "/").strip()
+        if not ruta or ruta.startswith("/") or ".." in ruta.split("/"):
+            raise ErrorDeAcceso("La ruta de la foto no es válida.")
+        if len(ruta) > 200:
+            raise ErrorDeAcceso("La ruta de la foto es demasiado larga.")
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE {TABLA} SET foto = :f WHERE usuario = :u", f=ruta, u=usuario)
+        conn.commit()
+
+
+def foto_de(usuario: str) -> str | None:
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT foto FROM {TABLA} WHERE usuario = :u", u=usuario)
+        fila = cur.fetchone()
+    return fila[0] if fila else None
 
 
 # ------------------------------------------------------------------ esquema
@@ -428,6 +619,13 @@ _COLUMNAS_NUEVAS = (
     ("RESUELTO", "resuelto TIMESTAMP"),
     ("ORIGEN", "origen VARCHAR2(10 CHAR) DEFAULT 'ESCRITORIO' NOT NULL"),
     ("UUID_DISPOSITIVO", "uuid_dispositivo VARCHAR2(50 CHAR)"),
+    ("CORREO", "correo VARCHAR2(120 CHAR)"),
+    ("PREGUNTA", "pregunta VARCHAR2(200 CHAR)"),
+    ("RESPUESTA_HASH", "respuesta_hash VARCHAR2(200 CHAR)"),
+    ("FOTO", "foto VARCHAR2(200 CHAR)"),
+    ("TEMA", "tema VARCHAR2(10 CHAR) DEFAULT 'sistema'"),
+    ("IDIOMA", "idioma VARCHAR2(2 CHAR) DEFAULT 'es'"),
+    ("CLAVE_MOTIVO", "clave_motivo VARCHAR2(300 CHAR)"),
 )
 _CHECK_ROL = "rol IS NULL OR rol IN ('ADMIN', 'INVENTARIO', 'OPERADOR')"
 _CHECK_ESTADO = "estado IN ('PENDIENTE', 'ACTIVO', 'RECHAZADO', 'SUSPENDIDO')"
@@ -447,6 +645,8 @@ def migrar() -> None:
         for nombre, definicion in _COLUMNAS_NUEVAS:
             if nombre not in columnas:
                 db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} ADD ({definicion})")
+        cur.execute(f"UPDATE {TABLA} SET tema = 'sistema' WHERE tema IS NULL")
+        cur.execute(f"UPDATE {TABLA} SET idioma = 'es' WHERE idioma IS NULL")
         cur.execute("SELECT nullable FROM user_tab_columns WHERE table_name = :t AND column_name = 'ROL'", t=tabla)
         if cur.fetchone()[0] == "N":
             db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} MODIFY (rol NULL)")

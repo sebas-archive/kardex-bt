@@ -4,8 +4,6 @@ import com.sebasarchive.kardex.data.Catalog
 import com.sebasarchive.kardex.data.CatalogRepository
 import com.sebasarchive.kardex.data.FotoEntity
 import com.sebasarchive.kardex.data.FotoRepository
-import com.sebasarchive.kardex.data.ItemTareaEntity
-import com.sebasarchive.kardex.data.TareaEntity
 import com.sebasarchive.kardex.data.Outbox
 import com.sebasarchive.kardex.data.ProductoEntity
 import com.sebasarchive.kardex.protocol.EstadoCuentaPc
@@ -68,6 +66,7 @@ sealed class SyncProgress {
  * - **Go-back-N:** ante `NAK|n|motivo` se reenvía desde `n`.
  * - **Cuenta:** tras `HELLO` va `ACCT` con el operador de la sesión; el PC responde su estado (`ACCTST`), que se
  *   entrega a [alEstado]. Si no es ACTIVO no se envía ninguna lectura: la sesión termina con `END|0`.
+ * - **Conteo continuo:** no hay tareas ni `INICIO`; cada `REC` lleva `ACTUAL` como `id_conteo`.
  *
  * Una llamada es un intento sobre un socket. Tras un [SyncProgress.Cut] (o un `Done` con pendientes)
  * quien llama abre otra conexión y vuelve a llamar: nada se duplica.
@@ -129,12 +128,6 @@ class SyncClient(
             while (read().kind != "BYE") { /* el PC cierra la sesión */ }
             emit(SyncProgress.CuentaNoActiva(cuenta.estado, cuenta.motivo, outbox.contarPendientes()))
             return
-        }
-
-        // Las tareas que el operador empezó y el PC aún ve como ASIGNADA: se avisa antes de las lecturas.
-        val iniciadas = catalog.iniciadas()
-        for (t in nuevo.tareas) {
-            if (t.estado == "ASIGNADA" && t.id in iniciadas) out.write(Protocol.frame(listOf("INICIO", Protocol.encodeText(t.id))))
         }
 
         var total = outbox.ultimoSeq()
@@ -233,18 +226,20 @@ class SyncClient(
         return null
     }
 
+    /**
+     * Catálogo pseudo `CATALOGO`: el PC manda un `CATTAREA` (id `CATALOGO`, estado `ABIERTO`), un `CATITEM` por
+     * producto y un `CATPROD` por producto. Sin tareas no hace falta guardar áreas ni ítems: el operador cuenta
+     * directamente los `CATPROD`. Se tolera que `CATITEM` no llegue.
+     */
     private fun readCatalog(read: () -> Message): Catalog {
-        val tareas = ArrayList<TareaEntity>()
-        val items = ArrayList<ItemTareaEntity>()
         val productos = ArrayList<ProductoEntity>()
         while (true) {
             val m = read()
             val f = m.fields
             when (m.kind) {
-                "CATTAREA" -> tareas += TareaEntity(f[0], f[1], f[2], f[3], f[4], f[5].toInt(), f[6].toInt())
-                "CATITEM" -> items += ItemTareaEntity(f[0], f[1], f[2] == "S")
+                "CATTAREA", "CATITEM" -> Unit
                 "CATPROD" -> productos += ProductoEntity(f[0], f[1], f[2], f[3])
-                "CAT_END" -> return Catalog(tareas, items, productos)
+                "CAT_END" -> return Catalog(productos)
                 else -> throw FrameError("FORMAT", "se esperaba el catálogo y llegó ${m.kind}")
             }
         }

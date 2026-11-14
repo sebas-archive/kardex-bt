@@ -1,11 +1,11 @@
-"""Matriz de permisos: qué puede hacer cada rol en cada módulo. Vive en Oracle (tabla ``permisos``) y la edita
-el administrador en «Roles y permisos».
+"""Matriz de permisos: qué puede hacer cada rol en cada módulo. Vive en Oracle (``permisos``) y la edita
+el Administrador en «Roles y permisos».
 
 Tres niveles: ``NINGUNO`` (no ve el módulo), ``CONSULTA`` (lo ve) y ``GESTION`` (además cambia datos). Las
 vistas ocultan lo que el rol no puede ver (``puede``) y las funciones que cambian datos lo comprueban otra vez
 (``exigir``): quitar un botón no basta.
 
-El administrador conserva siempre ``GESTION`` en Usuarios, Solicitudes y Permisos (``INTOCABLES``): si no, un
+El Administrador conserva siempre ``GESTION`` en los doce módulos y su fila está bloqueada entera: si no, un
 cambio en la matriz podría dejar el sistema sin nadie que lo administre.
 """
 
@@ -24,35 +24,23 @@ TABLA = "permisos"   # las pruebas apuntan a ``permisos_tst``
 _N, _C, _G = NINGUNO, CONSULTA, GESTION
 # (clave, nombre en pantalla, nivel inicial para ADMIN, INVENTARIO, OPERADOR): la matriz de la especificación.
 _MATRIZ_INICIAL = (
-    ("dashboard", "Dashboard", _G, _G, _C),
-    ("usuarios", "Gestión de usuarios", _G, _N, _N),
-    ("roles", "Asignación de roles", _G, _N, _N),
-    ("permisos", "Gestión de permisos", _G, _N, _N),
-    ("solicitudes", "Solicitudes pendientes", _G, _N, _N),
-    ("productos_consulta", "Consulta global de productos", _C, _C, _C),
-    ("productos", "Gestión operativa de productos", _N, _G, _N),
-    ("categorias", "Categorías y almacenes", _C, _G, _C),
-    ("existencias", "Existencias", _C, _G, _C),
-    ("entradas_salidas", "Entradas y salidas", _C, _G, _N),
-    ("movimientos", "Movimientos", _C, _G, _C),
-    ("tareas", "Tareas de conteo", _C, _G, _G),
-    ("conteos", "Conteos físicos", _C, _C, _G),
-    ("diferencias", "Reportar diferencias", _C, _G, _G),
-    ("ajustes", "Ajustes de inventario", _G, _G, _N),
-    ("bluetooth", "Bluetooth", _G, _G, _G),
-    ("reportes", "Analítica y reportes", _C, _C, _N),
-    ("historial", "Historial", _C, _C, _C),
-    ("configuracion", "Configuración general", _G, _N, _N),
+    ("dashboard", "Dashboard", _G, _G, _N),
+    ("inventario", "Inventario", _G, _G, _N),
+    ("graficas", "Gráficas", _G, _G, _N),
+    ("sync", "Sincronización", _G, _G, _G),
+    ("notificaciones", "Notificaciones", _G, _G, _C),
+    ("perfil", "Perfil", _G, _G, _N),
+    ("solicitudes", "Solicitudes", _G, _N, _N),
+    ("usuarios", "Empleados", _G, _N, _N),
+    ("permisos", "Roles y permisos", _G, _N, _N),
+    ("auditoria", "Auditoría", _G, _N, _N),
+    ("configuracion", "Configuración", _G, _N, _N),
     ("respaldos", "Respaldos", _G, _N, _N),
-    ("perfil", "Perfil", _G, _G, _G),
 )
 MODULOS: tuple[tuple[str, str], ...] = tuple((clave, nombre) for clave, nombre, *_ in _MATRIZ_INICIAL)
 _CLAVES = {clave for clave, _ in MODULOS}
-INTOCABLES = frozenset({(ADMIN, "usuarios"), (ADMIN, "solicitudes"), (ADMIN, "permisos")})
-# Módulos que ya existen en las aplicaciones (los demás llegan en fases siguientes: su nivel se guarda pero aún no rige).
-EN_USO = ("dashboard", "usuarios", "roles", "permisos", "solicitudes", "existencias", "bluetooth", "reportes", "perfil",
-          "categorias", "conteos", "tareas", "diferencias", "entradas_salidas", "movimientos", "ajustes", "historial",
-          "configuracion", "respaldos")
+INTOCABLES = frozenset((ADMIN, clave) for clave, _ in MODULOS)
+EN_USO = tuple(clave for clave, _ in MODULOS)
 
 
 def inicial(rol: str) -> dict[str, str]:
@@ -97,7 +85,7 @@ def matriz() -> dict[tuple[str, str], str]:
 
 def exigir(quien: Sesion, modulo: str, minimo: str = GESTION) -> None:
     """Comprueba en vivo: la cuenta de ``quien`` debe seguir ACTIVO y su rol **actual** (no el de la sesión) debe
-    alcanzar ``minimo`` en el módulo. Así un administrador suspendido o degradado pierde sus poderes al momento."""
+    alcanzar ``minimo`` en el módulo. Así un administrador degradado pierde sus poderes al momento."""
     from . import auth
     with db._conexion() as conn:
         cur = conn.cursor()
@@ -111,8 +99,8 @@ def guardar(quien: Sesion, rol: str, modulo: str, nivel_nuevo: str) -> None:
     exigir(quien, "permisos")
     if rol not in ROLES or modulo not in _CLAVES or nivel_nuevo not in NIVELES:
         raise ErrorDeAcceso("Ese rol, módulo o nivel no existe.")
-    if (rol, modulo) in INTOCABLES and nivel_nuevo != GESTION:
-        raise ErrorDeAcceso("El administrador siempre gestiona usuarios, solicitudes y permisos.")
+    if rol == ADMIN:
+        raise ErrorDeAcceso("La fila del Administrador está bloqueada: siempre tiene Gestión.")
     with db._conexion() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT nivel FROM {TABLA} WHERE rol = :r AND modulo = :m", r=rol, m=modulo)
@@ -140,8 +128,11 @@ def _filas_existentes(cur) -> set[tuple[str, str]]:
 
 
 def migrar() -> None:
-    """Crea la tabla si falta y añade los valores iniciales de los módulos que no tengan fila. Es idempotente:
-    nunca pisa lo que el administrador ya cambió, y aguanta que otro escritorio esté haciendo lo mismo a la vez."""
+    """Crea la tabla si falta, borra los módulos que ya no existen y añade los valores iniciales que falten.
+
+    Es idempotente: nunca pisa lo que el administrador ya cambió, y aguanta que otro escritorio esté haciendo lo
+    mismo a la vez.
+    """
     with db._conexion() as conn:
         cur = conn.cursor()
         if not _existe_tabla(cur):
@@ -151,6 +142,9 @@ def migrar() -> None:
                 nivel  VARCHAR2(10 CHAR) NOT NULL,
                 CONSTRAINT pk_{TABLA} PRIMARY KEY (rol, modulo),
                 CONSTRAINT ck_{TABLA}_nivel CHECK (nivel IN ('NINGUNO', 'CONSULTA', 'GESTION')))""")
+        # Los módulos retirados no deben quedar en la tabla (la pantalla solo muestra los doce actuales).
+        cur.execute(f"DELETE FROM {TABLA} WHERE modulo NOT IN ({', '.join(f':m{i}' for i in range(len(_CLAVES)))})",
+                    **{f"m{i}": clave for i, clave in enumerate(_CLAVES)})
         existentes = _filas_existentes(cur)
         filas = [(rol, clave, nivel_inicial)
                  for clave, _nombre, *niveles in _MATRIZ_INICIAL

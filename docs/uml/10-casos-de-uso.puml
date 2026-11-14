@@ -6,50 +6,61 @@ left to right direction
 actor "Operador de Inventario\n(celular)" as op
 actor "Inventario\n(PC)" as inv
 actor "Administrador\n(PC)" as adm
-adm -|> inv
 actor "Scheduler\nde Oracle" as sch
 
 rectangle "Sistema de inventario físico" {
   usecase "Iniciar sesión" as entrar
   usecase "Crear cuenta\n(queda PENDIENTE)" as registrar
   usecase "Recuperar\ncontraseña" as recuperar
+  usecase "Ver y editar perfil\n(foto, tema, idioma)" as perfil
+  usecase "Ver catálogo" as catalogo
   usecase "Contar" as contar
   usecase "Escanear código\nde barras o QR" as escanear
   usecase "Recontar" as recontar
   usecase "Sincronizar" as sincronizar
   usecase "Confirmar código\nde emparejamiento" as codigo
   usecase "Conciliar" as conciliar
+  usecase "Ver inventario" as inventario
   usecase "Ver gráficas" as graficas
-  usecase "Cerrar conteo" as cerrar
-  usecase "Reprocesar errores" as reprocesar
   usecase "Exportar CSV" as csv
-  usecase "Purgar tránsito" as purgar
-  usecase "Aprobar, rechazar o\nsuspender cuentas;\nroles y permisos" as usuarios
-  usecase "Procesar capturas\npendientes (respaldo)" as procesar
+  usecase "Reprocesar errores" as reprocesar
+  usecase "Dar de alta un SKU" as alta
+  usecase "Aprobar, rechazar o\nsuspender cuentas;\nroles y permisos" as cuentas
+  usecase "Respaldar y restaurar" as respaldos
+  usecase "Procesar capturas\npendientes" as procesar
 }
 
 op --> entrar
+op --> catalogo
 op --> contar
 op --> sincronizar
-inv --> sincronizar
+op --> perfil
+inv --> entrar
+inv --> inventario
 inv --> graficas
 inv --> csv
-adm --> cerrar
-adm --> reprocesar
-adm --> usuarios
-inv --> entrar
+inv --> sincronizar
+inv --> perfil
 inv --> codigo
+adm --> entrar
+adm --> inventario
+adm --> sincronizar
+adm --> codigo
+adm --> perfil
+adm --> cuentas
+adm --> reprocesar
+adm --> alta
+adm --> respaldos
 sch --> procesar
-sch --> purgar
 
 entrar <.. registrar : <<extend>>
 entrar <.. recuperar : <<extend>>
-contar ..> entrar : <<include>>
+contar ..> catalogo : <<include>>
 contar <.. escanear : <<extend>>
 contar <.. recontar : <<extend>>
-sincronizar <.. codigo : <<extend>>\n(solo con require_pairing)
+sincronizar <.. codigo : <<extend>>\n(solo con BT_CON_CLAVE=1)
 sincronizar ..> conciliar : <<include>>
-cerrar ..> conciliar : <<include>>
 reprocesar ..> conciliar : <<include>>
+alta ..> reprocesar : <<include>>
 procesar ..> conciliar : <<include>>
 @enduml

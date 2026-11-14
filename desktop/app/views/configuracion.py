@@ -1,7 +1,7 @@
-"""Pantalla «Configuración» (Fase 5, solo el Administrador): los valores que antes estaban fijos en el código.
+"""Pantalla «Configuración» (solo el Administrador): intervalo del lote y tamaño máximo de foto.
 
-Tres grupos (Ajustes críticos, Sincronización, Fotos) y «Guardar». Lo escrito no se pisa con el refresco automático
-mientras haya cambios sin guardar. La carpeta de fotos se muestra pero no se edita: la fija la instalación.
+La carpeta de fotos se muestra pero no se edita: la fija la instalación. Al guardar se reaplica el job del
+Scheduler con el intervalo nuevo. No hay umbrales de ajuste crítico ni purga configurable.
 """
 
 from __future__ import annotations
@@ -9,17 +9,30 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                              QWidget)
 
-from btsync.store import fotos_dir
-
 from .. import auth, configuracion
+from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
+
+registrar({
+    "Configuración general": "General settings",
+    "Valores generales del sistema. Cada cambio queda en la auditoría.":
+        "General system values. Every change is recorded in the audit log.",
+    "Sincronización": "Synchronization",
+    "Procesar lecturas cada": "Process readings every",
+    "minutos": "minutes",
+    "Fotos": "Photos",
+    "Tamaño máximo": "Maximum size",
+    "MB": "MB",
+    "Carpeta": "Folder",
+    "Se define al instalar (FOTOS_DIR). Las fotos ya guardadas no se mueven.":
+        "Set at install time (FOTOS_DIR). Photos already saved are not moved.",
+    "Guardar": "Save",
+    "Guardado.": "Saved.",
+})
 
 # (título del grupo, [(clave, etiqueta, unidad)])
 GRUPOS = (
-    ("Ajustes críticos", [("ajustes.umbral_pct", "Cambio de existencia desde", "%"),
-                          ("ajustes.umbral_valor", "o diferencia de valor desde", "$")]),
-    ("Sincronización", [("lote.intervalo_s", "Procesar lecturas cada", "segundos"),
-                        ("staging.purga_dias", "Conservar lecturas recibidas", "días")]),
+    ("Sincronización", [("lote.intervalo_min", "Procesar lecturas cada", "minutos")]),
     ("Fotos", [("fotos.max_mb", "Tamaño máximo", "MB")]),
 )
 
@@ -31,8 +44,11 @@ class ConfiguracionView(QWidget):
         self._sesion: auth.Sesion | None = None
         self._campos: dict[str, QLineEdit] = {}
         self._cargados: dict[str, str] = {}
+        self._carpeta = QLineEdit()
+        self._carpeta.setReadOnly(True)
+        self._carpeta.setObjectName("carpetaFotos")
 
-        ayuda = QLabel("Valores generales del sistema. Cada cambio queda en la auditoría.")
+        ayuda = QLabel(t("Valores generales del sistema. Cada cambio queda en la auditoría."))
         ayuda.setObjectName("ayuda")
         ayuda.setWordWrap(True)
         self.banner = StateBanner()
@@ -51,7 +67,7 @@ class ConfiguracionView(QWidget):
         cuerpo.setContentsMargins(20, 16, 20, 16)
         cuerpo.setSpacing(10)
         for titulo, campos in GRUPOS:
-            encabezado = QLabel(titulo)
+            encabezado = QLabel(t(titulo))
             encabezado.setObjectName("seccion")
             cuerpo.addWidget(encabezado)
             forma = QFormLayout()
@@ -62,21 +78,18 @@ class ConfiguracionView(QWidget):
                 self._campos[clave] = editor
                 fila = QHBoxLayout()
                 fila.addWidget(editor)
-                fila.addWidget(QLabel(unidad))
+                fila.addWidget(QLabel(t(unidad)))
                 fila.addStretch(1)
-                forma.addRow(etiqueta, fila)
+                forma.addRow(t(etiqueta), fila)
             if titulo == "Fotos":
-                carpeta = QLineEdit(str(fotos_dir()))
-                carpeta.setObjectName("carpetaFotos")
-                carpeta.setReadOnly(True)
-                forma.insertRow(0, "Carpeta", carpeta)
-                nota = QLabel("Se define al instalar (FOTOS_DIR). Las fotos ya guardadas no se mueven.")
+                forma.insertRow(0, t("Carpeta"), self._carpeta)
+                nota = QLabel(t("Se define al instalar (FOTOS_DIR). Las fotos ya guardadas no se mueven."))
                 nota.setObjectName("ayuda")
                 nota.setWordWrap(True)
                 forma.insertRow(1, "", nota)
             cuerpo.addLayout(forma)
 
-        self.btn_guardar = QPushButton("Guardar")
+        self.btn_guardar = QPushButton(t("Guardar"))
         self.btn_guardar.setObjectName("primario")
         self.btn_guardar.clicked.connect(self._guardar)
         pie = QHBoxLayout()
@@ -100,15 +113,11 @@ class ConfiguracionView(QWidget):
         self._cargados = {}
         self.refresh()
 
-    def set_conteo(self, id_conteo: str | None) -> None:
-        """No depende del conteo."""
-
     def refresh(self) -> None:
         if self._sesion is None or not self._sesion.puede("configuracion") or self._sucio():
             return
         self._cargar()
 
-    # ------------------------------------------------------------- pruebas
     def campo(self, clave: str) -> QLineEdit:
         return self._campos[clave]
 
@@ -124,9 +133,10 @@ class ConfiguracionView(QWidget):
 
     def _mostrar(self, valores: dict[str, str]) -> None:
         self.banner.clear()
-        self._cargados = {k: valores[k] for k in self._campos}
+        self._cargados = {k: valores.get(k, "") for k in self._campos}
         for clave, editor in self._campos.items():
-            editor.setText(valores[clave])
+            editor.setText(valores.get(clave, ""))
+        self._carpeta.setText(configuracion.carpeta_fotos(valores))
 
     def _guardar(self) -> None:
         if self._sesion is None:
@@ -139,7 +149,7 @@ class ConfiguracionView(QWidget):
     def _guardado(self, valores: dict[str, str]) -> None:
         self.btn_guardar.setEnabled(True)
         self._mostrar(valores)
-        self.lbl_info.setText("Guardado.")
+        self.lbl_info.setText(t("Guardado."))
         self.lbl_info.show()
 
     def _error(self, mensaje: str) -> None:

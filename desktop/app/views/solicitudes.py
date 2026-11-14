@@ -1,38 +1,45 @@
-"""Pantalla «Solicitudes»: cuentas nuevas por aprobar o rechazar (con motivo), contraseñas olvidadas e historial."""
+"""Pantalla «Solicitudes»: cuentas nuevas y solicitudes de contraseña, para aprobar o rechazar con motivo.
+
+Una cuenta del móvil solo puede aprobarse como Operador de Inventario; una del PC, solo como Inventario. No se
+puede aprobar ni promover a Administrador: solo existe uno y ya está creado. El motivo del rechazo es obligatorio.
+"""
 
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDialog, QLabel, QPushButton, QTableWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDialog, QLabel, QPushButton,
+                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import auth
+from ..i18n import t
 from .base import QueryRunner, StateBanner
 
 RESULTADO = {auth.ACTIVO: "Aprobada", auth.RECHAZADO: "Rechazada"}
+ORIGEN = {"ESCRITORIO": "PC", "MOVIL": "Celular"}
 
 
 def _tabla(encabezados: tuple[str, ...]) -> QTableWidget:
     tabla = QTableWidget(0, len(encabezados))
-    tabla.setHorizontalHeaderLabels(list(encabezados))
+    tabla.setHorizontalHeaderLabels([t(e) for e in encabezados])
     tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     tabla.verticalHeader().hide()
-    tabla.verticalHeader().setDefaultSectionSize(36)
+    tabla.verticalHeader().setDefaultSectionSize(34)
     tabla.horizontalHeader().setStretchLastSection(True)
     return tabla
 
 
 def pedir_motivo(padre: QWidget, titulo: str, pregunta: str) -> str | None:
     """Pide el motivo (obligatorio). ``None`` si se cancela o se deja vacío: entonces no se hace nada."""
-    texto, ok = QInputDialog.getText(padre, titulo, pregunta)
+    texto, ok = QInputDialog.getText(padre, t(titulo), t(pregunta))
     texto = (texto or "").strip()
-    return texto if ok and texto else None
+    return texto[:auth.MAX_MOTIVO] if ok and texto else None
 
 
 class SolicitudesView(QWidget):
     cambiaron = pyqtSignal(int)   # cuántas solicitudes esperan respuesta
+    aviso = pyqtSignal(str, str)  # (texto, tipo) para el toast de la ventana
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -40,21 +47,23 @@ class SolicitudesView(QWidget):
         self._sesion: auth.Sesion | None = None
         self._nuevas: list[auth.Usuario] = []
         self._claves: list[auth.Usuario] = []
+        self._error = ""
 
-        ayuda = QLabel("Quien se registra (en el PC o en el celular) espera aquí: elige su rol y apruébala, o recházala "
-                       "con un motivo que verá al intentar entrar. Quien olvidó su contraseña deja una nueva para aprobar.")
+        ayuda = QLabel(t("Quien se registra (en el PC o en el celular) espera aquí. Elige su rol y apruébala, o "
+                         "recházala con un motivo que verá al intentar entrar. Los cambios de contraseña de Perfil "
+                         "también se aprueban aquí."))
         ayuda.setObjectName("ayuda")
         ayuda.setWordWrap(True)
         self.banner = StateBanner()
         self.banner.retry.connect(self.refresh)
 
-        self.tabla_cuentas = _tabla(("Usuario", "Nombre", "Origen", "Registro"))
-        self.combo_rol = QComboBox()   # se llena según el origen de la cuenta elegida (_ajustar)
-        self.btn_aprobar_cuenta = QPushButton("Aprobar")
-        self.btn_rechazar_cuenta = QPushButton("Rechazar…")
-        self.tabla_claves = _tabla(("Usuario", "Nombre", "Rol"))
-        self.btn_aprobar = QPushButton("Aprobar contraseña")
-        self.btn_rechazar_clave = QPushButton("Rechazar")
+        self.tabla_cuentas = _tabla(("Usuario", "Nombre", "Correo", "Origen", "Registro"))
+        self.combo_rol = QComboBox()
+        self.btn_aprobar_cuenta = QPushButton(t("Aprobar"))
+        self.btn_rechazar_cuenta = QPushButton(t("Rechazar…"))
+        self.tabla_claves = _tabla(("Usuario", "Nombre", "Rol", "Origen"))
+        self.btn_aprobar = QPushButton(t("Aprobar contraseña"))
+        self.btn_rechazar_clave = QPushButton(t("Rechazar…"))
         self.tabla_historial = _tabla(("Usuario", "Nombre", "Resultado", "Rol", "Motivo", "Por"))
 
         raiz = QVBoxLayout(self)
@@ -62,12 +71,12 @@ class SolicitudesView(QWidget):
         raiz.setSpacing(10)
         raiz.addWidget(ayuda)
         raiz.addWidget(self.banner)
-        rol = QLabel("Rol:")
         for titulo, tabla, widgets in (
-                ("Cuentas nuevas", self.tabla_cuentas, (rol, self.combo_rol, self.btn_aprobar_cuenta, self.btn_rechazar_cuenta)),
+                ("Cuentas nuevas", self.tabla_cuentas,
+                 (QLabel(t("Rol:")), self.combo_rol, self.btn_aprobar_cuenta, self.btn_rechazar_cuenta)),
                 ("Contraseñas por aprobar", self.tabla_claves, (self.btn_aprobar, self.btn_rechazar_clave)),
                 ("Historial", self.tabla_historial, ())):
-            rotulo = QLabel(titulo)
+            rotulo = QLabel(t(titulo))
             rotulo.setObjectName("seccion")
             acciones = QHBoxLayout()
             for widget in widgets:
@@ -82,19 +91,16 @@ class SolicitudesView(QWidget):
         self.tabla_claves.itemSelectionChanged.connect(self._ajustar)
         self.btn_aprobar_cuenta.clicked.connect(self._aprobar)
         self.btn_rechazar_cuenta.clicked.connect(self._rechazar)
-        self.btn_aprobar.clicked.connect(lambda: self._con(self._clave(), auth.resolver_clave, True))
-        self.btn_rechazar_clave.clicked.connect(lambda: self._con(self._clave(), auth.resolver_clave, False))
+        self.btn_aprobar.clicked.connect(lambda: self._resolver_clave(True))
+        self.btn_rechazar_clave.clicked.connect(lambda: self._resolver_clave(False))
         self._ajustar()
 
     # ------------------------------------------------- contrato de las vistas
     def set_sesion(self, sesion: auth.Sesion | None) -> None:
         self._sesion = sesion
-        if sesion is None:   # al salir no queda nada de la sesión anterior en pantalla
+        if sesion is None:
             self._mostrar(([], []))
         self.refresh()
-
-    def set_conteo(self, id_conteo: str | None) -> None:
-        """Las solicitudes no dependen del conteo."""
 
     def refresh(self) -> None:
         if self._sesion is None or not self._sesion.puede("solicitudes", "GESTION"):
@@ -102,14 +108,13 @@ class SolicitudesView(QWidget):
         self._runner.run(_cargar, self._mostrar, self.banner.show_error, key="solicitudes")
 
     def pendientes(self) -> int:
-        """Cuántas solicitudes esperan respuesta (para avisar en la barra)."""
         return len(self._nuevas) + len(self._claves)
 
-    def filas_cuentas(self) -> list[tuple[str, str]]:
-        return [(self.tabla_cuentas.item(f, 0).text(), self.tabla_cuentas.item(f, 1).text()) for f in range(self.tabla_cuentas.rowCount())]
+    def filas_cuentas(self) -> list[tuple[str, ...]]:
+        return [tuple(self.tabla_cuentas.item(f, c).text() for c in range(5)) for f in range(self.tabla_cuentas.rowCount())]
 
-    def filas_claves(self) -> list[tuple[str, str, str]]:
-        return [tuple(self.tabla_claves.item(f, c).text() for c in range(3)) for f in range(self.tabla_claves.rowCount())]
+    def filas_claves(self) -> list[tuple[str, ...]]:
+        return [tuple(self.tabla_claves.item(f, c).text() for c in range(4)) for f in range(self.tabla_claves.rowCount())]
 
     def filas_historial(self) -> list[tuple[str, ...]]:
         return [tuple(self.tabla_historial.item(f, c).text() for c in range(6)) for f in range(self.tabla_historial.rowCount())]
@@ -137,17 +142,18 @@ class SolicitudesView(QWidget):
     def _mostrar(self, datos: tuple[list[auth.Usuario], list[auth.Solicitud]]) -> None:
         usuarios, historial = datos
         self.banner.clear()
-        # Se recuerda a la PERSONA elegida, no el número de fila: al refrescar puede llegar otra que se ordena antes.
         cuenta, clave = self._cuenta(), self._clave()
         self._nuevas = [u for u in usuarios if u.estado == auth.PENDIENTE]
         self._claves = [u for u in usuarios if u.estado == auth.ACTIVO and u.clave_solicitada]
-        origen = {"ESCRITORIO": "PC", "MOVIL": "Celular"}
-        self._llenar(self.tabla_cuentas, [(u.usuario, u.nombre, origen.get(u.origen, u.origen), f"{u.registrado:%d/%m/%Y}" if u.registrado else "")
-                                          for u in self._nuevas])
-        self._llenar(self.tabla_claves, [(u.usuario, u.nombre, auth.NOMBRE_ROL[u.rol]) for u in self._claves])
+        self._llenar(self.tabla_cuentas, [
+            (u.usuario, u.nombre, u.correo or "", t(ORIGEN.get(u.origen, u.origen)),
+             f"{u.registrado:%d/%m/%Y}" if u.registrado else "") for u in self._nuevas])
+        self._llenar(self.tabla_claves, [
+            (u.usuario, u.nombre, t(auth.NOMBRE_ROL[u.rol]) if u.rol else "", t(ORIGEN.get(u.origen, u.origen)))
+            for u in self._claves])
         self._llenar(self.tabla_historial, [
-            (h.usuario, h.nombre, RESULTADO.get(h.estado, h.estado), auth.NOMBRE_ROL[h.rol] if h.rol else "",
-             h.motivo or "", h.resuelto_por or "") for h in historial])
+            (h.usuario, h.nombre, t(RESULTADO.get(h.estado, h.estado)),
+             t(auth.NOMBRE_ROL[h.rol]) if h.rol else "", h.motivo or "", h.resuelto_por or "") for h in historial])
         self.tabla_cuentas.clearSelection()
         self.tabla_claves.clearSelection()
         if cuenta is not None:
@@ -155,6 +161,9 @@ class SolicitudesView(QWidget):
         if clave is not None:
             self.elegir_clave(clave.usuario)
         self._ajustar()
+        if self._error:
+            self.banner.show_error(self._error)
+            self._error = ""
         self.cambiaron.emit(self.pendientes())
 
     def _cuenta(self) -> auth.Usuario | None:
@@ -169,10 +178,11 @@ class SolicitudesView(QWidget):
         cuenta = self._cuenta()
         hay_cuenta, hay_clave = cuenta is not None, self._clave() is not None
         roles = auth.ROLES_POR_ORIGEN.get(cuenta.origen, ()) if cuenta else ()
-        if [self.combo_rol.itemData(i) for i in range(self.combo_rol.count())] != list(roles):
-            self.combo_rol.clear()   # del celular solo Operador; del PC, Administrador o Inventario
+        actuales = [self.combo_rol.itemData(i) for i in range(self.combo_rol.count())]
+        if actuales != list(roles):
+            self.combo_rol.clear()
             for rol in roles:
-                self.combo_rol.addItem(auth.NOMBRE_ROL[rol], rol)
+                self.combo_rol.addItem(t(auth.NOMBRE_ROL[rol]), rol)
             if auth.INVENTARIO in roles:
                 self.combo_rol.setCurrentIndex(self.combo_rol.findData(auth.INVENTARIO))
         for boton in (self.btn_aprobar_cuenta, self.btn_rechazar_cuenta):
@@ -182,7 +192,11 @@ class SolicitudesView(QWidget):
 
     def _con(self, usuario: auth.Usuario | None, operacion, *extra) -> None:
         if usuario is not None:
-            self._runner.run(operacion, lambda _: self.refresh(), self.banner.show_error, self._sesion, usuario.usuario, *extra)
+            self._runner.run(operacion, lambda _: self.refresh(), self._fallo, self._sesion, usuario.usuario, *extra)
+
+    def _fallo(self, mensaje: str) -> None:
+        self._error = mensaje
+        self.refresh()
 
     def _aprobar(self) -> None:
         self._con(self._cuenta(), auth.aprobar, self.combo_rol.currentData())
@@ -191,9 +205,22 @@ class SolicitudesView(QWidget):
         cuenta = self._cuenta()
         if cuenta is None:
             return
-        motivo = pedir_motivo(self, "Rechazar cuenta", f"¿Por qué rechazas la cuenta de {cuenta.nombre}? (lo verá al intentar entrar)")
+        motivo = pedir_motivo(self, "Rechazar cuenta",
+                              f"¿Por qué rechazas la cuenta de {cuenta.nombre}? (lo verá al intentar entrar)")
         if motivo is not None:
             self._con(cuenta, auth.rechazar, motivo)
+
+    def _resolver_clave(self, aprobar: bool) -> None:
+        clave = self._clave()
+        if clave is None:
+            return
+        motivo = ""
+        if not aprobar:
+            motivo = pedir_motivo(self, "Rechazar contraseña",
+                                  f"¿Por qué rechazas la solicitud de contraseña de {clave.nombre}? (lo verá al entrar)") or ""
+            if not motivo:
+                return
+        self._con(clave, auth.resolver_clave, aprobar, motivo)
 
 
 def _cargar() -> tuple[list[auth.Usuario], list[auth.Solicitud]]:

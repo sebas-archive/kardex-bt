@@ -65,5 +65,5 @@ mb_ui ..> mb_id
 mb_sync ..> mb_protocol
 mb_sync ..> mb_data
 
-mb_protocol .. sv_protocol : mismo formato\n(7 vectores compartidos)
+mb_protocol .. sv_protocol : mismo formato\n(vectores compartidos)
 @enduml

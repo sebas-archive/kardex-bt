@@ -105,10 +105,34 @@ object Protocol {
     /** Arma la línea. `fields[0]` es el tipo; el resto ya viene codificado. */
     /** Las líneas FOTO de una foto: `FOTO|seq|parte|total|crc32 del archivo|base64` (sin el CRC de línea). */
     fun fotoLineas(seq: Long, datos: ByteArray, tam: Int = FOTO_PARTE): List<List<String>> {
-        val b64 = java.util.Base64.getEncoder().encodeToString(datos)
+        val b64 = base64(datos)
         val trozos = b64.chunked(tam).ifEmpty { listOf("") }
         val crc = String.format(Locale.ROOT, "%08X", CRC32().apply { update(datos) }.value)
         return trozos.mapIndexed { i, t -> listOf("FOTO", seq.toString(), (i + 1).toString(), trozos.size.toString(), crc, t) }
+    }
+
+    private const val B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+    /**
+     * Base64 estándar con relleno, sin saltos de línea. Se implementa aquí (y no con la clase del sistema) porque
+     * `java.util.Base64` llegó en Android 8 y la app admite Android 6; además así las pruebas de la JVM no necesitan
+     * el entorno de Android.
+     */
+    private fun base64(datos: ByteArray): String {
+        val salida = StringBuilder((datos.size + 2) / 3 * 4)
+        var i = 0
+        while (i < datos.size) {
+            val b0 = datos[i].toInt() and 0xFF
+            val b1 = if (i + 1 < datos.size) datos[i + 1].toInt() and 0xFF else 0
+            val b2 = if (i + 2 < datos.size) datos[i + 2].toInt() and 0xFF else 0
+            val n = (b0 shl 16) or (b1 shl 8) or b2
+            salida.append(B64[(n ushr 18) and 63])
+            salida.append(B64[(n ushr 12) and 63])
+            salida.append(if (i + 1 < datos.size) B64[(n ushr 6) and 63] else '=')
+            salida.append(if (i + 2 < datos.size) B64[n and 63] else '=')
+            i += 3
+        }
+        return salida.toString()
     }
 
     fun frame(fields: List<String>): ByteArray {

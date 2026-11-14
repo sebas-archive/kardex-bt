@@ -1,7 +1,7 @@
-"""Pantalla de una cuenta que no puede entrar: PENDIENTE, RECHAZADO o SUSPENDIDO.
+"""Pantalla de una cuenta que no puede entrar: PENDIENTE o RECHAZADA.
 
-Pendiente: la cuenta existe y espera al administrador, así que el botón es «Cerrar sesión».
-Rechazada o suspendida: no hay sesión que cerrar; se muestra el motivo y el botón es «Regresar al inicio de sesión».
+El Administrador nunca pasa por aquí: su cuenta no se puede suspender ni rechazar. Una cuenta pendiente espera al
+Administrador; una rechazada muestra el motivo. El botón vuelve al acceso.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .. import auth
+from ..i18n import t
 
 MENSAJE = {
     auth.PENDIENTE: "Tu cuenta espera aprobación del administrador",
@@ -17,6 +18,7 @@ MENSAJE = {
     auth.SUSPENDIDO: "El administrador suspendió tu cuenta",
 }
 COLOR = {auth.PENDIENTE: "#FBBF24", auth.RECHAZADO: "#F87171", auth.SUSPENDIDO: "#F87171"}
+NOMBRE_ESTADO = {auth.PENDIENTE: "Pendiente", auth.RECHAZADO: "Rechazada", auth.SUSPENDIDO: "Suspendida"}
 
 
 class EstadoCuentaView(QWidget):
@@ -24,7 +26,7 @@ class EstadoCuentaView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.lbl_logo = QLabel("Gestión de inventario")
+        self.lbl_logo = QLabel(t("Gestión de inventario"))
         self.lbl_logo.setObjectName("tituloAcceso")
         self.lbl_nombre = QLabel("")
         self.lbl_nombre.setStyleSheet("font-size: 18px; font-weight: 600;")
@@ -39,7 +41,7 @@ class EstadoCuentaView(QWidget):
         self.lbl_motivo.setTextFormat(Qt.TextFormat.PlainText)   # lo escribió una persona: nunca se interpreta
         self.lbl_fecha = QLabel("")
         self.lbl_fecha.setObjectName("ayuda")
-        self.btn_volver = QPushButton("")
+        self.btn_volver = QPushButton(t("Volver al acceso"))
         self.btn_volver.setObjectName("primario")
         self.btn_volver.setMinimumHeight(40)
 
@@ -68,13 +70,13 @@ class EstadoCuentaView(QWidget):
     def mostrar(self, cuenta: auth.CuentaSinAcceso) -> None:
         self.lbl_nombre.setText(cuenta.nombre)
         self.lbl_usuario.setText(f"@{cuenta.usuario}")
-        self.lbl_estado.setText(cuenta.estado)
+        self.lbl_estado.setText(t(NOMBRE_ESTADO.get(cuenta.estado, cuenta.estado)))
         color = COLOR.get(cuenta.estado, "#9CA3AF")
         self.lbl_estado.setStyleSheet(f"color: {color}; border: 1px solid {color}; border-radius: 10px; "
                                       "padding: 2px 10px; font-weight: 600;")
-        self.lbl_mensaje.setText(MENSAJE.get(cuenta.estado, ""))
+        self.lbl_mensaje.setText(t(MENSAJE.get(cuenta.estado, "")))
         pendiente = cuenta.estado == auth.PENDIENTE
-        self.lbl_motivo.setText(f"Motivo: {cuenta.motivo}" if cuenta.motivo else "")
+        self.lbl_motivo.setText(t("Motivo: {motivo}", motivo=cuenta.motivo) if cuenta.motivo else "")
         self.lbl_motivo.setVisible(not pendiente and bool(cuenta.motivo))
-        self.lbl_fecha.setText(f"Registrada el {cuenta.registrado:%d/%m/%Y}" if cuenta.registrado else "")
-        self.btn_volver.setText("Cerrar sesión" if pendiente else "Regresar al inicio de sesión")
+        self.lbl_fecha.setText(t("Registrada el {fecha}", fecha=f"{cuenta.registrado:%d/%m/%Y}") if cuenta.registrado else "")
+        self.btn_volver.setText(t("Volver al acceso"))

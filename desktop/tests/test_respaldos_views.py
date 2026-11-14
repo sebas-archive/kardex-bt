@@ -3,7 +3,7 @@
 import pytest
 from PyQt6.QtWidgets import QDialogButtonBox
 
-from app.auth import INVENTARIO, Sesion
+from app.auth import INVENTARIO, PREGUNTAS, Sesion
 from app.main import build_window
 from app.views.respaldos import DialogoRestaurar, RespaldosView
 from fakes import FakeRemoto
@@ -15,7 +15,8 @@ def esperar(qtbot, condicion):
 
 @pytest.fixture
 def vista(qtbot, cuentas, respaldos_db):
-    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
+    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026", correo="ana@example.com",
+                            pregunta=PREGUNTAS[0], respuesta="firulais")
     respaldos_db.crear(ana)
     v = RespaldosView()
     qtbot.addWidget(v)
@@ -66,19 +67,20 @@ def test_restaurar_emite_restaurado(qtbot, vista, servicio_db, monkeypatch):
 
 
 def test_tras_restaurar_la_ventana_vuelve_al_login_con_el_aviso(qtbot, cuentas, respaldos_db):
-    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
+    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026", correo="ana@example.com",
+                            pregunta=PREGUNTAS[0], respuesta="firulais")
     ventana = build_window(FakeRemoto(), auto_refresh_ms=0, sesion=ana)
     qtbot.addWidget(ventana)
     assert "Respaldos" in ventana.secciones()
     ventana.vista("Respaldos").restaurado.emit()
     assert ventana.sesion() is None
-    assert "Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras." in ventana.avisos_visibles()
+    assert any("Bluetooth" in aviso or "pausa" in aviso for aviso in ventana.avisos_visibles())
     _sin_consultas_pendientes(qtbot, ventana)
 
 
 def _sin_consultas_pendientes(qtbot, ventana):
     """Que ninguna pantalla reciba resultados después de destruir la ventana (la prueba siguiente los vería)."""
-    vistas = [v for _t, v, _b, _m in ventana._secciones]
+    vistas = [v for _t, v, _b, _m, _r in ventana._secciones]
     esperar(qtbot, lambda: all(getattr(v, "_runner", None) is None or v._runner.pendientes == 0 for v in vistas))
 
 

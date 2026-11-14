@@ -5,8 +5,6 @@ import com.sebasarchive.kardex.data.Catalog
 import com.sebasarchive.kardex.data.CatalogRepository
 import com.sebasarchive.kardex.data.FotoEntity
 import com.sebasarchive.kardex.data.FotoRepository
-import com.sebasarchive.kardex.data.ItemTareaEntity
-import com.sebasarchive.kardex.data.TareaEntity
 import com.sebasarchive.kardex.data.Estado
 import com.sebasarchive.kardex.data.LecturaEntity
 import com.sebasarchive.kardex.data.Outbox
@@ -51,7 +49,7 @@ class SyncClientTest {
     fun cerrar() = db.close()
 
     private fun lectura(ts: Long, cantidad: String = "1") = LecturaEntity(
-        tsOriginalMs = ts, idConteo = "T-01", sku = "A1",
+        tsOriginalMs = ts, idConteo = "ACTUAL", sku = "A1",
         cantidad = cantidad, operador = "Ana", nota = "")
 
     private fun cargar(n: Int) = (1..n).forEach { outbox.insertar(lectura(ts = 1000L + it, cantidad = it.toString())) }
@@ -154,21 +152,24 @@ class SyncClientTest {
 
     @Test
     fun test_catalog_sent_by_the_pc_replaces_the_local_one() {
-        catalog.reemplazarTodo(Catalog(
-            tareas = listOf(TareaEntity("VIEJO", "Conteo anterior", "", "", "", 0, 0)),
-            items = listOf(ItemTareaEntity("VIEJO", "SKU-VIEJO", false)),
-            productos = listOf(ProductoEntity("SKU-VIEJO", "Descontinuado", "Otros", "UND"))))
+        catalog.reemplazarTodo(Catalog(productos = listOf(ProductoEntity("SKU-VIEJO", "Descontinuado", "Otros", "UND"))))
 
         val eventos = sync(FakePc())  // sin lecturas pendientes: solo baja el catálogo
 
-        assertEquals(listOf("T-01", "T-02"), catalog.tareas().map { it.id })
-        assertEquals(TareaEntity("T-01", "Conteo de prueba", "ALM-01", "Pasillo | 2", "ASIGNADA", 2, 0), catalog.tareas()[0])
-        assertEquals(listOf(ItemTareaEntity("T-01", "A1", false), ItemTareaEntity("T-01", "A2", true)), catalog.items("T-01"))
-        assertTrue(catalog.items("VIEJO").isEmpty())
         assertEquals(listOf("A1", "A2"), catalog.productos().map { it.sku })
         assertEquals(ProductoEntity("A2", "Café | molido", "Abarrotes", "UND"), catalog.producto("A2"))
         assertNull(catalog.producto("SKU-VIEJO"))
         assertEquals(SyncProgress.Done(aceptados = 0, rechazados = 0, pendientes = 0), eventos.last())
+    }
+
+    @Test
+    fun elCatalogoPseudoCatalogoNoEnviaInicio() {
+        cargar(1)
+        val pc = FakePc()
+        sync(pc)
+        assertTrue(pc.inicios.isEmpty())
+        assertEquals(listOf("REC", "END"), pc.recibidos)
+        assertEquals("ACTUAL", pc.accepted.single().idConteo)
     }
 
     @Test
@@ -191,25 +192,7 @@ class SyncClientTest {
         assertEquals(SyncProgress.Done(aceptados = 3, rechazados = 0, pendientes = 0), eventos.last())
     }
 
-    @Test
-    fun avisaInicioDeTareasAsignadasAntesDeLasLecturas() {
-        catalog.marcarIniciada("T-01")   // ASIGNADA en el PC: hay que avisar
-        catalog.marcarIniciada("T-02")   // ya EN_PROGRESO en el PC: no hace falta
-        cargar(2)
-        val pc = FakePc()
-        sync(pc)
-        assertEquals(listOf("T-01"), pc.inicios)
-        assertEquals(listOf("INICIO", "REC", "REC", "END"), pc.recibidos)
-        assertEquals(setOf("T-01", "T-02"), catalog.iniciadas())   // el registro local sobrevive al catálogo nuevo
-    }
 
-    @Test
-    fun conCuentaSuspendidaNoAvisaInicios() {
-        catalog.marcarIniciada("T-01")
-        val pc = FakePc(estadoCuenta = "SUSPENDIDO")
-        sync(pc)
-        assertTrue(pc.inicios.isEmpty())
-    }
 
     // ------------------------------------------------------------------ fotos (protocolo 5)
     private fun foto(seq: Long, bytes: Int = 10_000): ByteArray {

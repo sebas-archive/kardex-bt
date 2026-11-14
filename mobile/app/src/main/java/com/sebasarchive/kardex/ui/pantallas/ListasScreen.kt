@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sebasarchive.kardex.data.Estado
+import com.sebasarchive.kardex.ui.Textos
 import com.sebasarchive.kardex.ui.componentes.Entrada
 import com.sebasarchive.kardex.ui.componentes.EstadoVacio
 import com.sebasarchive.kardex.ui.componentes.Iconos
@@ -47,7 +48,6 @@ import com.sebasarchive.kardex.ui.componentes.NumeroAnimado
 import com.sebasarchive.kardex.ui.componentes.Pantalla
 import com.sebasarchive.kardex.ui.componentes.PildoraEstado
 import com.sebasarchive.kardex.ui.componentes.colorDeEstado
-import com.sebasarchive.kardex.ui.componentes.textoDeEstado
 import com.sebasarchive.kardex.ui.theme.Cifra
 
 data class LecturaFila(val sku: String, val nombre: String?, val cantidad: String, val estado: String, val nota: String,
@@ -55,19 +55,19 @@ data class LecturaFila(val sku: String, val nombre: String?, val cantidad: Strin
 
 /** Lo contado en el conteo actual; tocar una fila la corrige (recontar). */
 @Composable
-fun LecturasScreen(conteo: String?, filas: List<LecturaFila>, alEditar: (LecturaFila) -> Unit, alContar: () -> Unit, alVolver: () -> Unit) {
+fun LecturasScreen(filas: List<LecturaFila>, alEditar: (LecturaFila) -> Unit, alContar: () -> Unit, alVolver: () -> Unit) {
     Pantalla(
-        titulo = "Contado",
-        subtitulo = if (conteo == null) "Sin conteo elegido" else "$conteo · ${filas.size} productos",
+        titulo = Textos.t("Contado"),
+        subtitulo = Textos.t("{n} productos contados", "n" to filas.size),
         alVolver = alVolver,
-        barraInferior = if (conteo == null || filas.isEmpty()) null else {
-            { Button(onClick = alContar, modifier = Modifier.fillMaxWidth().height(54.dp)) { Text("Contar otro producto") } }
+        barraInferior = if (filas.isEmpty()) null else {
+            { Button(onClick = alContar, modifier = Modifier.fillMaxWidth().height(54.dp)) { Text(Textos.t("Contar otro producto")) } }
         },
     ) {
         if (filas.isEmpty()) {
-            EstadoVacio(Iconos.Barras, if (conteo == null) "Elige primero el conteo" else "Aún no has contado nada",
-                "Cada producto que guardes aparece en esta lista. Tocar uno permite corregir su cantidad.") {
-                if (conteo != null) Button(onClick = alContar) { Text("Contar") }
+            EstadoVacio(Iconos.Barras, Textos.t("Aún no has contado nada"),
+                Textos.t("Cada producto que guardes aparece en esta lista. Tocar uno permite corregir su cantidad.")) {
+                Button(onClick = alContar) { Text(Textos.t("Contar")) }
             }
         } else LazyColumn(
             Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
@@ -86,7 +86,8 @@ private fun TarjetaLectura(fila: LecturaFila, alPulsar: () -> Unit) {
         modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(fila.nombre ?: "SKU fuera del catálogo", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(fila.nombre ?: Textos.t("SKU fuera del catálogo"), style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = if (fila.nombre == null) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface)
                 Text(fila.sku, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -94,7 +95,8 @@ private fun TarjetaLectura(fila: LecturaFila, alPulsar: () -> Unit) {
                     PildoraEstado(fila.estado)
                     if (fila.foto) Text("  📷", style = MaterialTheme.typography.bodySmall)
                     if (fila.danados.isNotBlank()) {
-                        Text("  ${fila.danados} dañados", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("  " + Textos.t("{n} dañados", "n" to fila.danados), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error)
                     }
                     if (fila.nota.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
@@ -108,7 +110,8 @@ private fun TarjetaLectura(fila: LecturaFila, alPulsar: () -> Unit) {
                 Text(fila.cantidad, style = MaterialTheme.typography.titleLarge.merge(Cifra), color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(Modifier.width(8.dp))
-            Icon(Icons.Default.Edit, contentDescription = "Corregir", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Icon(Icons.Default.Edit, contentDescription = Textos.t("Corregir"), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -121,19 +124,21 @@ fun PendientesScreen(filas: List<PendienteFila>, alSincronizar: () -> Unit, alVo
     var filtro by remember { mutableStateOf<String?>(null) }
     val porEnviar = filas.count { it.estado != Estado.CONFIRMADO }
     Pantalla(
-        titulo = "Pendientes", subtitulo = "${filas.size} lecturas en el teléfono", alVolver = alVolver,
+        titulo = Textos.t("Pendientes"), subtitulo = Textos.t("{n} lecturas en el teléfono", "n" to filas.size),
+        alVolver = alVolver,
         barraInferior = if (porEnviar == 0) null else {
             {
                 Button(onClick = alSincronizar, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Iconos.Bluetooth, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Sincronizar $porEnviar lecturas")
+                    Text(Textos.t("Sincronizar {n} lecturas", "n" to porEnviar))
                 }
             }
         },
     ) {
         if (filas.isEmpty()) {
-            EstadoVacio(Icons.AutoMirrored.Filled.Send, "Todavía no hay lecturas", "Lo que cuentes se guarda en el teléfono y aparece aquí hasta que el PC lo confirme.")
+            EstadoVacio(Icons.AutoMirrored.Filled.Send, Textos.t("Todavía no hay lecturas"),
+                Textos.t("Lo que cuentes se guarda en el teléfono y aparece aquí hasta que el PC lo confirme."))
         } else {
             Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 for (estado in listOf(Estado.PENDIENTE, Estado.ENVIADO, Estado.CONFIRMADO)) {
@@ -177,7 +182,7 @@ private fun Contador(estado: String, cantidad: Int, seleccionado: Boolean, modif
         Column(Modifier.padding(12.dp)) {
             Box(Modifier.size(10.dp).clip(CircleShape).background(color))
             NumeroAnimado(cantidad, MaterialTheme.typography.headlineSmall.merge(Cifra), MaterialTheme.colorScheme.onSurface)
-            Text(textoDeEstado(estado) + "s", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(Textos.estadoLecturaPlural(estado), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

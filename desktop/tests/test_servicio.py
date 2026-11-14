@@ -3,12 +3,13 @@
 import pytest
 
 from app import servicio
-from app.auth import INVENTARIO, ErrorDeAcceso
+from app.auth import ADMIN, INVENTARIO, PREGUNTAS, ErrorDeAcceso
 
 
 @pytest.fixture
 def ana(cuentas):
-    return cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
+    return cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026", "ana@example.com",
+                             PREGUNTAS[0], "Firulais")
 
 
 def test_con_latido_reciente_se_ve_el_estado_escrito(servicio_db):
@@ -47,14 +48,14 @@ def test_responder_el_codigo(servicio_db, ana):
     assert leer("respuesta") == "S"
 
 
-def test_sin_gestion_en_bluetooth_no_pausa(servicio_db, cuentas, ana):
+def test_sin_gestion_en_sync_no_pausa(servicio_db, cuentas, ana):
     poner, leer = servicio_db
     poner()
-    cuentas.registrar("luis", "Luis Ortiz", "conteo2026", "conteo2026")
+    cuentas.registrar("luis", "Luis Ortiz", "conteo2026", "conteo2026", "luis@example.com")
     cuentas.aprobar(ana, "luis", INVENTARIO)
     from app import permisos
 
-    permisos.guardar(ana, INVENTARIO, "bluetooth", permisos.CONSULTA)
+    permisos.guardar(ana, INVENTARIO, "sync", permisos.CONSULTA)
     with pytest.raises(ErrorDeAcceso):
         servicio.pausar(cuentas.iniciar_sesion("luis", "conteo2026"))
     assert leer("pausado") == "N"

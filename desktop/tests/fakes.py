@@ -15,6 +15,9 @@ NOW = 1731170400000
 class FakeStore:
     """Store en memoria: lo justo para que una Session real funcione, y espía de run_batch."""
 
+    def notificar_sincronizacion(self, errores):
+        pass
+
     def config(self):
         from btsync.config import DEFAULTS
 

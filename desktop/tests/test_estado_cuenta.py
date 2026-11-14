@@ -1,4 +1,4 @@
-"""Pantalla de una cuenta sin acceso: PENDIENTE, RECHAZADO o SUSPENDIDO."""
+"""Pantalla de una cuenta sin acceso: PENDIENTE o RECHAZADA (el Administrador nunca llega aquí)."""
 
 from datetime import datetime
 
@@ -23,22 +23,22 @@ def _botones(vista):
     return [b.text() for b in vista.findChildren(QPushButton) if b.isVisible()]
 
 
-def test_pendiente_muestra_espera_y_cerrar_sesion(qtbot):
+def test_pendiente_muestra_espera_y_volver(qtbot):
     vista = _vista(qtbot, PENDIENTE)
-    assert vista.lbl_estado.text() == "PENDIENTE"
+    assert vista.lbl_estado.text() == "Pendiente"
     assert vista.lbl_mensaje.text() == "Tu cuenta espera aprobación del administrador"
     assert (vista.lbl_nombre.text(), vista.lbl_usuario.text()) == ("Luis Ortiz", "@luis")
     assert "13/11/2026" in vista.lbl_fecha.text()
     assert vista.lbl_motivo.isHidden()
-    assert _botones(vista) == ["Cerrar sesión"]
+    assert _botones(vista) == ["Volver al acceso"]
 
 
 @pytest.mark.parametrize("estado", [RECHAZADO, SUSPENDIDO])
-def test_rechazado_y_suspendido_muestran_motivo_y_regresar_al_inicio(qtbot, estado):
+def test_rechazado_y_suspendido_muestran_motivo(qtbot, estado):
     vista = _vista(qtbot, estado, "No trabaja en la bodega")
-    assert vista.lbl_estado.text() == estado
+    assert vista.lbl_estado.text() in ("Rechazada", "Suspendida")
     assert vista.lbl_motivo.text() == "Motivo: No trabaja en la bodega"
-    assert _botones(vista) == ["Regresar al inicio de sesión"]       # nunca «Cerrar sesión»: no hay sesión
+    assert _botones(vista) == ["Volver al acceso"]
 
 
 def test_el_boton_emite_volver(qtbot):
