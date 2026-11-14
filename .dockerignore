@@ -1,0 +1,19 @@
+# Contexto de build con `context: .` (servicios pybase, app, bluetooth y bt-spike): este archivo evita
+# cargar secretos, logs, artefactos de sesión y dependencias locales en el contexto de Docker.
+# No se excluye nada que los Dockerfiles copien: `COPY server /tmp/server` (docker/pybase/Dockerfile)
+# solo necesita el código de server/ (su venv local no); docs/, desktop/, docker/ y mobile/ se dejan
+# sin excluir a propósito. Los artefactos generados (venv, builds de Android/web) no se usan en la imagen.
+.git
+.agents
+.env
+logs/
+fotos/
+respaldos/
+**/__pycache__
+**/*.pyc
+.pytest_cache
+web/node_modules/
+web/.next/
+server/venv/
+mobile/app/build/
+mobile/.gradle/

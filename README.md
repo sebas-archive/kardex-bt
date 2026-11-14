@@ -123,6 +123,14 @@ Las suites del servidor y del escritorio borran por diseño el staging de los di
 
 ## Solución de problemas
 
+Si la ventana no aparece, el servicio `app` deja su arranque en `./logs/app.log` del host (y en `docker compose logs app`):
+cabecera con `DISPLAY`/`XAUTHORITY`/estado de la cookie, salida de Python y `rc` final. Si falla al arrancar se
+reintenta solo hasta 5 veces; cerrar la ventana la deja parada. Si el contenedor se paró con
+`docker compose stop`/`down` verás una cabecera sin la línea `fin rc=`: es una parada externa, normal. Tras agotar
+los 5 reintentos, corrige la causa y vuelve a arrancarla con `docker compose up -d app`. Si el contenedor se creó
+con un entorno X inválido, recréalo desde una terminal con `DISPLAY` y `XAUTHORITY` válidos:
+`docker compose up -d --force-recreate app`.
+
 | Síntoma | Qué hacer |
 |---|---|
 | «Bluetooth no disponible» / `NotReady` en la ventana de sincronización | El adaptador está bloqueado o apagado: `rfkill list`; si dice `Soft blocked: yes`, `rfkill unblock bluetooth`, y luego `bluetoothctl power on`. Comprueba `systemctl status bluetooth`. |

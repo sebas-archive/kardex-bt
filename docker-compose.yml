@@ -54,6 +54,7 @@ services:
     working_dir: /work
     network_mode: host
     cap_add: [NET_ADMIN, NET_RAW]
+    restart: "on-failure:5"   # cerrar la ventana sale con 0 y no debe relanzarse; solo los rc≠0 reintentan (incluye crashes en runtime)
     volumes:
       - ./:/work
       - /var/run/dbus:/var/run/dbus
@@ -66,6 +67,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       ORA_SDTZ: "+00:00"   # la sesión de Oracle sigue en la zona de la base (TIMESTAMP vs SYSTIMESTAMP); Python, en la del PC
       PYTHONPATH: /work/server:/work/desktop
+      PYTHONUNBUFFERED: "1"         # el arranque llega al instante a logs/app.log y a `docker compose logs app`
       HOME: /tmp                    # el usuario 1000 no tiene HOME: sin esto Qt/fontconfig se quejan
       XDG_CACHE_HOME: /tmp/.cache
       DISPLAY: ${DISPLAY:-:0}
@@ -78,7 +80,7 @@ services:
     depends_on:
       oracle:
         condition: service_healthy
-    command: ["python", "-m", "app.main"]
+    command: ["/bin/sh", "/work/docker/run-app.sh"]
 
   # Servicio Bluetooth independiente (Fase 5): recibe a los teléfonos aunque el escritorio esté cerrado.
   # `docker compose up -d bluetooth` lo deja corriendo; con `restart: unless-stopped` vuelve tras reiniciar el PC
