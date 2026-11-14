@@ -10,7 +10,8 @@ from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel, QPushButton, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import auth, tareas
+from .. import auth, movimientos, tareas
+from .ajustes import pedir_ajuste, resultado
 from .base import QueryRunner, StateBanner
 from .maestros import pedir_texto
 from .tareas import _numero
@@ -54,9 +55,15 @@ class DiferenciasView(QWidget):
             self.combo_estado.addItem(texto, estado)
         self.btn_revisada = QPushButton("Marcar revisada…")
         self.btn_recuento = QPushButton("Pedir recuento")
+        self.btn_ajustar = QPushButton("Ajustar existencia…")
+        self.lbl_info = QLabel("")
+        self.lbl_info.setObjectName("avisoFormulario")
+        self.lbl_info.setWordWrap(True)
+        self.lbl_info.hide()
         barra = QHBoxLayout()
         barra.addWidget(self.btn_revisada)
         barra.addWidget(self.btn_recuento)
+        barra.addWidget(self.btn_ajustar)
         barra.addStretch(1)
         for combo in (self.combo_tarea, self.combo_tipo, self.combo_estado):
             barra.addWidget(combo)
@@ -76,6 +83,7 @@ class DiferenciasView(QWidget):
         raiz.addWidget(ayuda)
         raiz.addWidget(self.banner)
         raiz.addWidget(self.lbl_error)
+        raiz.addWidget(self.lbl_info)
         raiz.addLayout(barra)
         raiz.addWidget(self.tabla, 1)
 
@@ -84,6 +92,7 @@ class DiferenciasView(QWidget):
             combo.currentIndexChanged.connect(self._filtrar)
         self.btn_revisada.clicked.connect(self._revisada)
         self.btn_recuento.clicked.connect(self._recuento)
+        self.btn_ajustar.clicked.connect(self._ajustar_existencia)
         self._ajustar()
 
     # ------------------------------------------------- contrato de las vistas
@@ -165,6 +174,11 @@ class DiferenciasView(QWidget):
         for boton in (self.btn_revisada, self.btn_recuento):
             boton.setVisible(gestiona)
             boton.setEnabled(d is not None)
+        # Corrige la existencia (Fase 3b): quien solicita ajustes, que nunca es el Administrador.
+        sesion = self._sesion
+        self.btn_ajustar.setVisible(sesion is not None and sesion.puede("ajustes", "GESTION") and not sesion.es_admin)
+        self.btn_ajustar.setEnabled(d is not None and bool(d.almacen)
+                                    and d.estado not in (tareas.AJUSTADA, tareas.AJUSTE_PENDIENTE))
 
     def _revisada(self) -> None:
         d = self._elegida()
@@ -179,6 +193,32 @@ class DiferenciasView(QWidget):
         if d is not None:
             self._accion(tareas.pedir_recuento, d.id_conteo, d.sku)
 
+    def _ajustar_existencia(self) -> None:
+        d = self._elegida()
+        if d is None:
+            return
+
+        def cargar():
+            almacen, actual, propuesta = movimientos.propuesta_desde_diferencia(d.id_conteo, d.sku)
+            return almacen, actual, propuesta, movimientos.costo_unitario(d.sku)
+
+        self._runner.run(cargar, lambda datos: self._abrir_ajuste(d, *datos), self._error_accion)
+
+    def _abrir_ajuste(self, d: tareas.Diferencia, almacen: str, actual: float, propuesta: float, costo: float) -> None:
+        datos = pedir_ajuste(self, [(almacen, almacen)], [(d.sku, d.producto, "")],
+                             inicial=(d.sku, almacen, propuesta, f"Conteo {d.id_conteo}"), actual=actual,
+                             critico=lambda nueva: movimientos.es_critico(actual, nueva, costo))
+        if datos is None:
+            return
+        sku, alm, nueva, motivo = datos
+        self._runner.run(movimientos.solicitar_ajuste, self._ajuste_listo, self._error_accion, self._sesion,
+                         sku, alm, nueva, motivo, d.id_conteo)
+
+    def _ajuste_listo(self, estado: str) -> None:
+        self._accion_lista(None)
+        self.lbl_info.setText(resultado(estado))
+        self.lbl_info.show()
+
     def _accion(self, operacion, *args) -> None:
         self._runner.run(operacion, self._accion_lista, self._error_accion, self._sesion, *args)
 
@@ -187,5 +227,7 @@ class DiferenciasView(QWidget):
         self.refresh()
 
     def _error_accion(self, mensaje: str) -> None:
+        if mensaje:
+            self.lbl_info.hide()
         self.lbl_error.setText(mensaje)
         self.lbl_error.setVisible(bool(mensaje))

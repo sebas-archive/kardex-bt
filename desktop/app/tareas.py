@@ -20,12 +20,14 @@ import oracledb
 from btsync import tareas as bt
 from btsync.tareas import ResumenTarea
 
-from . import auth, db, maestros, permisos
+from . import auth, db, maestros, movimientos, permisos
 from .auth import ErrorDeAcceso, Sesion
 
 PREFIJO = "T-"   # las pruebas usan «TT-»
 PENDIENTE, REVISADA, RECUENTO = "PENDIENTE", "REVISADA", "RECUENTO"
-NOMBRE_REVISION = {PENDIENTE: "Pendiente", REVISADA: "Revisada", RECUENTO: "Recuento pedido"}
+AJUSTADA, AJUSTE_PENDIENTE = "AJUSTADA", "AJUSTE_PENDIENTE"   # hay un ajuste (Fase 3b) de esa diferencia
+NOMBRE_REVISION = {PENDIENTE: "Pendiente", REVISADA: "Revisada", RECUENTO: "Recuento pedido", AJUSTADA: "Ajustada",
+                   AJUSTE_PENDIENTE: "Ajuste pendiente"}
 NOMBRE_TIPO = {"FALTANTE": "Faltante", "SOBRANTE": "Sobrante"}
 
 _YA_NO_EXISTE = "Esa tarea ya no existe. Actualiza la lista."
@@ -95,7 +97,9 @@ def listar_diferencias() -> list[Diferencia]:
             SELECT k.id_conteo, k.sku, p.nombre, NVL(c.almacen, ' '), k.cant_sistema, k.cant_contada, k.diferencia,
                    k.clasificacion,
                    (SELECT MAX(r.nota) KEEP (DENSE_RANK LAST ORDER BY r.fecha_procesado) {_VIGENTES}),
-                   v.accion, v.fecha, (SELECT MAX(r.fecha_procesado) {_VIGENTES})
+                   v.accion, v.fecha, (SELECT MAX(r.fecha_procesado) {_VIGENTES}),
+                   (SELECT MAX(CASE x.estado WHEN 'APLICADO' THEN 2 WHEN 'PENDIENTE' THEN 1 ELSE 0 END)
+                      FROM {movimientos.TABLA} x WHERE x.tipo = 'AJUSTE' AND x.id_conteo = k.id_conteo AND x.sku = k.sku)
               FROM conciliacion k
               JOIN productos p ON p.sku = k.sku
               JOIN conteos c ON c.id_conteo = k.id_conteo
@@ -103,10 +107,11 @@ def listar_diferencias() -> list[Diferencia]:
              WHERE k.clasificacion IN ('FALTANTE', 'SOBRANTE')
              ORDER BY c.creada DESC NULLS LAST, k.id_conteo DESC, ABS(k.valor_diferencia) DESC NULLS LAST, k.sku""")
         filas = []
-        for id_, sku, nombre, almacen, sistema, contado, dif, tipo, nota, accion, fecha, ultima in cur:
+        for id_, sku, nombre, almacen, sistema, contado, dif, tipo, nota, accion, fecha, ultima, ajuste in cur:
             vigente = accion is not None and (ultima is None or ultima <= fecha)
+            estado = {2: AJUSTADA, 1: AJUSTE_PENDIENTE}.get(ajuste or 0, accion if vigente else PENDIENTE)
             filas.append(Diferencia(id_, sku, nombre, almacen.strip(), db._f(sistema) or 0.0, db._f(contado) or 0.0,
-                                    db._f(dif) or 0.0, tipo, nota or "", accion if vigente else PENDIENTE))
+                                    db._f(dif) or 0.0, tipo, nota or "", estado))
         return filas
 
 

@@ -27,7 +27,7 @@ from btsync import tareas as tareas_bt
 from btsync.store import Store
 from btsync.transports.tcp import TcpTransport
 
-from . import auth, db, maestros, permisos
+from . import auth, db, maestros, movimientos, permisos
 from .models import Conteo
 from .sync_bridge import SyncBridge
 from .views.acceso import AccesoView
@@ -35,8 +35,10 @@ from .views.base import QueryRunner, StateBanner, estilo
 from .views.charts import ChartsView
 from .views.dashboard import DashboardView
 from .views.estado_cuenta import EstadoCuentaView
+from .views.ajustes import AjustesView
 from .views.diferencias import DiferenciasView
 from .views.existencias import ExistenciasView
+from .views.movimientos import MovimientosView
 from .views.tareas import TareasView
 from .views.iconos import icono
 from .views.inventario import InventarioView
@@ -480,6 +482,8 @@ def build_window(bridge: SyncBridge, auto_refresh_ms: int = 5000, sesion: auth.S
     ventana.add_view(InventarioView(), "Inventario", "conteos")          # conciliación de los conteos
     ventana.add_view(TareasView(), "Tareas de conteo", "tareas")
     ventana.add_view(DiferenciasView(), "Diferencias", "diferencias")
+    ventana.add_view(MovimientosView(), "Movimientos", "movimientos")
+    ventana.add_view(AjustesView(), "Ajustes", "ajustes")
     ventana.add_view(ExistenciasView(), "Existencias", "existencias")
     ventana.add_view(CategoriasView(), "Categorías", "categorias")
     ventana.add_view(AlmacenesView(), "Almacenes", "categorias")
@@ -524,6 +528,7 @@ def main() -> int:
     maestros.migrar()  # categorías, almacenes y existencias (Fase 2)
     with db._conexion() as conn:
         tareas_bt.migrar(conn)   # columnas de tarea en conteos y la tabla revisiones (Fase 3)
+    movimientos.migrar()         # entradas, salidas y ajustes (Fase 3b)
     puente = SyncBridge(crear_transporte(), store)
     ventana = build_window(puente)
     app.aboutToQuit.connect(puente.cancel)
