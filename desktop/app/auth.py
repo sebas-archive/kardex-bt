@@ -420,16 +420,20 @@ def migrar() -> None:
         columnas = {fila[0] for fila in cur}
         for nombre, definicion in _COLUMNAS_NUEVAS:
             if nombre not in columnas:
-                cur.execute(f"ALTER TABLE {TABLA} ADD ({definicion})")
+                db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} ADD ({definicion})")
         cur.execute("SELECT nullable FROM user_tab_columns WHERE table_name = :t AND column_name = 'ROL'", t=tabla)
         if cur.fetchone()[0] == "N":
-            cur.execute(f"ALTER TABLE {TABLA} MODIFY (rol NULL)")
+            db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} MODIFY (rol NULL)")
         if "ACTIVO" in columnas:
             # Mientras exista ACTIVO la conversión no se hizo (se borra justo después): aunque un arranque anterior
             # alcanzara a crear ESTADO y fallara, aquí se convierte igual y nadie queda PENDIENTE por error.
-            cur.execute(f"UPDATE {TABLA} SET estado = CASE WHEN rol IS NULL THEN 'PENDIENTE' "
-                        "WHEN activo = 'N' THEN 'SUSPENDIDO' ELSE 'ACTIVO' END")
-            cur.execute(f"ALTER TABLE {TABLA} DROP COLUMN activo")   # borra también su CHECK
+            try:   # otro escritorio que arranca a la vez pudo convertirla y borrar ACTIVO un instante antes
+                cur.execute(f"UPDATE {TABLA} SET estado = CASE WHEN rol IS NULL THEN 'PENDIENTE' "
+                            "WHEN activo = 'N' THEN 'SUSPENDIDO' ELSE 'ACTIVO' END")
+            except Exception as exc:
+                if "ORA-00904" not in str(exc):
+                    raise
+            db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} DROP COLUMN activo", tambien=("ORA-00904",))   # y su CHECK
         cur.execute("SELECT constraint_name, search_condition FROM user_constraints WHERE table_name = :t "
                     "AND constraint_type = 'C' AND constraint_name LIKE 'CK%'", t=tabla)
         checks = {nombre: condicion for nombre, condicion in cur.fetchall()}
@@ -438,6 +442,6 @@ def migrar() -> None:
             if existentes and all(checks[n] == condicion for n in existentes):
                 continue
             for nombre in existentes:
-                cur.execute(f"ALTER TABLE {TABLA} DROP CONSTRAINT {nombre}")
-            cur.execute(f"ALTER TABLE {TABLA} ADD CONSTRAINT ck_{TABLA}_{sufijo.lower()} CHECK ({condicion})")
+                db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} DROP CONSTRAINT {nombre}", tambien=("ORA-02443",))
+            db.ddl_tolerante(cur, f"ALTER TABLE {TABLA} ADD CONSTRAINT ck_{TABLA}_{sufijo.lower()} CHECK ({condicion})")
         conn.commit()

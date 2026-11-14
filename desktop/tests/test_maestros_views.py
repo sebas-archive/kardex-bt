@@ -133,3 +133,19 @@ def test_existencias_avisa_cuando_no_hay_coincidencias(qtbot, luis):
     assert vista.filas() == [] and not vista.banner.isHidden() and "coincide" in vista.banner.text()
     vista.txt_buscar.setText("")
     assert vista.banner.isHidden()
+
+
+def test_existencias_marca_inactivos(qtbot, luis, maestros_db):
+    maestros_db.activar_almacen(luis, "ALM-01", False)
+    vista = _vista(qtbot, ExistenciasView, luis)
+    assert all(f[3] == "Bodega Norte (inactivo)" for f in vista.filas())
+    assert vista.combo_almacen.itemText(vista.combo_almacen.findData("ALM-01")) == "Bodega Norte (inactivo)"
+
+
+def test_existencias_conserva_la_fila_elegida_al_refrescar(qtbot, luis):
+    vista = _vista(qtbot, ExistenciasView, luis)
+    vista.tabla.selectRow(3)
+    elegido = vista.filas()[3][0]
+    vista.refresh()
+    qtbot.wait(500)
+    assert vista.tabla.selectedItems() and vista.filas()[vista.tabla.currentRow()][0] == elegido

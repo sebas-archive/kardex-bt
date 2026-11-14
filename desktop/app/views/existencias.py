@@ -17,6 +17,14 @@ def _cantidad(valor: float) -> str:
     return f"{valor:,.3f}".rstrip("0").rstrip(".").replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _almacen(e: maestros.Existencia) -> str:
+    return e.almacen if e.almacen_activo else f"{e.almacen} (inactivo)"
+
+
+def _categoria(e: maestros.Existencia) -> str:
+    return e.categoria if e.categoria_activa else f"{e.categoria} (inactiva)"
+
+
 class ExistenciasView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -96,8 +104,8 @@ class ExistenciasView(QWidget):
 
     def _mostrar(self, existencias: list[maestros.Existencia]) -> None:
         self._todas = list(existencias)
-        self._rellenar(self.combo_almacen, sorted({(e.codigo_almacen, e.almacen) for e in existencias}))
-        self._rellenar(self.combo_categoria, sorted({(e.categoria, e.categoria) for e in existencias}))
+        self._rellenar(self.combo_almacen, sorted({(e.codigo_almacen, _almacen(e)) for e in existencias}))
+        self._rellenar(self.combo_categoria, sorted({(e.categoria, _categoria(e)) for e in existencias}))
         self._filtrar()
 
     def _filtrar(self) -> None:
@@ -109,7 +117,7 @@ class ExistenciasView(QWidget):
                         and (not texto or texto in e.sku.lower() or texto in e.producto.lower())]
         self.tabla.setRowCount(len(self._vistas))
         for fila, e in enumerate(self._vistas):
-            celdas = (e.sku, e.producto, e.categoria, e.almacen, _cantidad(e.cantidad), maestros.NOMBRE_ESTADO[e.estado])
+            celdas = (e.sku, e.producto, _categoria(e), _almacen(e), _cantidad(e.cantidad), maestros.NOMBRE_ESTADO[e.estado])
             for columna, valor in enumerate(celdas):
                 item = QTableWidgetItem(valor)
                 if columna == 5 and e.estado in COLOR_ESTADO:
