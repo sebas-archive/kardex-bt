@@ -210,14 +210,15 @@ class DiferenciasView(QWidget):
 
         def cargar():
             almacen, actual, propuesta = movimientos.propuesta_desde_diferencia(d.id_conteo, d.sku)
-            return almacen, actual, propuesta, movimientos.costo_unitario(d.sku)
+            return almacen, actual, propuesta, movimientos.costo_unitario(d.sku), movimientos.umbrales()
 
         self._runner.run(cargar, lambda datos: self._abrir_ajuste(d, *datos), self._error_accion)
 
-    def _abrir_ajuste(self, d: tareas.Diferencia, almacen: str, actual: float, propuesta: float, costo: float) -> None:
+    def _abrir_ajuste(self, d: tareas.Diferencia, almacen: str, actual: float, propuesta: float, costo: float,
+                      umbrales: tuple[float, float]) -> None:
         datos = pedir_ajuste(self, [(almacen, almacen)], [(d.sku, d.producto, "")],
                              inicial=(d.sku, almacen, propuesta, f"Conteo {d.id_conteo}"), actual=actual,
-                             critico=lambda nueva: movimientos.es_critico(actual, nueva, costo))
+                             critico=lambda nueva: movimientos.es_critico(actual, nueva, costo, umbrales))
         if datos is None:
             return
         sku, alm, nueva, motivo = datos

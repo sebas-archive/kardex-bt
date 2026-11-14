@@ -4,6 +4,8 @@ import asyncio
 import queue
 import threading
 
+from PyQt6.QtCore import QObject, pyqtSignal
+
 from btsync.protocol import frame
 from btsync.store import Catalog, EstadoCuenta
 
@@ -12,6 +14,11 @@ NOW = 1731170400000
 
 class FakeStore:
     """Store en memoria: lo justo para que una Session real funcione, y espía de run_batch."""
+
+    def config(self):
+        from btsync.config import DEFAULTS
+
+        return dict(DEFAULTS)
 
     def __init__(self):
         self.rows, self.batch_calls = [], []
@@ -106,3 +113,47 @@ def rec(seq, conteo="T-01", sku="A1", cant="1", operador="Ana"):
 
 def end(n):
     return frame(["END", str(n)])
+
+
+class FakeRemoto(QObject):
+    """El servicio Bluetooth sin Oracle: la prueba pone el estado con ``poner`` y lee lo que pidió la vista."""
+
+    status_changed = pyqtSignal(dict)
+    listo = pyqtSignal()
+    fallo = pyqtSignal(str)
+
+    def __init__(self, **status):
+        super().__init__()
+        self._status = {"estado": "ESPERANDO_EMPAREJAMIENTO", "codigo": None, "recibidos": 0, "ultimo_error": None,
+                        "desde": None, "listos": 0, "ultima": None, **status}
+        self.pausas, self.reanudaciones, self.respuestas = [], [], []
+
+    def status(self):
+        return dict(self._status)
+
+    def sondear(self):
+        pass
+
+    def poner(self, **cambios):
+        self._status.update(cambios)
+        self.status_changed.emit(self.status())
+
+    def terminar_sync(self, recibidos, dispositivo="Teléfono de prueba"):
+        from datetime import datetime
+
+        from app.servicio import UltimaSync
+
+        self.poner(estado="ESPERANDO_EMPAREJAMIENTO", recibidos=0, listos=self._status["listos"] + 1,
+                   ultima=UltimaSync(datetime.now(), recibidos, dispositivo))
+        self.listo.emit()
+
+    def pausar(self, sesion):
+        self.pausas.append(sesion.usuario)
+        self.poner(estado="PAUSADO")
+
+    def reanudar(self, sesion):
+        self.reanudaciones.append(sesion.usuario)
+        self.poner(estado="ESPERANDO_EMPAREJAMIENTO")
+
+    def responder(self, sesion, aceptar):
+        self.respuestas.append(aceptar)

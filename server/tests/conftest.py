@@ -196,3 +196,24 @@ def scheduler_off():
                 conn.cursor().callproc("DBMS_SCHEDULER.ENABLE", [SCHEDULER_JOB])
     finally:
         conn.close()
+
+
+@pytest.fixture(scope="session")
+def _tabla_config_tst():
+    from btsync import config
+
+    conn = connect()
+    original, config.TABLA = config.TABLA, "configuracion_tst"
+    try:
+        config.migrar(conn)
+    finally:
+        config.TABLA = original
+        conn.close()
+
+
+@pytest.fixture(autouse=True)
+def configuracion_de_prueba(monkeypatch, _tabla_config_tst):
+    """La configuración que leen las sesiones de prueba es ``configuracion_tst`` (nunca la real del usuario)."""
+    from btsync import config
+
+    monkeypatch.setattr(config, "TABLA", "configuracion_tst")

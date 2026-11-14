@@ -100,6 +100,12 @@ class Store:
             self._conn = connect_oracle(self._dsn, self._user, self._password)
         return self._conn
 
+    def config(self) -> dict[str, str]:
+        """La configuración general vigente (Fase 5)."""
+        from . import config
+
+        return config.leer(self._connection().cursor())
+
     def register_device(self, uuid: str, name: str) -> None:
         conn = self._connection()
         conn.cursor().execute(

@@ -7,7 +7,6 @@ import pytest
 from app import db as dbq
 from app.auth import ADMIN, INVENTARIO, Sesion
 from app.main import build_window
-from app.sync_bridge import SyncBridge
 from app.views import ajustes as vaj
 from app.views import diferencias as vdif
 from app.views import movimientos as vmov
@@ -15,7 +14,7 @@ from app.views.ajustes import AjustesView
 from app.views.diferencias import DiferenciasView
 from app.views.movimientos import MovimientosView
 from conftest import staging
-from fakes import FakeStore, FakeTransport
+from fakes import FakeRemoto
 
 ARROZ, AZUCAR = "7701234000001", "7701234000002"
 HOY = date.today()
@@ -212,7 +211,7 @@ def test_admin_no_ve_ajustar_en_diferencias(qtbot, gente):
 
 
 def test_secciones_de_la_fase_3b(qtbot):
-    ventana = build_window(SyncBridge(FakeTransport(), FakeStore()), auto_refresh_ms=0)
+    ventana = build_window(FakeRemoto(), auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.iniciar(Sesion("luis", "Luis Ortiz", INVENTARIO))
     assert {"Movimientos", "Ajustes"} <= set(ventana.secciones())
@@ -241,7 +240,7 @@ def test_ajuste_manual_consulta_la_existencia_en_el_dialogo(qtbot, gente, monkey
     monkeypatch.setattr(vaj, "pedir_ajuste", lambda *a, **k: recibido.update(k) or None)
     vista.btn_nuevo.click()
     esperar(qtbot, lambda: "consultar" in recibido)
-    assert recibido["consultar"](ARROZ, "ALM-01") == (100.0, 2400.0)
+    assert recibido["consultar"](ARROZ, "ALM-01") == (100.0, 2400.0, (10.0, 200_000.0))
 
 
 def test_aprobar_cancelado_no_hace_nada(qtbot, gente, monkeypatch):

@@ -1,5 +1,7 @@
 """Tareas de conteo y diferencias (Fase 3): operaciones del escritorio."""
 
+import re
+
 import pytest
 
 from app import db as dbq
@@ -56,7 +58,7 @@ def test_crear_tarea_toma_existencias_del_almacen(gente):
     t, _ana, luis = gente
     _sql("UPDATE existencias_tst SET cantidad = 37 WHERE sku = :s AND codigo_almacen = 'ALM-01'", s=ARROZ)
     id_tarea = _crear(t, luis)
-    assert id_tarea.startswith("TT-") and len(id_tarea) == 6        # TT-001: tres dígitos
+    assert re.fullmatch(r"TT-\d{3,}", id_tarea)                     # TT-001: al menos tres dígitos
     stock = dict(_sql("SELECT sku, cantidad_sistema FROM stock_sistema WHERE id_conteo = :c", c=id_tarea))
     assert stock[ARROZ] == 37 and set(stock) == {ARROZ, JABON}
     r = next(x for x in t.listar_tareas() if x.id == id_tarea)

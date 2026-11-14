@@ -8,6 +8,9 @@ package "server/btsync (librería Python)" as sv {
   package "store" as sv_store
   package "session" as sv_session
   package "controller" as sv_controller
+  package "servicio" as sv_servicio
+  package "respaldo" as sv_respaldo
+  package "config" as sv_config
   package "transports" as sv_transports {
     package "base" as sv_base
     package "tcp" as sv_tcp
@@ -17,7 +20,7 @@ package "server/btsync (librería Python)" as sv {
 
 package "desktop/app (PyQt6)" as dk {
   package "main" as dk_main
-  package "sync_bridge" as dk_bridge
+  package "servicio_remoto" as dk_bridge
   package "db" as dk_db
   package "models" as dk_models
   package "workers" as dk_workers
@@ -46,7 +49,10 @@ dk_main ..> dk_bridge
 dk_main ..> sv_store
 dk_main ..> sv_tcp
 dk_main ..> sv_bluez
-dk_bridge ..> sv_controller
+dk_bridge ..> sv_servicio : lee su estado en Oracle
+sv_servicio ..> sv_controller
+sv_servicio ..> sv_respaldo : automático
+sv_session ..> sv_config : fotos.max_mb
 dk_views ..> dk_db
 dk_views ..> dk_workers
 dk_views ..> dk_bridge

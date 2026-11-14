@@ -29,7 +29,7 @@ USUARIO = re.compile(r"[a-z0-9._-]{3,30}")   # como desktop/app/auth.py (el móv
 MAX_NOMBRE = 60
 
 
-MAX_FOTO = 2 * 1024 * 1024   # bytes de una foto ya decodificada; más grande: FOTOERR GRANDE
+MB = 1024 * 1024   # el límite de una foto ya decodificada es «fotos.max_mb» de la configuración: más grande, GRANDE
 
 def time_ms() -> int:
     return int(time.time() * 1000)
@@ -59,6 +59,7 @@ class Session:
         self.cuenta_activa = False   # según ACCTST: sin cuenta ACTIVO no se aceptan REC ni INICIO
         self.usuario = ""
         self.fotos: dict[int, dict] = {}   # fotos a medio llegar, por seq de su lectura
+        self.max_foto = 2 * MB             # se lee de la configuración al abrir la sesión
 
     # ------------------------------------------------------------------ API
     def run(self) -> None:
@@ -135,6 +136,7 @@ class Session:
         self.on_event("hello", {"uuid": self.uuid, "nombre": name, "operador": usuario, "cuenta": estado.estado})
         self.store.register_device(self.uuid, name)
         self.sync_id = self.store.open_sync(self.uuid)
+        self.max_foto = int(self.store.config()["fotos.max_mb"]) * MB
         last = self.store.last_seq(self.uuid)
         self.expected, self.last_acked = last + 1, last
         self._send(["READY", str(last), str(self.now_ms())])
@@ -220,7 +222,7 @@ class Session:
             return
         actual["trozos"].append(trozo)
         actual["largo"] += len(trozo)
-        if actual["largo"] * 3 // 4 > MAX_FOTO:
+        if actual["largo"] * 3 // 4 > self.max_foto:
             self.fotos[seq] = {"descartada": True}
             self._send(["FOTOERR", str(seq), "GRANDE"])
             return

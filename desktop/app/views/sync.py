@@ -1,8 +1,9 @@
-"""Pantalla «Sincronización»: el botón que abre la ventana de recepción, cómo va, y las lecturas que quedaron con error."""
+"""Pantalla «Sincronización»: el estado del servicio Bluetooth (que corre aparte), pausarlo o reanudarlo, el código de
+emparejamiento si lo pide, y las lecturas que quedaron con error."""
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -28,8 +29,9 @@ from btsync.controller import (
     RECIBIENDO,
 )
 
+from btsync.servicio import DETENIDO, PAUSADO, PAUSANDO
+
 from .. import auth, db
-from ..sync_bridge import SyncBridge
 from .base import QueryRunner, StateBanner
 from .widgets import Indicador, Pasos
 
@@ -44,10 +46,10 @@ VISUAL = {
     PROCESANDO: ("Procesando", "progreso"),
     LISTO: ("Listo", "listo"),
     ERROR: (None, "error"),
+    PAUSANDO: (None, "progreso"),
+    PAUSADO: (None, "reposo"),
+    DETENIDO: (None, "error"),
 }
-
-TEXTO_INICIAR = "Iniciar sincronización"
-EN_CURSO = (ESPERANDO_EMPAREJAMIENTO, CONFIRMAR_CODIGO, CONECTADO, RECIBIENDO, PROCESANDO)
 
 
 def titulo_de_error(ultimo_error: str | None) -> str:
@@ -68,16 +70,22 @@ def _cargar_errores():
     return db.fetch_estado_batch(), db.fetch_errores()
 
 
-def _minutos(segundos: int) -> str:
-    return f"{segundos // 60}:{segundos % 60:02d}"
+def _lecturas(n: int) -> str:
+    return f"{n} {'lectura' if n == 1 else 'lecturas'}"
+
+
+def texto_ultima(ultima) -> str:
+    if ultima is None:
+        return "Aún no ha llegado ninguna sincronización."
+    return f"Última sincronización: {ultima.dispositivo}, {_lecturas(ultima.recibidos)}, {ultima.fin:%d/%m %H:%M}"
 
 
 class SyncView(QWidget):
     datos_cambiados = pyqtSignal()  # se procesó o reprocesó algo: las demás pantallas deben refrescar
 
-    def __init__(self, bridge: SyncBridge, parent: QWidget | None = None) -> None:
+    def __init__(self, remoto, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._bridge = bridge
+        self._remoto = remoto
         self._runner = QueryRunner(self)
         self._sesion: auth.Sesion | None = None
         self._errores: list = []
@@ -111,17 +119,17 @@ class SyncView(QWidget):
         self.progreso.setRange(0, 0)           # total desconocido: barra indeterminada
         self.progreso.setTextVisible(False)
         self.lbl_recibidos = QLabel("")
-        self.lbl_restante = QLabel("")
-        self.lbl_restante.setObjectName("subtitulo")
+        self.lbl_ultima = QLabel("")
+        self.lbl_ultima.setObjectName("subtitulo")
 
-        self.btn_iniciar = QPushButton(TEXTO_INICIAR)
-        self.btn_iniciar.setObjectName("primario")
-        self.btn_iniciar.setMinimumHeight(42)
-        self.btn_aceptar = QPushButton("Aceptar")
+        self.btn_pausar = QPushButton("Pausar")
+        self.btn_pausar.setMinimumHeight(42)
+        self.btn_aceptar = QPushButton("Aceptar código")
         self.btn_rechazar = QPushButton("Rechazar")
-        self.btn_iniciar.clicked.connect(self._clic_iniciar)
-        self.btn_aceptar.clicked.connect(lambda: bridge.confirm(True))
-        self.btn_rechazar.clicked.connect(lambda: bridge.confirm(False))
+        self.btn_pausar.clicked.connect(self._clic_pausar)
+        self.btn_aceptar.clicked.connect(lambda: self._responder(True))
+        self.btn_rechazar.clicked.connect(lambda: self._responder(False))
+        remoto.fallo.connect(self._fallo_servicio)
 
         botones = QHBoxLayout()
         botones.addWidget(self.btn_aceptar)
@@ -131,7 +139,7 @@ class SyncView(QWidget):
         for w in (self.lbl_titulo, self.lbl_estado, self.lbl_ayuda, self.lbl_codigo):
             columna.addWidget(w)
         columna.addLayout(botones)
-        for w in (self.progreso, self.lbl_recibidos, self.lbl_restante, self.lbl_aviso, self.btn_iniciar):
+        for w in (self.progreso, self.lbl_recibidos, self.lbl_ultima, self.lbl_aviso, self.btn_pausar):
             columna.addWidget(w)
         columna.addStretch(1)
         dibujo = QVBoxLayout()
@@ -142,8 +150,9 @@ class SyncView(QWidget):
         dibujo.addStretch(1)
         pasos_ayuda = QLabel(
             "<b>Cómo sincronizar</b><br>"
-            "1. Pulsa «Iniciar sincronización»: el PC se anuncia como <b>gestion_inventario</b> durante 2 minutos.<br>"
-            "2. En el celular abre <b>Sincronizar</b>. No hay claves ni códigos.<br>"
+            "1. Mientras el servicio está activo, el PC se anuncia como <b>gestion_inventario</b>, "
+            "aunque esta ventana esté cerrada.<br>"
+            "2. En el celular abre <b>Sincronizar</b>.<br>"
             "3. Al terminar, Oracle procesa las lecturas y todas las pantallas se actualizan solas.")
         pasos_ayuda.setObjectName("ayuda")
         pasos_ayuda.setWordWrap(True)
@@ -201,16 +210,13 @@ class SyncView(QWidget):
         self.btn_reprocesar.clicked.connect(lambda: self._accion(db.reprocesar_errores, None))
         columna.setSizeConstraint(columna.SizeConstraint.SetMinimumSize)
 
-        self._activo = False
-        bridge.status_changed.connect(self._actualizar)
-        self._reloj = QTimer(self)
-        self._reloj.timeout.connect(lambda: self._actualizar(self._bridge.status()))  # la cuenta regresiva baja cada segundo
-        self._reloj.start(1000)
-        self._actualizar(bridge.status())
+        remoto.status_changed.connect(self._actualizar)
+        self._actualizar(remoto.status())
 
     # ------------------------------------------------- contrato de las vistas
     def refresh(self) -> None:
-        self._actualizar(self._bridge.status())
+        self._remoto.sondear()
+        self._actualizar(self._remoto.status())
         self._runner.run(_cargar_errores, self._mostrar_errores, self.banner.show_error, key="errores")
 
     def set_conteo(self, id_conteo: str | None) -> None:
@@ -223,6 +229,7 @@ class SyncView(QWidget):
         es_admin = sesion is not None and sesion.es_admin
         self.btn_procesar.setVisible(es_admin)
         self.btn_reprocesar.setVisible(es_admin)
+        self._actualizar(self._remoto.status())
 
     def errores(self) -> list[tuple[str, str, str, str]]:
         """Las filas que muestra la tabla de errores (con el filtro puesto)."""
@@ -274,52 +281,72 @@ class SyncView(QWidget):
         self.btn_reprocesar.setEnabled(True)
         self.banner.show_error(mensaje)
 
-    def _clic_iniciar(self) -> None:
-        if self._activo:
-            self._bridge.cancel()
+    def _puede_gestionar(self) -> bool:
+        return self._sesion is not None and self._sesion.puede("bluetooth", "GESTION")
+
+    def _clic_pausar(self) -> None:
+        if self._sesion is None:
+            return
+        self.lbl_aviso.hide()
+        self.btn_pausar.setEnabled(False)
+        if self._remoto.status()["estado"] in (PAUSADO, PAUSANDO):
+            self._remoto.reanudar(self._sesion)
         else:
-            self._bridge.start()
+            self._remoto.pausar(self._sesion)
+
+    def _responder(self, aceptar: bool) -> None:
+        if self._sesion is not None:
+            self._remoto.responder(self._sesion, aceptar)
+
+    def _fallo_servicio(self, mensaje: str) -> None:
+        self.btn_pausar.setEnabled(True)
+        self.lbl_aviso.setText(mensaje)
+        self.lbl_aviso.setVisible(bool(mensaje))
 
     def _actualizar(self, status: dict) -> None:
         estado, recibidos = status["estado"], status["recibidos"]
         error = status["ultimo_error"]
-        self._activo = estado in EN_CURSO
-
+        desde = status.get("desde")
+        activo = "Servicio Bluetooth activo · visible como «gestion_inventario»" + (
+            f" · desde {desde:%d/%m %H:%M}" if desde is not None else "")
         textos = {
-            IDLE: "Listo para sincronizar. Pulsa «Iniciar sincronización».",
-            ESPERANDO_EMPAREJAMIENTO: "Esperando al celular…",
+            IDLE: activo,
+            ESPERANDO_EMPAREJAMIENTO: activo,
             CONFIRMAR_CODIGO: "Confirma que el celular muestra este código:",
             CONECTADO: "Celular conectado.",
             RECIBIENDO: "Recibiendo lecturas…",
             PROCESANDO: "Procesando las lecturas…",
-            LISTO: f"Sincronización lista: {recibidos} {'lectura recibida' if recibidos == 1 else 'lecturas recibidas'}.",
+            LISTO: activo,
             ERROR: titulo_de_error(error),
+            PAUSANDO: "Pausando: termina la sincronización en curso…",
+            PAUSADO: "Servicio Bluetooth en pausa: no recibe teléfonos.",
+            DETENIDO: "El servicio Bluetooth no está corriendo",
         }
-        self.lbl_estado.setText(textos[estado])
-        ayuda = ""
-        if estado == ESPERANDO_EMPAREJAMIENTO:
-            ayuda = "En el Bluetooth del celular busca «gestion_inventario» y conéctate desde la app."
+        self.lbl_estado.setText(textos.get(estado, estado))
+        ayuda = {
+            ESPERANDO_EMPAREJAMIENTO: "En el Bluetooth del celular busca «gestion_inventario» y conéctate desde la app.",
+            DETENIDO: "Arráncalo en el PC con «docker compose up -d bluetooth».",
+        }.get(estado, "")
         self.lbl_ayuda.setText(ayuda)
         self.lbl_ayuda.setVisible(bool(ayuda))
 
+        gestiona = self._puede_gestionar()
         self.lbl_codigo.setText(status["codigo"] or "")
         self.lbl_codigo.setVisible(estado == CONFIRMAR_CODIGO and bool(status["codigo"]))
-        self.btn_aceptar.setVisible(estado == CONFIRMAR_CODIGO)
-        self.btn_rechazar.setVisible(estado == CONFIRMAR_CODIGO)
+        self.btn_aceptar.setVisible(estado == CONFIRMAR_CODIGO and gestiona)
+        self.btn_rechazar.setVisible(estado == CONFIRMAR_CODIGO and gestiona)
 
-        self.progreso.setVisible(estado in (CONECTADO, RECIBIENDO, PROCESANDO))
-        mostrar_recibidos = estado in (RECIBIENDO, PROCESANDO, LISTO) or recibidos > 0
+        self.progreso.setVisible(estado in (CONECTADO, RECIBIENDO, PROCESANDO, PAUSANDO))
         self.lbl_recibidos.setText(f"Lecturas recibidas: {recibidos}")
-        self.lbl_recibidos.setVisible(mostrar_recibidos)
-        abierta = estado in (ESPERANDO_EMPAREJAMIENTO, CONFIRMAR_CODIGO)
-        self.lbl_restante.setText(f"Ventana abierta: {_minutos(status['restante_s'])}")
-        self.lbl_restante.setVisible(abierta)
+        self.lbl_recibidos.setVisible(estado in (RECIBIENDO, PROCESANDO, PAUSANDO) and recibidos > 0)
+        self.lbl_ultima.setText(texto_ultima(status.get("ultima")))
         self.lbl_aviso.setText(error or "")
         self.lbl_aviso.setVisible(bool(error))
 
-        paso, dibujo = VISUAL[estado]
+        paso, dibujo = VISUAL.get(estado, (None, "reposo"))
         self.pasos.set_actual(paso)
         self.indicador.set_modo(dibujo)
 
-        self.btn_iniciar.setText("Cancelar" if self._activo else TEXTO_INICIAR)
-        self.btn_iniciar.setEnabled(True)
+        self.btn_pausar.setText("Reanudar" if estado in (PAUSADO, PAUSANDO) else "Pausar")
+        self.btn_pausar.setVisible(gestiona and estado != DETENIDO)
+        self.btn_pausar.setEnabled(True)

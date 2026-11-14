@@ -50,6 +50,10 @@ def migrar(conn) -> None:
             bytes             NUMBER             NOT NULL,
             recibida          TIMESTAMP          DEFAULT SYSTIMESTAMP NOT NULL,
             CONSTRAINT pk_fotos PRIMARY KEY (uuid_dispositivo, seq))""")
+    from . import config, servicio
+
+    config.migrar(conn)          # configuración general (Fase 5)
+    servicio.migrar(conn)        # estado del servicio Bluetooth (Fase 5)
     if not paquete_al_dia(cur) and PAQUETE.exists():
         _recompilar(cur)
     conn.commit()

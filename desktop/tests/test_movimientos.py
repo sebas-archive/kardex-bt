@@ -286,5 +286,5 @@ def test_ajuste_pendiente_no_crea_existencia(gente):
 
 def test_existencia_y_costo_para_el_dialogo(gente):
     m, _ana, _luis = gente
-    assert m.existencia_y_costo(ARROZ, "ALM-01") == (100.0, 2400.0)
-    assert m.existencia_y_costo(ARROZ, "ALM-02") == (0.0, 2400.0)
+    assert m.existencia_y_costo(ARROZ, "ALM-01") == (100.0, 2400.0, (10.0, 200_000.0))
+    assert m.existencia_y_costo(ARROZ, "ALM-02") == (0.0, 2400.0, (10.0, 200_000.0))

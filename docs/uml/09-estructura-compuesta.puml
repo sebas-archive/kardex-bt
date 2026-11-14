@@ -3,7 +3,7 @@
 title 09 · Estructura compuesta: interior de SyncController
 left to right direction
 
-component "SyncBridge\n(señales Qt)" as bridge
+component "Servicio\n(btsync.servicio: tick de 1 s)" as bridge
 component "Transport\n(BluezTransport | TcpTransport)" as transporte
 component "Store\n(Oracle)" as repo
 

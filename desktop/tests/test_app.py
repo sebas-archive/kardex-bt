@@ -16,7 +16,6 @@ from app import auth, db as dbq
 from app.auth import ADMIN, INVENTARIO, Sesion
 from app.main import MainWindow, build_window
 from app.models import fmt_pct
-from app.sync_bridge import SyncBridge
 from app.views import widgets
 from app.views.acceso import AccesoView
 from app.views.charts import CHART_IDS, EXTRA_IDS, ChartsView, _etiqueta_eje, _fmt_corto
@@ -27,7 +26,7 @@ from app.views.solicitudes import SolicitudesView
 from app.views.sync import SyncView
 from app.views.usuarios import UsuariosView
 from conftest import connect, staging
-from fakes import FakeStore, FakeTransport, acct, end, hello, rec
+from fakes import FakeRemoto
 
 C = "T-01"
 T0 = 1731170400000
@@ -48,15 +47,13 @@ def contado(escenario):
 
 @pytest.fixture
 def puente():
-    transport, store = FakeTransport(), FakeStore()
-    bridge = SyncBridge(transport, store, discoverable_s=60)
-    yield bridge, transport, store
-    bridge.cancel()
+    """El servicio Bluetooth falso (corre aparte: la prueba decide su estado)."""
+    return FakeRemoto()
 
 
 def abrir(qtbot, puente, sesion):
     """La ventana completa con la sesión dada, ya en el conteo T-01."""
-    ventana = build_window(puente[0], auto_refresh_ms=0, sesion=sesion)
+    ventana = build_window(puente, auto_refresh_ms=0, sesion=sesion)
     qtbot.addWidget(ventana)
     ventana.show()
     esperar(qtbot, lambda: ventana.combo_conteo.findData(C) >= 0)
@@ -67,7 +64,7 @@ def abrir(qtbot, puente, sesion):
 
 # ------------------------------------------------------------------ acceso
 def test_without_session_the_window_shows_only_the_login(qtbot, puente):
-    ventana = build_window(puente[0], auto_refresh_ms=0)
+    ventana = build_window(puente, auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.show()
     assert ventana.sesion() is None and ventana.acceso.isVisible()
@@ -76,7 +73,7 @@ def test_without_session_the_window_shows_only_the_login(qtbot, puente):
 
 
 def test_register_then_login_enters_the_app(qtbot, cuentas, contado, puente):
-    ventana = build_window(puente[0], auto_refresh_ms=0)
+    ventana = build_window(puente, auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.show()
     acceso = ventana.acceso
@@ -125,7 +122,7 @@ def test_sections_depend_on_the_role(qtbot, contado, puente):
 
     ventana.cerrar_sesion()
     ventana.iniciar(ANA)
-    assert {"Solicitudes", "Empleados", "Roles y permisos"} <= set(ventana.secciones())
+    assert {"Solicitudes", "Empleados", "Roles y permisos", "Configuración"} <= set(ventana.secciones())
     assert not dashboard.btn_cerrar.isHidden() and not sync.btn_procesar.isHidden()
     ventana.ir_a("Empleados")
     assert ventana.seccion_actual() == "Empleados" and ventana.paginas.currentWidget() is ventana.vista("Empleados")
@@ -146,7 +143,7 @@ def test_sidebar_collapses_and_profile_opens_from_the_footer(qtbot, contado, pue
 
 def test_navigation_shows_each_page_and_toasts_work(qtbot, contado, puente):
     ventana = abrir(qtbot, puente, ANA)
-    assert ventana.chip_bluetooth.text() == "Bluetooth: apagado" and ventana.chip_oracle.text() == "Oracle: conectado"
+    assert ventana.chip_bluetooth.text() == "Bluetooth: escuchando" and ventana.chip_oracle.text() == "Oracle: conectado"
     for titulo in ventana.secciones():
         ventana.ir_a(titulo)
         assert ventana.seccion_actual() == titulo and ventana.paginas.currentWidget().isVisible()
@@ -370,62 +367,72 @@ def test_no_query_runs_on_the_ui_thread(qtbot, contado, puente, monkeypatch):
         assert threading.main_thread() not in conjunto, f"{nombre} corrió en el hilo de la interfaz"
 
 
-# ------------------------------------------------------------------ sincronización
+# ------------------------------------------------------------------ sincronización (servicio aparte, Fase 5)
 @pytest.fixture
 def sync(qtbot, puente):
-    bridge, transport, store = puente
-    vista = SyncView(bridge)
+    vista = SyncView(puente)
     qtbot.addWidget(vista)
     vista.set_sesion(ANA)
-    return vista, bridge, transport, store
+    return vista, puente
 
 
-def test_sync_starts_waits_and_marks_the_step(qtbot, sync):
-    vista, bridge, transport, store = sync
-    assert vista.lbl_estado.text().startswith("Listo para sincronizar") and vista.pasos.actual() is None
-    assert vista.indicador.modo() == "reposo"
-    vista.btn_iniciar.click()
-    esperar(qtbot, lambda: vista.lbl_estado.text().startswith("Esperando al celular"))
-    assert "gestion_inventario" in vista.lbl_ayuda.text() and vista.btn_iniciar.text() == "Cancelar"
-    assert vista.pasos.actual() == "Esperando" and vista.indicador.modo() == "radar"
-    assert vista.lbl_codigo.isHidden() and vista.btn_aceptar.isHidden()
-    vista.btn_iniciar.click()                                    # cancelar
-    esperar(qtbot, lambda: vista.lbl_estado.text().startswith("Listo para sincronizar"))
+def test_sync_shows_the_service_state(qtbot, sync):
+    vista, remoto = sync
+    assert vista.lbl_estado.text().startswith("Servicio Bluetooth activo · visible como «gestion_inventario»")
+    assert "gestion_inventario" in vista.lbl_ayuda.text() and vista.pasos.actual() == "Esperando"
+    assert vista.indicador.modo() == "radar" and vista.lbl_codigo.isHidden() and vista.btn_aceptar.isHidden()
+    assert vista.lbl_ultima.text() == "Aún no ha llegado ninguna sincronización."
+    remoto.poner(estado="DETENIDO")
+    assert vista.lbl_estado.text() == "El servicio Bluetooth no está corriendo"
+    assert "docker compose up -d bluetooth" in vista.lbl_ayuda.text() and vista.btn_pausar.isHidden()
+    remoto.poner(estado="PAUSANDO")
+    assert vista.lbl_estado.text().startswith("Pausando") and vista.btn_pausar.text() == "Reanudar"
 
 
-def test_a_full_sync_counts_lines_runs_the_batch_and_refreshes_everything(qtbot, contado, puente):
-    bridge, transport, store = puente
+def test_pausar_y_reanudar_el_servicio(qtbot, sync):
+    vista, remoto = sync
+    assert vista.btn_pausar.text() == "Pausar" and not vista.btn_pausar.isHidden()
+    vista.btn_pausar.click()
+    assert remoto.pausas == ["ana.gomez"] and vista.lbl_estado.text().startswith("Servicio Bluetooth en pausa")
+    assert vista.btn_pausar.text() == "Reanudar"
+    vista.btn_pausar.click()
+    assert remoto.reanudaciones == ["ana.gomez"] and vista.btn_pausar.text() == "Pausar"
+
+
+def test_sin_gestion_en_bluetooth_no_hay_pausa(qtbot, puente):
+    vista = SyncView(puente)
+    qtbot.addWidget(vista)
+    vista.set_sesion(Sesion("x", "X", INVENTARIO, (("bluetooth", "CONSULTA"), ("perfil", "GESTION"))))
+    assert vista.btn_pausar.isHidden()
+
+
+def test_el_codigo_se_acepta_desde_el_pc(qtbot, sync):
+    vista, remoto = sync
+    remoto.poner(estado="CONFIRMAR_CODIGO", codigo="123456")
+    assert vista.lbl_codigo.text() == "123456" and not vista.btn_aceptar.isHidden()
+    vista.btn_aceptar.click()
+    assert remoto.respuestas == [True]
+
+
+def test_a_full_sync_shows_progress_and_refreshes_everything(qtbot, contado, puente):
     ventana = abrir(qtbot, puente, ANA)
     vista = ventana.vista("Sincronización")
     refrescos = []
-    ventana.refresh_requested.connect(lambda: refrescos.append(vista.lbl_estado.text()))
-    vista.btn_iniciar.click()
-    esperar(qtbot, lambda: vista.lbl_estado.text().startswith("Esperando al celular"))
-    conn = transport.connect()
-    conn.feed(hello(), acct(), rec(1), rec(2), rec(3))
-    esperar(qtbot, lambda: vista.lbl_recibidos.text() == "Lecturas recibidas: 3")
-    assert vista.lbl_estado.text().startswith("Recibiendo") and ventana.chip_bluetooth.text() == "Bluetooth: recibiendo"
-    conn.feed(end(3))
-    esperar(qtbot, lambda: vista.lbl_estado.text().startswith("Sincronización lista"))
-    assert "3 lecturas" in vista.lbl_estado.text() and vista.pasos.actual() == "Listo" and vista.indicador.modo() == "listo"
-    assert store.batch_calls == ["SYNC"]
+    ventana.refresh_requested.connect(lambda: refrescos.append(1))
+    puente.poner(estado="RECIBIENDO", recibidos=3)
+    assert vista.lbl_recibidos.text() == "Lecturas recibidas: 3" and vista.lbl_estado.text().startswith("Recibiendo")
+    assert ventana.chip_bluetooth.text() == "Bluetooth: recibiendo"
+    puente.terminar_sync(3, "Bodega 1")
+    assert vista.lbl_ultima.text().startswith("Última sincronización: Bodega 1, 3 lecturas")
     esperar(qtbot, lambda: len(refrescos) >= 1)                  # llegaron datos: las páginas vuelven a consultar
     assert ventana.avisos_visibles() == ["Sincronización lista: 3 lecturas recibidas"]
 
 
-def test_bluetooth_unavailable_shows_a_message_not_a_crash(qtbot):
-    from btsync.transports.base import BluetoothUnavailable
-
-    bridge = SyncBridge(FakeTransport(fail_with=BluetoothUnavailable("Bluetooth bloqueado. Ejecuta: rfkill unblock bluetooth")), FakeStore())
-    try:
-        vista = SyncView(bridge)
-        qtbot.addWidget(vista)
-        vista.btn_iniciar.click()
-        esperar(qtbot, lambda: "Bluetooth no disponible" in vista.lbl_estado.text())
-        assert "rfkill unblock bluetooth" in vista.lbl_aviso.text() and vista.indicador.modo() == "error"
-        assert vista.btn_iniciar.isEnabled() and vista.btn_iniciar.text() == "Iniciar sincronización"
-    finally:
-        bridge.cancel()
+def test_bluetooth_unavailable_shows_a_message_not_a_crash(qtbot, sync):
+    vista, remoto = sync
+    remoto.poner(estado="ERROR", ultimo_error="Bluetooth bloqueado. Ejecuta: rfkill unblock bluetooth")
+    assert "Bluetooth no disponible" in vista.lbl_estado.text()
+    assert "rfkill unblock bluetooth" in vista.lbl_aviso.text() and vista.indicador.modo() == "error"
 
 
 def test_sync_lists_error_rows_and_reprocesses_them_off_the_ui_thread(qtbot, escenario, sync, monkeypatch):
@@ -456,18 +463,12 @@ def test_sync_lists_error_rows_and_reprocesses_them_off_the_ui_thread(qtbot, esc
     assert hilos and threading.main_thread() not in hilos and vista.btn_reprocesar.isEnabled()
 
 
-def test_closing_the_window_or_logging_out_cancels_the_sync(qtbot, contado, puente):
-    bridge, transport, _ = puente
+def test_closing_the_window_or_logging_out_does_not_pause_the_service(qtbot, contado, puente):
     ventana = abrir(qtbot, puente, ANA)
-    ventana.vista("Sincronización").btn_iniciar.click()
-    esperar(qtbot, lambda: bridge.status()["estado"] == "ESPERANDO_EMPAREJAMIENTO")
-    ventana.cerrar_sesion()                                      # nadie debe quedar recibiendo sin sesión abierta
-    esperar(qtbot, lambda: bridge.status()["estado"] == "IDLE")
+    ventana.cerrar_sesion()                    # el servicio corre aparte: sigue recibiendo sin sesión abierta
     ventana.iniciar(ANA)
-    ventana.vista("Sincronización").btn_iniciar.click()
-    esperar(qtbot, lambda: bridge.status()["estado"] == "ESPERANDO_EMPAREJAMIENTO")
     ventana.close()
-    esperar(qtbot, lambda: bridge.status()["estado"] == "IDLE")
+    assert puente.pausas == [] and puente.status()["estado"] == "ESPERANDO_EMPAREJAMIENTO"
 
 
 # ------------------------------------------------------------------ perfil y usuarios
@@ -524,6 +525,7 @@ def test_admin_manages_accounts_from_the_users_page(qtbot, cuentas, monkeypatch)
     vista.btn_estado.click()
     esperar(qtbot, lambda: vista.filas()[1][3] == "Activa")
     vista.restablecer("luis", "nueva2027")
+    esperar(qtbot, lambda: vista._runner.pendientes == 0)   # corre en otro hilo: que termine antes de usar la clave
     vista.seleccionar("luis")
     vista.btn_rol.click()
     esperar(qtbot, lambda: vista.filas()[1][2] == "Administrador")
@@ -635,7 +637,7 @@ def test_login_de_cuenta_rechazada_abre_estado_cuenta(qtbot, cuentas, puente):
     ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
     cuentas.registrar("luis", "Luis Ortiz", "conteo2026", "conteo2026")
     cuentas.rechazar(ana, "luis", "Duplicada")
-    ventana = build_window(puente[0], auto_refresh_ms=0)
+    ventana = build_window(puente, auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.show()
     ventana.acceso.txt_usuario.setText("luis")
@@ -656,7 +658,7 @@ def test_la_sesion_lleva_los_permisos_de_oracle(qtbot, cuentas, permisos_db, pue
     permisos_db.guardar(ana, INVENTARIO, "reportes", permisos_db.NINGUNO)
     luis = cuentas.iniciar_sesion("luis", "conteo2026")
     assert not luis.puede("reportes") and luis.puede("existencias")
-    ventana = build_window(puente[0], auto_refresh_ms=0, sesion=luis)
+    ventana = build_window(puente, auto_refresh_ms=0, sesion=luis)
     qtbot.addWidget(ventana)
     assert "Gráficas" not in ventana.secciones() and "Inventario" in ventana.secciones()
 
@@ -719,7 +721,7 @@ def test_empleados_operador_no_se_hace_admin_y_se_desvincula(qtbot, cuentas):
 
 
 def test_sin_dashboard_entra_a_la_primera_seccion_permitida(qtbot, puente):
-    ventana = build_window(puente[0], auto_refresh_ms=0)
+    ventana = build_window(puente, auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     sin_dashboard = Sesion("luis", "Luis Ortiz", INVENTARIO, (("dashboard", "NINGUNO"), ("existencias", "GESTION"),
                                                               ("perfil", "GESTION")))
@@ -731,7 +733,7 @@ def test_sin_dashboard_entra_a_la_primera_seccion_permitida(qtbot, puente):
 def test_al_cerrar_sesion_se_vacian_las_vistas_de_administracion(qtbot, cuentas, puente):
     ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")
     cuentas.registrar("marta", "Marta Ruiz", "conteo2026", "conteo2026")
-    ventana = build_window(puente[0], auto_refresh_ms=0, sesion=ana)
+    ventana = build_window(puente, auto_refresh_ms=0, sesion=ana)
     qtbot.addWidget(ventana)
     esperar(qtbot, lambda: bool(ventana.vista("Empleados").filas() and ventana.vista("Solicitudes").filas_cuentas()))
     ventana.cerrar_sesion()

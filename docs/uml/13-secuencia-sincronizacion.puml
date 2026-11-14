@@ -3,7 +3,7 @@
 title 13 · Secuencia: sincronización completa
 autonumber
 actor Administrador as adm
-participant "SyncView /\nSyncBridge" as gui
+participant "Servicio /\nServicioRemoto" as gui
 participant SyncController as ctrl
 participant BluezTransport as bz
 participant "bluetoothd" as bluez

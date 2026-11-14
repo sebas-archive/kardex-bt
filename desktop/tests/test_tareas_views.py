@@ -5,13 +5,12 @@ import pytest
 from app import db as dbq
 from app.auth import ADMIN, INVENTARIO, Sesion
 from app.main import build_window
-from app.sync_bridge import SyncBridge
 from app.views import diferencias as vdif
 from app.views import tareas as vtar
 from app.views.diferencias import DiferenciasView
 from app.views.tareas import TareasView
 from conftest import staging
-from fakes import FakeStore, FakeTransport
+from fakes import FakeRemoto
 
 ARROZ, JABON = "7701234000001", "7701234000025"
 T0 = 1731170400000
@@ -159,7 +158,7 @@ def test_admin_consulta_tareas_y_diferencias_sin_botones(qtbot, gente):
 
 
 def test_secciones_de_la_fase_3_segun_permisos(qtbot):
-    ventana = build_window(SyncBridge(FakeTransport(), FakeStore()), auto_refresh_ms=0)
+    ventana = build_window(FakeRemoto(), auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.iniciar(Sesion("luis", "Luis Ortiz", INVENTARIO))
     assert {"Tareas de conteo", "Diferencias"} <= set(ventana.secciones())

@@ -53,8 +53,8 @@ def test_crc_malo_no_guarda_nada(store, db, carpeta):
 
 
 def test_foto_demasiado_grande(store, db, carpeta, monkeypatch):
-    import btsync.session as sesion
-    monkeypatch.setattr(sesion, "MAX_FOTO", 5_000)
+    monkeypatch.setattr(store, "config", lambda: {"fotos.max_mb": "1"})
+    monkeypatch.setattr("btsync.session.MB", 5_000)   # «1 MB» de 5000 bytes: la foto de prueba (10 KB) se pasa
     conn, _ = run(store, [*inicio(), rec(1), *_fotos(1), end(1)])
     out = [(m.kind, m.fields) for m in sent(conn)]
     assert out.count(("FOTOERR", ["1", "GRANDE"])) == 1 and _fila(db) == []

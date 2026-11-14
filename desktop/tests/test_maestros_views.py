@@ -5,11 +5,10 @@ import pytest
 from app import db as dbq
 from app.auth import ADMIN, INVENTARIO, Sesion
 from app.main import build_window
-from app.sync_bridge import SyncBridge
 from app.views import maestros as vistas
 from app.views.existencias import ExistenciasView
 from app.views.maestros import AlmacenesView, CategoriasView
-from fakes import FakeStore, FakeTransport
+from fakes import FakeRemoto
 
 
 def esperar(qtbot, condicion, timeout=15000):
@@ -99,7 +98,7 @@ def test_existencias_filtra(qtbot, luis, maestros_db):
 
 
 def test_secciones_nuevas_segun_permisos(qtbot):
-    ventana = build_window(SyncBridge(FakeTransport(), FakeStore()), auto_refresh_ms=0)
+    ventana = build_window(FakeRemoto(), auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.iniciar(Sesion("luis", "Luis Ortiz", INVENTARIO))
     assert {"Categorías", "Almacenes", "Existencias", "Inventario"} <= set(ventana.secciones())

@@ -15,7 +15,9 @@ node "PC host Linux" as pc {
     node "oracle\ngvenzl/oracle-xe:11-slim" as c_ora {
       database "XE 11g\n(volumen oracle-data)" as xe
     }
-    node "app\nPython 3.12 + PyQt6 + btsync\n(network_mode: host)" as c_app
+    node "app\nPython 3.12 + PyQt6\n(network_mode: host)" as c_app
+    node "bluetooth\nPython 3.12 + btsync.servicio\n(network_mode: host, restart: unless-stopped)" as c_bt
+    folder "fotos/ y respaldos/\n(carpetas del repo montadas)" as carpetas
     node "apk-build\nJDK 17 + Android SDK + Gradle\n(perfil build)" as c_apk
     node "pybase\n(perfil dev: pruebas)" as c_py
     node "plantuml\n(perfil docs)" as c_uml
@@ -23,7 +25,10 @@ node "PC host Linux" as pc {
 }
 
 cel -down- bluez : RFCOMM (Bluetooth clásico,\nsocket inseguro, sin emparejar)
-bluez -down- c_app : socket D-Bus\n/var/run/dbus
+bluez -down- c_bt : socket D-Bus\n/var/run/dbus
+c_bt -right- xe : SQL*Net\n127.0.0.1:1521
+c_bt .. carpetas
+c_app .. carpetas
 x11 -down- c_app : socket X11\n/tmp/.X11-unix
 c_app -right- xe : SQL*Net\n127.0.0.1:1521
 c_py .right. xe

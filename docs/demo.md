@@ -23,9 +23,9 @@ docker compose up -d app
 | Min | Qué se hace | Qué se dice / qué se ve |
 |---|---|---|
 | 0:00 | Iniciar sesión en el PC (la primera cuenta es administradora) y mostrar el **Dashboard**: el conteo `CONT-2026-11` está sin contar. | «Hay 58 productos en el sistema; nadie ha contado nada.» Tarjetas en 0 % de avance. |
-| 0:15 | En el celular: **crear cuenta** → queda *PENDIENTE*. En el PC: **Iniciar sincronización**; en el celular: **Comprobar estado**. En el PC, **Solicitudes**: la cuenta llegó desde el celular → elegir *Operador de Inventario* → **Aprobar**. En el celular: **Comprobar estado** otra vez → entra. | «Nadie trabaja sin aprobación.» Si se rechaza o suspende, el celular muestra el motivo y «Regresar al inicio de sesión». |
+| 0:15 | En el celular: **crear cuenta** → queda *PENDIENTE*. En el PC el servicio Bluetooth ya está escuchando; en el celular: **Comprobar estado**. En el PC, **Solicitudes**: la cuenta llegó desde el celular → elegir *Operador de Inventario* → **Aprobar**. En el celular: **Comprobar estado** otra vez → entra. | «Nadie trabaja sin aprobación.» Si se rechaza o suspende, el celular muestra el motivo y «Regresar al inicio de sesión». |
 | 0:30 | En el celular, en **modo avión**: elegir el conteo, **escanear** 3–4 códigos con la cámara y digitar 1 a mano. Recontar uno (se avisa «reemplaza la lectura anterior»). Mostrar **Pendientes**. | «Sin wifi ni red celular: todo queda guardado en el teléfono.» Cada lectura aparece `PENDIENTE`. |
-| 1:30 | En el PC, pantalla **Sincronización** → **Iniciar sincronización**. | El PC pasa a *esperando* con cuenta regresiva de 120 s y se anuncia como `gestion_inventario`, no con el nombre del equipo. |
+| 1:30 | En el PC, pantalla **Sincronización**. | El servicio Bluetooth está *activo* y el PC se anuncia como `gestion_inventario` (no con el nombre del equipo), aunque se cierre la ventana. «Pausar» lo detiene sin cortar una sincronización en curso. |
 | 2:00 | En el celular: **Sincronizar** (la primera vez se elige `gestion_inventario`; las siguientes conecta directo). | Sin código ni emparejamiento (D22). Barra de progreso; la app de escritorio muestra *recibiendo* y el contador de lectura. |
 | 2:45 | Terminar: en el celular aparece el resultado (`BYE`: aceptadas/rechazadas); en el PC el estado pasa a *procesando* y luego *listo*. | «El batch de Oracle corrió fuera de la conexión; el celular no esperó.» Las lecturas del celular pasan a `CONFIRMADO`. |
 | 3:15 | Pantallas **Dashboard** (avance, exactitud, valor faltante y sobrante) e **Inventario** (tabla con filtros). Abrir un SKU para ver sus lecturas. | «Se concilió contra el stock del sistema.» |
@@ -38,10 +38,10 @@ docker compose up -d app
 El PC usa el transporte TCP y el teléfono simulado hace el conteo físico de `tools/truth.json` (el mismo flujo, sin radio):
 
 ```bash
-BT_TRANSPORT=tcp docker compose up -d app
+BT_TRANSPORT=tcp docker compose up -d bluetooth app
 ```
 
-Con la ventana abierta y **Iniciar sincronización** pulsado, en otra terminal:
+Con el servicio por TCP (`BT_TRANSPORT=tcp docker compose up -d bluetooth`), en otra terminal:
 
 ```bash
 python3 tools/fake_phone.py --host 127.0.0.1 --port 9000 --seed 42 --dirty --uuid demo-fake

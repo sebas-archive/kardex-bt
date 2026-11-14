@@ -51,6 +51,23 @@ class auditoria <<table>> {
   accion
   detalle
 }
+class configuracion <<table>> {
+  * clave <<PK>>
+  --
+  valor
+  modificado
+  ..
+  sin fila: vale el inicial (btsync.config.DEFAULTS)
+}
+class servicio_bt <<table>> {
+  * id = 1 <<PK>>
+  --
+  estado / codigo / recibidos / ultimo_error
+  desde / latido
+  pausado : S | N  (lo escribe el escritorio)
+  respuesta : S | N  (al código)
+  listos : sincronizaciones terminadas
+}
 class revisiones <<table>> {
   * id_conteo <<PK>>
   * sku <<PK>>

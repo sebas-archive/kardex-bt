@@ -58,11 +58,13 @@ services:
       - ./:/work
       - /var/run/dbus:/var/run/dbus
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - /etc/localtime:/etc/localtime:ro   # la hora del PC (nombres y fechas de los respaldos)
       - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority-host:ro
     environment:
       DB_DSN: 127.0.0.1:1521/XE
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
+      ORA_SDTZ: "+00:00"   # la sesión de Oracle sigue en la zona de la base (TIMESTAMP vs SYSTIMESTAMP); Python, en la del PC
       PYTHONPATH: /work/server:/work/desktop
       HOME: /tmp                    # el usuario 1000 no tiene HOME: sin esto Qt/fontconfig se quejan
       XDG_CACHE_HOME: /tmp/.cache
@@ -71,10 +73,46 @@ services:
       BT_TRANSPORT: ${BT_TRANSPORT:-bluez}
       BT_TCP_PORT: ${BT_TCP_PORT:-9000}
       BT_CON_CLAVE: ${BT_CON_CLAVE:-0}
+      FOTOS_DIR: /work/fotos
+      RESPALDOS_DIR: /work/respaldos
     depends_on:
       oracle:
         condition: service_healthy
     command: ["python", "-m", "app.main"]
+
+  # Servicio Bluetooth independiente (Fase 5): recibe a los teléfonos aunque el escritorio esté cerrado.
+  # `docker compose up -d bluetooth` lo deja corriendo; con `restart: unless-stopped` vuelve tras reiniciar el PC
+  # (si Docker arranca con el sistema). El escritorio ve su estado en Oracle (SERVICIO_BT) y lo pausa o reanuda.
+  bluetooth:
+    build:
+      context: .
+      dockerfile: docker/pybase/Dockerfile
+      args:
+        EXTRAS: "bluez"
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /work
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    restart: unless-stopped
+    volumes:
+      - ./:/work
+      - /var/run/dbus:/var/run/dbus
+      - /etc/localtime:/etc/localtime:ro   # la hora del PC: el respaldo automático sale a la hora configurada
+    environment:
+      DB_DSN: 127.0.0.1:1521/XE
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      ORA_SDTZ: "+00:00"   # la sesión de Oracle sigue en la zona de la base (TIMESTAMP vs SYSTIMESTAMP); Python, en la del PC
+      PYTHONPATH: /work/server
+      FOTOS_DIR: /work/fotos
+      RESPALDOS_DIR: /work/respaldos
+      BT_TRANSPORT: ${BT_TRANSPORT:-bluez}
+      BT_TCP_PORT: ${BT_TCP_PORT:-9000}
+      BT_CON_CLAVE: ${BT_CON_CLAVE:-0}
+    depends_on:
+      oracle:
+        condition: service_healthy
+    command: ["python", "-m", "btsync.servicio"]
 
   # Compila y prueba la APK (Tareas 14-15). Perfil "build":
   #   docker compose --profile build run --rm apk-build ./gradlew testDebugUnitTest

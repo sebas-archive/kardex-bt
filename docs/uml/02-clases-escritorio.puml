@@ -14,13 +14,22 @@ class MainWindow {
   +ir_a(titulo)
   +avisar(texto, tipo)
 }
-class SyncBridge <<QObject>> {
+class ServicioRemoto <<QObject>> {
   +status_changed : pyqtSignal
   +listo : pyqtSignal
-  +start()
-  +confirm(accept)
-  +cancel()
+  +fallo : pyqtSignal
+  +sondear()
+  +pausar(sesion)
+  +reanudar(sesion)
+  +responder(sesion, aceptar)
   +status() : dict
+}
+class EstadoServicio <<dataclass>> {
+  +estado : str
+  +codigo : str
+  +recibidos : int
+  +listos : int
+  +ultima : UltimaSync
 }
 class QueryRunner {
   +run(fn, on_ok, on_error, key)
@@ -112,7 +121,6 @@ class Indicador
 class Pasos
 class Aviso
 class Transicion
-class SyncController <<btsync>>
 
 RefreshableView <|.. DashboardView
 RefreshableView <|.. InventarioView
@@ -146,8 +154,8 @@ RefreshableView ..> QueryRunner : consultas fuera del hilo de la UI
 QueryRunner ..> QueryWorker : lanza
 QueryWorker *-- WorkerSignals
 QueryWorker ..> db : fetch_*
-SyncView --> SyncBridge
-SyncBridge *-- SyncController
+SyncView --> ServicioRemoto
+ServicioRemoto ..> EstadoServicio : lee SERVICIO_BT (servicio aparte)
 InventarioView *-- ConciliacionModel
 InventarioView *-- DetalleLecturas
 ChartsView *-- EjeFormato
