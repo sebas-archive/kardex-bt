@@ -21,7 +21,8 @@ class FakeStore:
     def open_sync(self, uuid): return 1
     def close_sync(self, id, recibidos, aceptados): pass
     def last_seq(self, uuid): return len(self.rows)
-    def catalog(self): return Catalog()
+    def catalog(self, usuario=None): return Catalog()
+    def marcar_iniciada(self, usuario, id_tarea): pass
     def commit(self): pass
     def rollback(self): pass
 
@@ -92,7 +93,7 @@ class FakeTransport:
 
 
 def hello(uuid="tst-gui"):
-    return frame(["HELLO", "3", uuid, "Teléfono de prueba"])
+    return frame(["HELLO", "4", uuid, "Teléfono de prueba"])
 
 
 def acct(usuario="tst-operador"):

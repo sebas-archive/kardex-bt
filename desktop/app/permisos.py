@@ -51,7 +51,7 @@ _CLAVES = {clave for clave, _ in MODULOS}
 INTOCABLES = frozenset({(ADMIN, "usuarios"), (ADMIN, "solicitudes"), (ADMIN, "permisos")})
 # Módulos que ya existen en las aplicaciones (los demás llegan en fases siguientes: su nivel se guarda pero aún no rige).
 EN_USO = ("dashboard", "usuarios", "roles", "permisos", "solicitudes", "existencias", "bluetooth", "reportes", "perfil",
-          "categorias", "conteos")
+          "categorias", "conteos", "tareas", "diferencias")
 
 
 def inicial(rol: str) -> dict[str, str]:

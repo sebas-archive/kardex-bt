@@ -38,9 +38,21 @@ TEST_DEVICE_PATTERNS = ("tst-%", "dev-e2e%")
 OPERADOR_ACTIVO = "tst-operador"
 
 
+_purga = None
+
+
+def _conexion_purga() -> oracledb.Connection:
+    """Una sola conexión para las limpiezas de antes y después de cada prueba: abrir y cerrar una por llamada
+    agota los procesos de Oracle XE (ORA-12516) cuando la suite crece."""
+    global _purga
+    if _purga is None or not _purga.is_healthy():
+        _purga = connect()
+    return _purga
+
+
 def purge_test_rows() -> None:
-    conn = connect()
-    try:
+    conn = _conexion_purga()
+    if True:
         cur = conn.cursor()
         for pattern in TEST_DEVICE_PATTERNS:
             cur.execute("DELETE FROM sync_sesiones WHERE uuid_dispositivo LIKE :p", p=pattern)
@@ -50,14 +62,19 @@ def purge_test_rows() -> None:
         cur.execute("INSERT INTO usuarios (usuario, nombre, rol, clave_hash, estado, origen) "
                     "VALUES (:u, 'Operador de prueba', 'OPERADOR', '-', 'ACTIVO', 'MOVIL')", u=OPERADOR_ACTIVO)
         conn.commit()
-    finally:
-        conn.close()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def operador_de_prueba():
     """Deja la cuenta OPERADOR_ACTIVO lista antes de cualquier prueba (también las que no usan ``store``) y, al
     terminar la corrida, borra las cuentas de prueba: no deben quedar en la tabla real (Empleados, primer admin)."""
+    from btsync import tareas
+
+    conn = connect()
+    try:
+        tareas.migrar(conn)   # columnas de tareas y tabla revisiones (en la app las crea el escritorio al arrancar)
+    finally:
+        conn.close()
     purge_test_rows()
     yield
     conn = connect()

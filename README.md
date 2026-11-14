@@ -70,11 +70,16 @@ adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 > **Categorías, almacenes y existencias** (Fase 2) se crean solos al arrancar la app con datos de ejemplo: dos almacenes
 > (`ALM-01`, `ALM-02`) y las existencias del conteo más reciente en `ALM-01`.
 >
+> **Tareas de conteo** (Fase 3): Inventario las crea en el PC (almacén, operador, productos e instrucciones) y el operador
+> las ve en **Mis tareas** del celular tras sincronizar. El estado (Asignada, En progreso, Enviada parcialmente,
+> Sincronizada, Con diferencias, Con error, Cerrada) se actualiza solo. Las diferencias se revisan en **Diferencias**.
+> El celular y el PC deben tener la misma versión del protocolo (4): una APK anterior recibe «formato inválido».
+>
 > **Solo se sincroniza un teléfono a la vez** (D19): un segundo teléfono recibe «PC ocupado» y debe esperar.
 
 ### Uso en una frase
 
-En el celular: crear cuenta (queda pendiente: sincroniza una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → conteo → escanear el código de barras o el QR, o digitar → guardar (sin red). En el PC: **Iniciar
+En el celular: crear cuenta (queda pendiente: sincroniza una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → **Mis tareas** → iniciar una → escanear el código de barras o el QR, o digitar → guardar (sin red). En el PC: **Iniciar
 sincronización** (el PC se anuncia como `gestion_inventario` durante 120 s). En el celular: **Sincronizar**; la primera
 vez se busca y se elige `gestion_inventario`, y desde entonces conecta directo, sin claves ni códigos (D22).
 

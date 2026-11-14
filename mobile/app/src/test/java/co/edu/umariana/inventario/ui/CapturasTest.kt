@@ -2,16 +2,18 @@ package co.edu.umariana.inventario.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import co.edu.umariana.inventario.auth.EstadoCuenta
 import co.edu.umariana.inventario.auth.Rol
 import co.edu.umariana.inventario.auth.Sesion
-import co.edu.umariana.inventario.data.ConteoEntity
+import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.Estado
 import co.edu.umariana.inventario.data.ProductoEntity
 import co.edu.umariana.inventario.ui.pantallas.ContarScreen
 import co.edu.umariana.inventario.ui.pantallas.ContarUi
-import co.edu.umariana.inventario.ui.pantallas.ElegirScreen
+import co.edu.umariana.inventario.ui.pantallas.TareaFila
+import co.edu.umariana.inventario.ui.pantallas.TareasScreen
 import co.edu.umariana.inventario.ui.pantallas.HomeScreen
 import co.edu.umariana.inventario.ui.pantallas.HomeUi
 import co.edu.umariana.inventario.ui.pantallas.LecturaFila
@@ -87,11 +89,23 @@ class CapturasTest {
         HomeScreen(HomeUi(operador = "Ana María", hayCatalogo = false), {}, {}, {}, {}, {}, {})
     }
 
-    @Test fun elegir() = capturar("08-conteo") {
-        ElegirScreen(
-            conteos = listOf(ConteoEntity("CONT-2026-11", "Inventario físico noviembre 2026"), ConteoEntity("CONT-2026-12", "Conteo cíclico de bebidas")),
-            conteoInicial = "CONT-2026-11", alConfirmar = {}, alVolver = {}, alSincronizar = {},
+    @Test fun mis_tareas() = capturar("08-mis-tareas") {
+        TareasScreen(
+            tareas = listOf(
+                TareaFila(TareaEntity("T-014", "Bodega Norte, estantería A", "ALM-01", "Contar solo la estantería A, de arriba abajo",
+                    "ENVIADA_PARCIALMENTE", 12, 7), iniciada = true, porRecontar = 2),
+                TareaFila(TareaEntity("T-015", "Bebidas", "ALM-02", "", "ASIGNADA", 5, 0), iniciada = false, porRecontar = 0),
+                TareaFila(TareaEntity("CONT-2026-11", "Inventario físico noviembre 2026", "", "", "", 0, 0), iniciada = false, porRecontar = 0),
+            ),
+            actual = "T-014", alIniciar = {}, alVolver = {}, alSincronizar = {},
         )
+    }
+
+    @Test fun mis_tareas_vacia() {
+        capturar("08b-mis-tareas-vacia") {
+            TareasScreen(tareas = emptyList(), actual = null, alIniciar = {}, alVolver = {}, alSincronizar = {})
+        }
+        compose.onNodeWithText("No tienes tareas asignadas").assertExists()
     }
 
     @Test fun contar() = capturar("09-contar") {

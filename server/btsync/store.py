@@ -33,12 +33,37 @@ def _init_client() -> None:
         _client_ready = True
 
 
+# Errores de DDL que solo dicen «eso ya está así»: aparecen cuando dos escritorios arrancan a la vez sobre una base
+# nueva y ambos crean lo mismo. Cualquier otro error se propaga.
+DDL_YA_HECHO = ("ORA-00955",   # el nombre ya lo usa otro objeto (tabla, índice)
+                "ORA-01430",   # la columna ya existe
+                "ORA-01451",   # la columna ya admite NULL
+                "ORA-02260", "ORA-02261", "ORA-02264", "ORA-02275")  # clave o restricción ya existe
+
+
+def ddl_tolerante(cur, sql: str, tambien: tuple[str, ...] = ()) -> bool:
+    """Ejecuta un DDL; si falla porque otro ya lo hizo, sigue. Devuelve ``False`` en ese caso."""
+    try:
+        cur.execute(sql)
+        return True
+    except Exception as exc:  # oracledb.DatabaseError; el mensaje trae el código ORA
+        if any(codigo in str(exc) for codigo in DDL_YA_HECHO + tambien):
+            return False
+        raise
+
+
 @dataclass(frozen=True)
 class Catalog:
-    """Lo que el móvil necesita para contar. Nunca incluye el stock del sistema (conteo ciego)."""
+    """Lo que el móvil necesita para contar. Nunca incluye el stock del sistema (conteo ciego).
 
-    conteos: list[tuple[str, str]] = field(default_factory=list)
+    ``tareas``: (id, nombre, almacen, instrucciones, estado, total, contados); los conteos generales (sin operador)
+    van con almacén y estado vacíos y avance 0. ``items``: (id_tarea, sku, 'S' si hay que recontarlo o 'N').
+    """
+
+    tareas: list[tuple[str, str, str, str, str, int, int]] = field(default_factory=list)
+    items: list[tuple[str, str, str]] = field(default_factory=list)
     productos: list[tuple[str, str, str, str]] = field(default_factory=list)
+
 
 
 @dataclass(frozen=True)
@@ -162,13 +187,28 @@ class Store:
         if self._conn is not None:
             self._conn.rollback()
 
-    def catalog(self) -> Catalog:
+    def catalog(self, usuario: str | None = None) -> Catalog:
+        """Las tareas abiertas de ``usuario`` y sus productos, más los conteos generales. ``None`` (cuenta no
+        activa): solo los generales."""
+        from . import tareas
+
         cur = self._connection().cursor()
-        cur.execute("SELECT id_conteo, nombre FROM conteos WHERE estado = 'ABIERTO' ORDER BY id_conteo")
-        conteos = [(r[0], r[1]) for r in cur]
+        cur.execute("SELECT id_conteo, nombre FROM conteos WHERE estado = 'ABIERTO' AND operador IS NULL "
+                    "ORDER BY id_conteo")
+        generales = [(r[0], r[1], "", "", "", 0, 0) for r in cur]
+        propias = [] if usuario is None else [r for r in tareas.listar(cur, operador=usuario) if r.estado != tareas.CERRADA]
+        items = tareas.items(cur, [r.id for r in propias])
         cur.execute("SELECT sku, nombre, categoria, unidad FROM productos ORDER BY sku")
         productos = [(r[0], r[1], r[2], r[3]) for r in cur]
-        return Catalog(conteos, productos)
+        return Catalog([(r.id, r.nombre, r.almacen, r.instrucciones, r.estado, r.total, r.contados) for r in propias]
+                       + generales, items, productos)
+
+    def marcar_iniciada(self, usuario: str, id_tarea: str) -> None:
+        """El móvil avisó que empezó la tarea. Solo cuenta si es suya y sigue abierta; si no, no hace nada.
+        Confirma con el COMMIT de la sesión."""
+        self._connection().cursor().execute(
+            "UPDATE conteos SET iniciada = NVL(iniciada, SYSTIMESTAMP) "
+            "WHERE id_conteo = :t AND operador = :u AND estado = 'ABIERTO'", t=id_tarea, u=usuario)
 
     def run_batch(self, origen: str) -> tuple[int, int]:
         """Ejecuta PKG_BATCH.PROCESAR_PENDIENTES y devuelve ``(procesados, errores)`` de esa corrida.

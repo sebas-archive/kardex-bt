@@ -106,3 +106,29 @@ def maestros_db(monkeypatch, cuentas):
         conn.commit()
     maestros.migrar()
     return maestros
+
+
+def _limpiar_tareas_tst(cur) -> None:
+    for tabla in ("revisiones", "conciliacion", "registros_procesados", "stock_sistema"):
+        cur.execute(f"DELETE FROM {tabla} WHERE id_conteo LIKE 'TT-%'")
+    cur.execute("DELETE FROM captura_transito WHERE uuid_dispositivo = 'tst-tareas-esc'")
+    cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TT-%'")
+
+
+@pytest.fixture
+def tareas_db(monkeypatch, maestros_db):
+    """Tareas de conteo sobre las tablas reales con ids ``TT-*`` (se borran antes y después) y almacenes,
+    categorías, existencias y cuentas de prueba (``*_tst``)."""
+    from app import db, tareas
+    from btsync import tareas as bt
+
+    monkeypatch.setattr(tareas, "PREFIJO", "TT-")
+    with db._conexion() as conn:
+        bt.migrar(conn)
+        _limpiar_tareas_tst(conn.cursor())
+        conn.commit()
+    yield tareas
+    with db._conexion() as conn:
+        conn.rollback()
+        _limpiar_tareas_tst(conn.cursor())
+        conn.commit()

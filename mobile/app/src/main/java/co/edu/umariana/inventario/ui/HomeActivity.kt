@@ -29,11 +29,11 @@ class HomeActivity : PantallaActivity() {
                 ui,
                 alContar = {
                     when {
-                        s.contar.conteo.value == null -> abrir(ElegirActivity::class.java)
+                        s.contar.conteo.value == null -> abrir(TareasActivity::class.java)
                         else -> abrir(ContarActivity::class.java)
                     }
                 },
-                alElegir = { abrir(ElegirActivity::class.java) },
+                alElegir = { abrir(TareasActivity::class.java) },
                 alLecturas = { abrir(LecturasActivity::class.java) },
                 alPendientes = { abrir(PendientesActivity::class.java) },
                 alSincronizar = { abrir(SincronizarActivity::class.java, Transicion.HOJA) },
@@ -53,6 +53,12 @@ class HomeActivity : PantallaActivity() {
         lifecycleScope.launch {
             val (pendientes, total, hayCatalogo) = withContext(Dispatchers.IO) {
                 Triple(s.contar.contarPendientes(), s.contar.todasLasLecturas().size, s.contar.hayCatalogo())
+            }
+            // Tras sincronizar: si la tarea actual se cerró o se reasignó, ya no se cuenta en ella.
+            val soltada = withContext(Dispatchers.IO) { if (hayCatalogo) s.contar.soltarTareaSiYaNoEsta() else null }
+            if (soltada != null) {
+                android.widget.Toast.makeText(this@HomeActivity, "La tarea $soltada ya no está asignada a ti.",
+                    android.widget.Toast.LENGTH_LONG).show()
             }
             ui = HomeUi(sesion.nombre, Rol.nombre(sesion.rol), s.contar.conteo.value, pendientes, total, hayCatalogo)
         }

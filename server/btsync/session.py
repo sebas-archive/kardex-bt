@@ -49,7 +49,8 @@ class Session:
         self.inserted = 0            # filas nuevas en esta sesión
         self.rejected = 0            # NAK enviados
         self.nak_active = False      # go-back-N: se ignora todo hasta el seq esperado
-        self.cuenta_activa = False   # según ACCTST: sin cuenta ACTIVO no se aceptan REC
+        self.cuenta_activa = False   # según ACCTST: sin cuenta ACTIVO no se aceptan REC ni INICIO
+        self.usuario = ""
 
     # ------------------------------------------------------------------ API
     def run(self) -> None:
@@ -87,6 +88,11 @@ class Session:
                 continue
             if msg.kind == "REC":
                 self._on_rec(msg, line)
+            elif msg.kind == "INICIO":
+                # El operador empezó una tarea en el teléfono. Sin ACK: se confirma con el siguiente COMMIT; una
+                # tarea ajena, cerrada o inexistente no cambia nada.
+                if self.cuenta_activa:
+                    self.store.marcar_iniciada(self.usuario, msg.fields[0])
             elif msg.kind == "END":
                 self._on_end()
                 return
@@ -111,6 +117,7 @@ class Session:
             self._send(["NAK", "0", "FORMAT"])
             return False
         usuario, nombre_operador = cuenta
+        self.usuario = usuario
         estado = self.store.sincronizar_cuenta(usuario, nombre_operador, self.uuid)
         self.cuenta_activa = estado.estado == "ACTIVO"
         self._send(["ACCTST", *map(encode_text, (usuario, estado.estado, estado.rol or "", estado.motivo or ""))])
@@ -120,9 +127,11 @@ class Session:
         last = self.store.last_seq(self.uuid)
         self.expected, self.last_acked = last + 1, last
         self._send(["READY", str(last), str(self.now_ms())])
-        catalog = self.store.catalog()
-        for fields in catalog.conteos:
-            self._send(["CATCONTEO", *map(encode_text, fields)])
+        catalog = self.store.catalog(usuario if self.cuenta_activa else None)
+        for fields in catalog.tareas:
+            self._send(["CATTAREA", *map(encode_text, map(str, fields))])
+        for fields in catalog.items:
+            self._send(["CATITEM", *map(encode_text, fields)])
         for fields in catalog.productos:
             self._send(["CATPROD", *map(encode_text, fields)])
         self._send(["CAT_END"])

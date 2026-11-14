@@ -55,9 +55,8 @@ def test_register_device_is_idempotent(store, db):
 
 
 def test_catalog_has_only_open_conteos(store, conteos_de_prueba):
-    catalog = store.catalog()
-    ids = [c[0] for c in catalog.conteos]
-    assert "CONT-2026-11" in ids
+    catalog = store.catalog(None)
+    ids = [c[0] for c in catalog.tareas]
     assert "TST-OPEN" in ids
     assert "TST-CLOSED" not in ids
     assert len(catalog.productos) == 60

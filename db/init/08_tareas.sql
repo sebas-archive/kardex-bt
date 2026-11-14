@@ -1,0 +1,9 @@
+-- Tareas de conteo (Fase 3). Las columnas, la secuencia y la tabla las crea la aplicacion de escritorio al arrancar
+-- (server/btsync/tareas.py, migrar()): una sola definicion, y una base creada antes de esta fase tambien las recibe.
+-- Este archivo queda como referencia.
+--
+-- conteos + almacen, operador (usuario), instrucciones, iniciada (el movil aviso que la empezo), creada_por, creada
+--   Una tarea es un conteo con operador; sus productos son sus filas de stock_sistema.
+-- seq_tareas                                   ids T-001, T-002...
+-- revisiones (id_conteo, sku PK, accion REVISADA|RECUENTO, nota, por, fecha)   ultima accion sobre una diferencia
+-- El estado de la tarea no se guarda: se calcula al consultar (ver btsync/tareas.py, estado_tarea).

@@ -19,7 +19,7 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime
 
-from btsync.store import connect_oracle
+from btsync.store import DDL_YA_HECHO, connect_oracle, ddl_tolerante  # noqa: F401 (las usan los migrar())
 
 from .models import (
     Conteo,
@@ -39,25 +39,6 @@ def _cerrar(conn) -> None:
         conn.close()
     except Exception:
         pass
-
-
-# Errores de DDL que solo dicen «eso ya está así»: aparecen cuando dos escritorios arrancan a la vez sobre una base
-# nueva y ambos crean lo mismo. Cualquier otro error se propaga.
-DDL_YA_HECHO = ("ORA-00955",   # el nombre ya lo usa otro objeto (tabla, índice)
-                "ORA-01430",   # la columna ya existe
-                "ORA-01451",   # la columna ya admite NULL
-                "ORA-02260", "ORA-02261", "ORA-02264", "ORA-02275")  # clave o restricción ya existe
-
-
-def ddl_tolerante(cur, sql: str, tambien: tuple[str, ...] = ()) -> bool:
-    """Ejecuta un DDL; si falla porque otro ya lo hizo, sigue. Devuelve ``False`` en ese caso."""
-    try:
-        cur.execute(sql)
-        return True
-    except Exception as exc:  # oracledb.DatabaseError; el mensaje trae el código ORA
-        if any(codigo in str(exc) for codigo in DDL_YA_HECHO + tambien):
-            return False
-        raise
 
 
 def liberar_conexion() -> None:

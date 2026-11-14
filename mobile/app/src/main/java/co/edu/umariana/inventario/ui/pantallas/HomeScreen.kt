@@ -132,7 +132,7 @@ private fun Portada(ui: HomeUi, alElegir: () -> Unit, alPerfil: () -> Unit) {
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                DatoPortada("Conteo", ui.conteo ?: "Sin elegir", alElegir, Modifier.weight(1f))
+                DatoPortada("Tarea", ui.conteo ?: "Sin elegir", alElegir, Modifier.weight(1f))
             }
         }
     }

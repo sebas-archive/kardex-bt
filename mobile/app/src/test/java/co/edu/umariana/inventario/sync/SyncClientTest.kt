@@ -3,7 +3,8 @@ package co.edu.umariana.inventario.sync
 import co.edu.umariana.inventario.data.AppDatabase
 import co.edu.umariana.inventario.data.Catalog
 import co.edu.umariana.inventario.data.CatalogRepository
-import co.edu.umariana.inventario.data.ConteoEntity
+import co.edu.umariana.inventario.data.ItemTareaEntity
+import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.Estado
 import co.edu.umariana.inventario.data.LecturaEntity
 import co.edu.umariana.inventario.data.Outbox
@@ -68,7 +69,7 @@ class SyncClientTest {
         assertEquals(listOf(50, 50, 20), pc.bursts.toList())  // nunca más de 50 sin confirmar
         assertEquals((1L..120L).toList(), pc.accepted.map { it.seq })
         assertEquals((1..120).map { it.toString() }, pc.accepted.map { it.cantidad })
-        assertEquals(Message("HELLO", listOf("3", "dev-test-1", "Teléfono de prueba")), pc.hello)
+        assertEquals(Message("HELLO", listOf("4", "dev-test-1", "Teléfono de prueba")), pc.hello)
         assertEquals(Message("ACCT", listOf("ana.gomez", "Ana Gómez")), pc.acct)
         assertEquals(listOf(EstadoCuentaPc("ana.gomez", "ACTIVO", "OPERADOR", null)), estadosCuenta)
         assertTrue(estados().all { it == Estado.CONFIRMADO })
@@ -148,12 +149,16 @@ class SyncClientTest {
     @Test
     fun test_catalog_sent_by_the_pc_replaces_the_local_one() {
         catalog.reemplazarTodo(Catalog(
-            conteos = listOf(ConteoEntity("VIEJO", "Conteo anterior")),
+            tareas = listOf(TareaEntity("VIEJO", "Conteo anterior", "", "", "", 0, 0)),
+            items = listOf(ItemTareaEntity("VIEJO", "SKU-VIEJO", false)),
             productos = listOf(ProductoEntity("SKU-VIEJO", "Descontinuado", "Otros", "UND"))))
 
         val eventos = sync(FakePc())  // sin lecturas pendientes: solo baja el catálogo
 
-        assertEquals(listOf("T-01"), catalog.conteos().map { it.id })
+        assertEquals(listOf("T-01", "T-02"), catalog.tareas().map { it.id })
+        assertEquals(TareaEntity("T-01", "Conteo de prueba", "ALM-01", "Pasillo | 2", "ASIGNADA", 2, 0), catalog.tareas()[0])
+        assertEquals(listOf(ItemTareaEntity("T-01", "A1", false), ItemTareaEntity("T-01", "A2", true)), catalog.items("T-01"))
+        assertTrue(catalog.items("VIEJO").isEmpty())
         assertEquals(listOf("A1", "A2"), catalog.productos().map { it.sku })
         assertEquals(ProductoEntity("A2", "Café | molido", "Abarrotes", "UND"), catalog.producto("A2"))
         assertNull(catalog.producto("SKU-VIEJO"))
@@ -178,5 +183,25 @@ class SyncClientTest {
         val eventos = sync(pc)
         assertEquals(listOf(1L, 2L, 3L), pc.accepted.map { it.seq })
         assertEquals(SyncProgress.Done(aceptados = 3, rechazados = 0, pendientes = 0), eventos.last())
+    }
+
+    @Test
+    fun avisaInicioDeTareasAsignadasAntesDeLasLecturas() {
+        catalog.marcarIniciada("T-01")   // ASIGNADA en el PC: hay que avisar
+        catalog.marcarIniciada("T-02")   // ya EN_PROGRESO en el PC: no hace falta
+        cargar(2)
+        val pc = FakePc()
+        sync(pc)
+        assertEquals(listOf("T-01"), pc.inicios)
+        assertEquals(listOf("INICIO", "REC", "REC", "END"), pc.recibidos)
+        assertEquals(setOf("T-01", "T-02"), catalog.iniciadas())   // el registro local sobrevive al catálogo nuevo
+    }
+
+    @Test
+    fun conCuentaSuspendidaNoAvisaInicios() {
+        catalog.marcarIniciada("T-01")
+        val pc = FakePc(estadoCuenta = "SUSPENDIDO")
+        sync(pc)
+        assertTrue(pc.inicios.isEmpty())
     }
 }

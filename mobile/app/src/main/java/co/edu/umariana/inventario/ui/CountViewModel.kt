@@ -2,7 +2,8 @@ package co.edu.umariana.inventario.ui
 
 import androidx.lifecycle.ViewModel
 import co.edu.umariana.inventario.data.CatalogRepository
-import co.edu.umariana.inventario.data.ConteoEntity
+import co.edu.umariana.inventario.data.ItemTareaEntity
+import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.LecturaEntity
 import co.edu.umariana.inventario.data.Outbox
 import co.edu.umariana.inventario.data.ProductoEntity
@@ -81,9 +82,29 @@ class CountViewModel(
 
     fun todasLasLecturas(): List<LecturaEntity> = outbox.todas()
     fun contarPendientes(): Int = outbox.contarPendientes()
-    fun conteos(): List<ConteoEntity> = catalogo.conteos()
+    fun tareas(): List<TareaEntity> = catalogo.tareas()
+    fun items(idTarea: String): List<ItemTareaEntity> = catalogo.items(idTarea)
+    fun iniciadas(): Set<String> = catalogo.iniciadas()
+
+    /**
+     * Si la tarea actual ya no llegó en el último catálogo (la cerraron o se la asignaron a otro operador), deja de
+     * ser la actual: así no se cuentan lecturas en una tarea ajena. Devuelve su id para avisarlo, o null.
+     */
+    fun soltarTareaSiYaNoEsta(): String? {
+        val actual = _conteo.value ?: return null
+        if (catalogo.tareas().any { it.id == actual }) return null
+        settings.conteo = null
+        _conteo.value = null
+        return actual
+    }
+
+    /** El operador empieza (o retoma) una tarea: se recuerda para avisar al PC y pasa a ser el conteo actual. */
+    fun iniciarTarea(id: String) {
+        catalogo.marcarIniciada(id)
+        elegirConteo(id)
+    }
     fun producto(sku: String): ProductoEntity? = catalogo.producto(sku.trim())
-    fun hayCatalogo(): Boolean = catalogo.conteos().isNotEmpty()
+    fun hayCatalogo(): Boolean = catalogo.tareas().isNotEmpty()
 
     companion object {
         const val MAX_OPERADOR = 60

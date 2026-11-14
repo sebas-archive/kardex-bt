@@ -38,7 +38,7 @@ def test_seed_counts(db):
         == 58
     )
     assert _scalar(db, "SELECT COUNT(*) FROM user_tables WHERE table_name = 'UBICACIONES'") == 0  # ya no hay ubicaciones
-    assert _scalar(db, "SELECT COUNT(*) FROM conteos WHERE estado = 'ABIERTO'") == 1
+    assert _scalar(db, "SELECT COUNT(*) FROM conteos WHERE id_conteo = :c", c=CONTEO) == 1   # su estado lo cambia el uso
     assert _scalar(db, "SELECT COUNT(*) FROM captura_transito") == 0
 
 

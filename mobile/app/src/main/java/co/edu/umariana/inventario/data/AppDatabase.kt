@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [LecturaEntity::class, ConteoEntity::class, ProductoEntity::class],
-    version = 2,
+    entities = [LecturaEntity::class, TareaEntity::class, ItemTareaEntity::class, InicioEntity::class, ProductoEntity::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,10 +42,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Versión 3 (Fase 3): los conteos pasan a ser tareas asignadas, con sus productos, y el teléfono recuerda
+         * cuáles empezó el operador. El catálogo viejo se descarta (vuelve en la próxima sincronización); las
+         * lecturas no se tocan.
+         */
+        val MIGRACION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS conteos")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS tareas (id TEXT NOT NULL, nombre TEXT NOT NULL, almacen TEXT NOT NULL, " +
+                        "instrucciones TEXT NOT NULL, estado TEXT NOT NULL, total INTEGER NOT NULL, contados INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS items_tarea (idTarea TEXT NOT NULL, sku TEXT NOT NULL, " +
+                        "recuento INTEGER NOT NULL, PRIMARY KEY(idTarea, sku))"
+                )
+                db.execSQL("CREATE TABLE IF NOT EXISTS inicios (idTarea TEXT NOT NULL, PRIMARY KEY(idTarea))")
+            }
+        }
+
         /** La base del teléfono (una sola instancia por proceso). */
         fun abrir(context: Context): AppDatabase = instancia ?: synchronized(this) {
             instancia ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "inventario.db")
-                .addMigrations(MIGRACION_1_2)
+                .addMigrations(MIGRACION_1_2, MIGRACION_2_3)
                 .build()
                 .also { instancia = it }
         }

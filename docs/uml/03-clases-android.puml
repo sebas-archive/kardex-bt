@@ -168,11 +168,15 @@ package "data (Room)" {
   }
   class CatalogRepository {
     +reemplazarTodo(c : Catalog)
+    +tareas() / items(idTarea)
+    +marcarIniciada(idTarea)
     +producto(sku)
   }
   class CatalogDao
   class Catalog
-  class ConteoEntity
+  class TareaEntity
+  class ItemTareaEntity
+  class InicioEntity
   class ProductoEntity
 }
 
@@ -227,6 +231,8 @@ AppDatabase *-- Outbox
 AppDatabase *-- CatalogDao
 CatalogRepository --> CatalogDao
 CatalogDao ..> Catalog
-Catalog o-- ConteoEntity
+Catalog o-- TareaEntity
+Catalog o-- ItemTareaEntity
+CatalogDao ..> InicioEntity
 Catalog o-- ProductoEntity
 @enduml

@@ -4,7 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import co.edu.umariana.inventario.data.AppDatabase
 import co.edu.umariana.inventario.data.Catalog
 import co.edu.umariana.inventario.data.CatalogRepository
-import co.edu.umariana.inventario.data.ConteoEntity
+import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.Estado
 import co.edu.umariana.inventario.data.ProductoEntity
 import co.edu.umariana.inventario.data.TestDb
@@ -35,7 +35,7 @@ class CountViewModelTest {
         settings = SettingsStore(ApplicationProvider.getApplicationContext())
         CatalogRepository(db.catalogo()).reemplazarTodo(
             Catalog(
-                conteos = listOf(ConteoEntity("T-01", "Conteo de prueba")),
+                tareas = listOf(TareaEntity("T-01", "Conteo de prueba", "", "", "", 0, 0)),
                 productos = listOf(ProductoEntity("A1", "Producto A1", "Abarrotes", "UND"),
                     ProductoEntity("A2", "Café | molido", "Abarrotes", "UND")),
             )
@@ -187,5 +187,32 @@ class CountViewModelTest {
         vm.guardar("A2", "3", "")
         vm.guardar("A1", "6", "")  // recuento
         assertEquals(listOf("A1" to "6", "A2" to "3"), vm.lecturas().map { it.sku to it.cantidad })
+    }
+
+    @Test
+    fun iniciarTareaLaRegistraYLaElige() {
+        vm.iniciarTarea("T-01")
+        assertEquals("T-01", vm.conteo.value)
+        assertEquals(setOf("T-01"), vm.iniciadas())
+        assertEquals(listOf("T-01"), vm.tareas().map { it.id })
+    }
+
+    @Test
+    fun sinTareasNoHayCatalogo() {
+        CatalogRepository(db.catalogo()).reemplazarTodo(Catalog(productos = listOf(ProductoEntity("A1", "Producto A1", "Abarrotes", "UND"))))
+        assertFalse(vm.hayCatalogo())
+    }
+
+    @Test
+    fun tareaQueYaNoLlegaDejaDeSerLaActual() {
+        vm.setOperador("Ana")
+        vm.iniciarTarea("T-01")
+        assertNull(vm.soltarTareaSiYaNoEsta())              // sigue en el catálogo: nada cambia
+        assertEquals("T-01", vm.conteo.value)
+        CatalogRepository(db.catalogo()).reemplazarTodo(Catalog(tareas = listOf(TareaEntity("T-02", "Otra", "ALM-01", "", "ASIGNADA", 1, 0))))
+        assertEquals("T-01", vm.soltarTareaSiYaNoEsta())    // la cerraron o la reasignaron
+        assertNull(vm.conteo.value)
+        assertNull(nuevoVm().conteo.value)                   // y no vuelve al reabrir la app
+        assertEquals(SaveResult.SinConteo, vm.guardar("A1", "5", ""))
     }
 }

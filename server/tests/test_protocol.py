@@ -23,7 +23,7 @@ BY_NAME = {v["name"]: v for v in VECTORS}
 
 
 def test_frame_matches_all_vectors():
-    assert len(VECTORS) == 11
+    assert len(VECTORS) == 15
     for v in VECTORS:
         assert frame(v["frame_fields"]) == v["line"].encode("utf-8") + b"\n", v["name"]
 
@@ -94,7 +94,7 @@ def test_rec_to_raw_excludes_crc():
 
 def test_cli_frame_prints_vector():
     result = subprocess.run(
-        [sys.executable, "-m", "btsync.protocol", "--frame", "HELLO", "3", "dev-0001", "Bodega Norte"],
+        [sys.executable, "-m", "btsync.protocol", "--frame", "HELLO", "4", "dev-0001", "Bodega Norte"],
         capture_output=True,
         text=True,
         check=True,
@@ -102,9 +102,21 @@ def test_cli_frame_prints_vector():
     assert result.stdout == BY_NAME["hello"]["line"] + "\n"
 
 
+def test_mensajes_de_tareas_exigen_sus_campos():
+    assert parse(BY_NAME["cattarea"]["line"].encode() + b"\n").fields[3] == "Solo estantería A | pasillo 2"
+    with pytest.raises(FrameError):
+        parse(frame(["CATTAREA", "T-001", "Tarea", "ALM-01", "", "ASIGNADA", "2"]))   # faltan los contados
+    with pytest.raises(FrameError):
+        parse(frame(["CATITEM", "T-001", "A1"]))
+    with pytest.raises(FrameError):
+        parse(frame(["INICIO"]))
+    with pytest.raises(FrameError):
+        parse(frame(["CATCONTEO", "T-001", "Viejo"]))   # ya no existe en el protocolo 4
+
+
 def test_acct_acctst_round_trip_con_crc():
     from btsync.protocol import PROTOCOL_VERSION
-    assert PROTOCOL_VERSION == "3"
+    assert PROTOCOL_VERSION == "4"
     suspendido = BY_NAME["acctst_suspendido"]
     msg = parse(suspendido["line"].encode("utf-8") + b"\n")
     assert msg.kind == "ACCTST" and msg.fields[3] == "Revisar | inventario al 100%\nhabla con el jefe"

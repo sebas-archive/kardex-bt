@@ -110,8 +110,8 @@ def test_register_then_login_enters_the_app(qtbot, cuentas, contado, puente):
 
 def test_sections_depend_on_the_role(qtbot, contado, puente):
     ventana = abrir(qtbot, puente, LUIS)
-    assert ventana.secciones() == ["Dashboard", "Inventario", "Existencias", "Categorías", "Almacenes", "Sincronización",
-                                   "Gráficas", "Perfil"]
+    assert ventana.secciones() == ["Dashboard", "Inventario", "Tareas de conteo", "Diferencias", "Existencias",
+                                   "Categorías", "Almacenes", "Sincronización", "Gráficas", "Perfil"]
     assert ventana.seccion_actual() == "Dashboard" and ventana.lbl_rol.text() == "Inventario"
     ventana.ir_a("Empleados")                                     # reservada al administrador: no se abre
     assert ventana.seccion_actual() == "Dashboard"
