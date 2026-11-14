@@ -19,6 +19,21 @@ class conteos <<table>> {
   creada_por : VARCHAR2(30)
   creada : TIMESTAMP
 }
+class movimientos <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  tipo : ENTRADA | SALIDA | AJUSTE
+  sku
+  almacen
+  cantidad : delta con signo
+  antes / despues
+  fecha
+  motivo / observaciones
+  responsable
+  estado : APLICADO | PENDIENTE | RECHAZADO
+  resuelto_por / resuelto / motivo_rechazo
+  id_conteo : ajuste desde una diferencia
+}
 class revisiones <<table>> {
   * id_conteo <<PK>>
   * sku <<PK>>
@@ -152,5 +167,8 @@ productos "1" -- "0..*" existencias
 almacenes "1" -- "0..*" existencias
 categorias "1" .. "0..*" productos : nombre = categoria
 conteos "1" -- "0..*" revisiones
+productos "1" .. "0..*" movimientos : sku (sin FK)
+almacenes "1" .. "0..*" movimientos : almacen (sin FK)
+conteos "0..1" .. "0..*" movimientos : id_conteo (ajuste)
 almacenes "1" .. "0..*" conteos : almacen (sin FK)
 @enduml

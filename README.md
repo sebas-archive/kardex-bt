@@ -75,6 +75,10 @@ adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 > Sincronizada, Con diferencias, Con error, Cerrada) se actualiza solo. Las diferencias se revisan en **Diferencias**.
 > El celular y el PC deben tener la misma versión del protocolo (4): una APK anterior recibe «formato inválido».
 >
+> **Movimientos y ajustes** (Fase 3b): Inventario registra entradas y salidas en **Movimientos** (cambian la existencia
+> al momento) y solicita ajustes en **Ajustes** o desde **Diferencias**. Un ajuste que cambia 10 % o más, o vale
+> $200.000 o más, espera la aprobación del Administrador.
+>
 > **Solo se sincroniza un teléfono a la vez** (D19): un segundo teléfono recibe «PC ocupado» y debe esperar.
 
 ### Uso en una frase

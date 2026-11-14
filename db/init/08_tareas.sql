@@ -7,3 +7,8 @@
 -- seq_tareas                                   ids T-001, T-002...
 -- revisiones (id_conteo, sku PK, accion REVISADA|RECUENTO, nota, por, fecha)   ultima accion sobre una diferencia
 -- El estado de la tarea no se guarda: se calcula al consultar (ver btsync/tareas.py, estado_tarea).
+--
+-- Fase 3b (la crea desktop/app/movimientos.py, migrar()):
+-- movimientos (id PK, tipo ENTRADA|SALIDA|AJUSTE, sku, almacen, cantidad = delta, antes, despues, fecha, registrado,
+--              motivo, observaciones, responsable, estado APLICADO|PENDIENTE|RECHAZADO, resuelto_por, resuelto,
+--              motivo_rechazo, id_conteo)          seq_movimientos

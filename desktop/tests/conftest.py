@@ -122,7 +122,10 @@ def tareas_db(monkeypatch, maestros_db):
     from app import db, tareas
     from btsync import tareas as bt
 
+    from app import movimientos
+
     monkeypatch.setattr(tareas, "PREFIJO", "TT-")
+    movimientos.migrar()   # Diferencias mira si hay ajustes (tabla real «movimientos», sin filas de prueba)
     with db._conexion() as conn:
         bt.migrar(conn)
         _limpiar_tareas_tst(conn.cursor())
@@ -132,3 +135,21 @@ def tareas_db(monkeypatch, maestros_db):
         conn.rollback()
         _limpiar_tareas_tst(conn.cursor())
         conn.commit()
+
+
+@pytest.fixture
+def movimientos_db(monkeypatch, tareas_db):
+    """Entradas, salidas y ajustes de prueba en ``movimientos_tst`` (vacía en cada test), sobre las existencias
+    ``*_tst`` y las tareas ``TT-*``."""
+    from app import db, movimientos
+
+    monkeypatch.setattr(movimientos, "TABLA", "movimientos_tst")
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'MOVIMIENTOS_TST'")
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM movimientos_tst")
+        conn.commit()
+    movimientos.migrar()
+    return movimientos
+
