@@ -4,6 +4,7 @@ import csv
 
 import pytest
 
+from app import db
 from app.auth import PREGUNTAS
 from app.views.inventario import COLUMNAS, DetalleLecturas, InventarioView
 
@@ -75,3 +76,23 @@ def test_detalle_de_lecturas(qtbot, vista):
         "Cantidad", "Operador", "Fecha (UTC)", "Vigente", "Nota", "Foto"]
     assert d.tabla.item(0, 0).text() == "60" and d.tabla.item(1, 0).text() == "101"
     assert d.tabla.item(1, 3).text() == "Sí" and d.tabla.item(0, 3).text() == "No"
+
+
+def test_ver_foto_abre_el_visor(qtbot, vista, monkeypatch):
+    """El botón «Ver foto» debe llamar a ver_foto con la ruta y el título del SKU (sin NameError)."""
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM fotos WHERE uuid_dispositivo = 'tst-escenario' AND seq = 1")
+        cur.execute("INSERT INTO fotos (uuid_dispositivo, seq, ruta, bytes) "
+                    "VALUES ('tst-escenario', 1, 'evidencia.jpg', 97)")
+        conn.commit()
+    llamadas = []
+    monkeypatch.setattr("app.views.inventario.ver_foto",
+                        lambda padre, ruta, titulo="": llamadas.append((ruta, titulo)))
+    v, _ana = vista
+    v.abrir_detalle("A1")
+    d = v.detalle
+    qtbot.addWidget(d)
+    esperar(qtbot, lambda: d.tabla.rowCount() == 2 and d.tabla.cellWidget(0, 5) is not None)
+    d.tabla.cellWidget(0, 5).click()
+    assert llamadas == [("evidencia.jpg", "A1 · Producto A1")]
