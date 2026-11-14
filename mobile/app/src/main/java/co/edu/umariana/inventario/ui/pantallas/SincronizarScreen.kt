@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import co.edu.umariana.inventario.sync.PcConnector
+import co.edu.umariana.inventario.ui.Textos
 import co.edu.umariana.inventario.ui.SyncEstado
 import co.edu.umariana.inventario.ui.componentes.Entrada
 import co.edu.umariana.inventario.ui.componentes.IconoEnCirculo
@@ -80,7 +81,7 @@ data class SincronizarUi(
     /** Aviso que no viene de la sincronización: permisos, Bluetooth apagado, búsqueda sin resultado. */
     val mensaje: String? = null,
     val pendientes: Int = 0,
-    /** Cambiar el PC ya configurado es cosa del supervisor; elegirlo la primera vez, de cualquiera. */
+    /** Cualquier operador puede cambiar el PC; no hay roles de supervisión en el teléfono. */
     val puedeCambiarPc: Boolean = true,
 )
 
@@ -98,25 +99,40 @@ private fun SincronizarUi.fase(): Fase = when (estado) {
 /** Título y detalle de lo que está pasando, en palabras del operario. */
 private fun SincronizarUi.textos(): Pair<String, String> = when (val e = estado) {
     null -> when {
-        buscando -> "Buscando el PC…" to "En el PC pulsa «Iniciar sincronización». Aparece como ${PcConnector.NOMBRE_PC}."
-        pcDireccion == null -> "Elige el PC" to "Solo la primera vez hay que buscarlo; después conecta solo, sin claves ni códigos."
-        pendientes > 0 -> "Listo para sincronizar" to "$pendientes lecturas por enviar."
-        else -> "Listo para sincronizar" to "No hay lecturas por enviar; se actualizará el catálogo."
+        buscando -> Textos.t("Buscando el PC…") to
+            Textos.t("En el PC pulsa «Iniciar sincronización». Aparece como {pc}.", "pc" to PcConnector.NOMBRE_PC)
+        pcDireccion == null -> Textos.t("Elige el PC") to
+            Textos.t("Solo la primera vez hay que buscarlo; después conecta solo, sin claves ni códigos.")
+        pendientes > 0 -> Textos.t("Listo para sincronizar") to
+            Textos.n(pendientes, "{n} lectura por enviar.", "{n} lecturas por enviar.")
+        else -> Textos.t("Listo para sincronizar") to
+            Textos.t("No hay lecturas por enviar; se actualizará el catálogo.")
     }
-    is SyncEstado.Conectando -> "Conectando…" to "Intento ${e.intento} de 3 · sin claves ni códigos."
-    is SyncEstado.Sincronizando -> "Enviando lecturas" to "$enviadas de $porEnviar confirmadas por el PC."
-    is SyncEstado.Reintentando -> "Reintentando…" to "Se cortó la conexión. Intento ${e.intento} de 3."
-    is SyncEstado.Listo -> "¡Listo!" to "${e.aceptados} lecturas aceptadas" +
-        (if (e.rechazados > 0) ", ${e.rechazados} líneas reenviadas" else "") +
-        (if (e.pendientes > 0) ". Quedan ${e.pendientes} sin enviar: vuelve a sincronizar." else ". Todo quedó en el PC.")
-    SyncEstado.Ocupado -> "PC ocupado" to "Está atendiendo a otro teléfono. Espera a que termine y vuelve a intentar."
-    is SyncEstado.Rechazado -> "El PC rechazó la conexión" to e.motivo
-    is SyncEstado.PcNoDisponible -> "No se pudo conectar" to "¿El PC está encendido, cerca y con la sincronización iniciada?"
-    is SyncEstado.Cortado -> "Se cortó la conexión" to "Las ${e.pendientes} lecturas sin enviar siguen guardadas. Vuelve a intentar."
+    is SyncEstado.Conectando -> Textos.t("Conectando…") to
+        Textos.t("Intento {i} de 3 · sin claves ni códigos.", "i" to e.intento)
+    is SyncEstado.Sincronizando -> Textos.t("Enviando lecturas") to
+        Textos.t("{n} de {m} confirmadas por el PC.", "n" to enviadas, "m" to porEnviar)
+    is SyncEstado.Reintentando -> Textos.t("Reintentando…") to
+        Textos.t("Se cortó la conexión. Intento {i} de 3.", "i" to e.intento)
+    is SyncEstado.Listo -> Textos.t("¡Listo!") to buildString {
+        append(Textos.n(e.aceptados, "{n} lectura aceptada", "{n} lecturas aceptadas"))
+        if (e.rechazados > 0) append(Textos.t(", {n} líneas reenviadas", "n" to e.rechazados))
+        if (e.pendientes > 0) append(Textos.t(". Quedan {n} sin enviar: vuelve a sincronizar.", "n" to e.pendientes))
+        else append(Textos.t(". Todo quedó en el PC."))
+    }
+    SyncEstado.Ocupado -> Textos.t("PC ocupado") to
+        Textos.t("Está atendiendo a otro teléfono. Espera a que termine y vuelve a intentar.")
+    is SyncEstado.Rechazado -> Textos.t("El PC rechazó la conexión") to e.motivo
+    is SyncEstado.PcNoDisponible -> Textos.t("No se pudo conectar") to
+        Textos.t("¿El PC está encendido, cerca y con la sincronización iniciada?")
+    is SyncEstado.Cortado -> Textos.t("Se cortó la conexión") to
+        Textos.t("Las {n} lecturas sin enviar siguen guardadas. Vuelve a intentar.", "n" to e.pendientes)
     is SyncEstado.CuentaNoActiva -> when (e.estado) {
-        "PENDIENTE" -> "Tu cuenta espera aprobación" to "El administrador debe aprobarla en el PC. Tus ${e.pendientes} lecturas siguen guardadas."
-        else -> "Tu cuenta está ${e.estado.lowercase()}" to (e.motivo?.let { "Motivo: $it. " } ?: "") +
-            "Tus ${e.pendientes} lecturas siguen guardadas."
+        "PENDIENTE" -> Textos.t("Tu cuenta espera aprobación") to
+            Textos.t("El administrador debe aprobarla en el PC. Tus {n} lecturas siguen guardadas.", "n" to e.pendientes)
+        else -> Textos.t("Tu cuenta está {estado}", "estado" to Textos.estadoCuenta(e.estado)) to
+            (e.motivo?.let { Textos.t("Motivo: {m}. ", "m" to it) } ?: "") +
+            Textos.t("Tus {n} lecturas siguen guardadas.", "n" to e.pendientes)
     }
 }
 
@@ -136,12 +152,12 @@ fun SincronizarScreen(
     val enCurso = fase == Fase.RADAR && ui.estado != null || fase == Fase.PROGRESO
     val (titulo, detalle) = ui.textos()
     Pantalla(
-        titulo = "Sincronizar", subtitulo = "Bluetooth · sin wifi", alVolver = alVolver,
+        titulo = Textos.t("Sincronizar"), subtitulo = Textos.t("Bluetooth · sin wifi"), alVolver = alVolver,
         barraInferior = {
             Button(onClick = alSincronizar, enabled = !enCurso && ui.pcDireccion != null, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                 Icon(Iconos.Sincronizar, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(if (enCurso) "Sincronizando…" else "Sincronizar ahora")
+                Text(Textos.t(if (enCurso) "Sincronizando…" else "Sincronizar ahora"))
             }
         },
     ) {
@@ -174,7 +190,7 @@ fun SincronizarScreen(
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(nombre, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                                Text("$direccion · toca para conectar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                Text(Textos.t("{direccion} · toca para conectar", "direccion" to direccion), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                             }
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
                         }
@@ -192,18 +208,18 @@ private fun TarjetaPc(ui: SincronizarUi, alBuscar: () -> Unit) {
             IconoEnCirculo(Iconos.Bluetooth, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.tertiary, tam = 40)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (ui.pcDireccion == null) "Sin PC elegido" else ui.pcNombre ?: PcConnector.NOMBRE_PC, style = MaterialTheme.typography.titleMedium)
+                Text(if (ui.pcDireccion == null) Textos.t("Sin PC elegido") else ui.pcNombre ?: PcConnector.NOMBRE_PC, style = MaterialTheme.typography.titleMedium)
                 if (ui.pcDireccion == null) {
-                    Text("Búscalo con el PC esperando", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(Textos.t("Búscalo con el PC esperando"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(ui.pcDireccion, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (ui.puedeCambiarPc) {
-                TextButton(onClick = alBuscar, enabled = !ui.buscando) { Text(if (ui.pcDireccion == null) "Buscar" else "Cambiar") }
+                TextButton(onClick = alBuscar, enabled = !ui.buscando) { Text(Textos.t(if (ui.pcDireccion == null) "Buscar" else "Cambiar")) }
             } else {
-                Icon(Icons.Default.Lock, contentDescription = "Solo un supervisor puede cambiar el PC",
+                Icon(Icons.Default.Lock, contentDescription = Textos.t("Cambiar el PC del teléfono"),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 12.dp).size(18.dp))
             }
         }
@@ -250,7 +266,7 @@ private fun Indicador(fase: Fase, progreso: Float) {
                 Fase.REPOSO, Fase.RADAR -> IconoEnCirculo(Iconos.Bluetooth, terciario, MaterialTheme.colorScheme.onTertiary, tam = 104)
                 Fase.PROGRESO -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("${(avance * 100).roundToInt()} %", style = MaterialTheme.typography.displayMedium.merge(Cifra), color = MaterialTheme.colorScheme.onSurface)
-                    Text("enviado", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(Textos.t("enviado"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Fase.LISTO -> IconoEnCirculo(Icons.Default.Check, Marca.Confirmado, Color.White, tam = 132)
                 Fase.OCUPADO -> IconoEnCirculo(Icons.Default.Info, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.secondary, tam = 132)

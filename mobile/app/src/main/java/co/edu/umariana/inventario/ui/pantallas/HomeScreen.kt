@@ -1,5 +1,6 @@
 package co.edu.umariana.inventario.ui.pantallas
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateIntAsState
@@ -8,6 +9,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -46,9 +49,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import co.edu.umariana.inventario.ui.Textos
 import co.edu.umariana.inventario.ui.componentes.Entrada
 import co.edu.umariana.inventario.ui.componentes.IconoEnCirculo
 import co.edu.umariana.inventario.ui.componentes.Iconos
@@ -58,23 +64,26 @@ import co.edu.umariana.inventario.ui.theme.Marca
 
 data class HomeUi(
     val operador: String = "",
-    val rol: String = "Clasificador",
-    val conteo: String? = null,
+    val rol: String = "Operador de Inventario",
     val pendientes: Int = 0,
     val total: Int = 0,
     val hayCatalogo: Boolean = true,
     val fotosPendientes: Int = 0,
+    /** Ruta del JPG de la foto de perfil; null = inicial. */
+    val foto: String? = null,
+    val noLeidas: Int = 0,
 )
 
-/** Inicio: quién cuenta, dónde, cuánto falta por enviar y los cuatro caminos de la app. */
+/** Inicio: quién cuenta, cuánto falta por enviar y los caminos de la app. Sin tarea: el conteo es continuo. */
 @Composable
 fun HomeScreen(
     ui: HomeUi,
     alContar: () -> Unit,
-    alElegir: () -> Unit,
+    alCatalogo: () -> Unit,
     alLecturas: () -> Unit,
     alPendientes: () -> Unit,
     alSincronizar: () -> Unit,
+    alNotificaciones: () -> Unit,
     alPerfil: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
@@ -82,25 +91,32 @@ fun HomeScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Entrada(0) { Portada(ui, alElegir, alPerfil) }
+            Entrada(0) { Portada(ui, alNotificaciones, alPerfil) }
             AnimatedVisibility(!ui.hayCatalogo, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 AvisoSinCatalogo(alSincronizar)
             }
             Entrada(1) { TarjetaContar(alContar) }
             Entrada(2) {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    TarjetaAccion(Icons.AutoMirrored.Filled.List, "Contado", "Lo que llevas en este conteo", alLecturas, Modifier.weight(1f))
-                    TarjetaAccion(Icons.AutoMirrored.Filled.Send, "Pendientes",
-                        if (ui.pendientes == 0) "Nada por enviar" else "${ui.pendientes} por enviar", alPendientes, Modifier.weight(1f))
+                    TarjetaAccion(Iconos.Caja, Textos.t("Catálogo"), Textos.t("Productos del catálogo"), alCatalogo, Modifier.weight(1f))
+                    TarjetaAccion(Icons.AutoMirrored.Filled.List, Textos.t("Contado"),
+                        Textos.t("Lo que has contado"), alLecturas, Modifier.weight(1f))
                 }
             }
-            Entrada(3) { TarjetaSincronizar(ui.pendientes, alSincronizar) }
+            Entrada(3) {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    TarjetaAccion(Icons.AutoMirrored.Filled.Send, Textos.t("Pendientes"),
+                        if (ui.pendientes == 0) Textos.t("Nada por enviar")
+                        else Textos.t("{n} por enviar", "n" to ui.pendientes), alPendientes, Modifier.weight(1f))
+                }
+            }
+            Entrada(4) { TarjetaSincronizar(ui.pendientes, alSincronizar) }
         }
     }
 }
 
 @Composable
-private fun Portada(ui: HomeUi, alElegir: () -> Unit, alPerfil: () -> Unit) {
+private fun Portada(ui: HomeUi, alNotificaciones: () -> Unit, alPerfil: () -> Unit) {
     // La cifra cuenta desde cero cada vez que cambia: se nota cuánto hay por enviar.
     val cifra by animateIntAsState(ui.pendientes, tween(900, easing = FastOutSlowInEasing), label = "pendientes")
     Box(
@@ -112,45 +128,71 @@ private fun Portada(ui: HomeUi, alElegir: () -> Unit, alPerfil: () -> Unit) {
         Box(Modifier.size(120.dp).align(Alignment.BottomEnd).offset(x = 30.dp, y = 40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.06f)))
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                    Text(ui.operador.take(1).uppercase().ifEmpty { "?" }, color = Color.White, style = MaterialTheme.typography.titleLarge)
-                }
+                Avatar(ui.foto, ui.operador, 46)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Hola,", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium)
+                    Text(Textos.t("Hola,"), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium)
                     Text(ui.operador, color = Color.White, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(Textos.rol(ui.rol), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(ui.rol, color = Color.White, style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.18f)).padding(horizontal = 10.dp, vertical = 5.dp))
-                IconButton(onClick = alPerfil) { Icon(Icons.Default.Person, contentDescription = "Mi cuenta", tint = Color.White) }
+                Campana(ui.noLeidas, alNotificaciones)
+                IconButton(onClick = alPerfil) { Icon(Icons.Default.Person, contentDescription = Textos.t("Mi cuenta"), tint = Color.White) }
             }
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(cifra.toString(), style = MaterialTheme.typography.displayLarge.merge(Cifra), color = Color.White)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.padding(bottom = 10.dp)) {
-                    Text(if (ui.pendientes == 1) "lectura por enviar" else "lecturas por enviar", color = Color.White, style = MaterialTheme.typography.titleMedium)
-                    Text("${ui.total} guardadas en el teléfono", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                    Text(Textos.n(ui.pendientes, "lectura por enviar", "lecturas por enviar"), color = Color.White, style = MaterialTheme.typography.titleMedium)
+                    Text(Textos.t("{n} guardadas en el teléfono", "n" to ui.total), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
                     if (ui.fotosPendientes > 0) {
-                        Text(if (ui.fotosPendientes == 1) "📷 1 foto por enviar" else "📷 ${ui.fotosPendientes} fotos por enviar",
-                            color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (ui.fotosPendientes == 1) Textos.t("📷 1 foto por enviar")
+                            else Textos.t("📷 {n} fotos por enviar", "n" to ui.fotosPendientes),
+                            color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                DatoPortada("Tarea", ui.conteo ?: "Sin elegir", alElegir, Modifier.weight(1f))
             }
         }
     }
 }
 
+/** Avatar circular: la foto recortada si existe; si no, la inicial del nombre. */
 @Composable
-private fun DatoPortada(rotulo: String, valor: String, alPulsar: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier.clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.14f)).clickable(onClick = alPulsar)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+fun Avatar(foto: String?, nombre: String, tam: Int, modifier: Modifier = Modifier) {
+    val imagen = remember(foto) {
+        foto?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
+    }
+    Box(
+        modifier.size(tam.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(rotulo, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelMedium)
-        Text(valor, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (imagen != null) {
+            Image(imagen, contentDescription = Textos.t("Foto de perfil"), contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(CircleShape))
+        } else {
+            Text(nombre.take(1).uppercase().ifEmpty { "?" }, color = Color.White,
+                style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
+
+@Composable
+private fun Campana(noLeidas: Int, alPulsar: () -> Unit) {
+    Box {
+        IconButton(onClick = alPulsar) {
+            Icon(Icons.Default.Notifications, contentDescription = Textos.t("Abrir notificaciones"), tint = Color.White)
+        }
+        if (noLeidas > 0) {
+            Box(
+                Modifier.size(18.dp).align(Alignment.TopEnd).offset(x = (-8).dp, y = 6.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error), contentAlignment = Alignment.Center,
+            ) {
+                Text(if (noLeidas > 9) "9+" else noLeidas.toString(), color = Color.White,
+                    style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }
 
@@ -160,9 +202,9 @@ private fun AvisoSinCatalogo(alSincronizar: () -> Unit) {
         Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
             Spacer(Modifier.width(12.dp))
-            Text("Todavía no hay catálogo. Sincroniza una vez con el PC para descargarlo.",
+            Text(Textos.t("Todavía no hay catálogo. Sincroniza una vez con el PC para descargarlo."),
                 Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            TextButton(onClick = alSincronizar) { Text("Sincronizar") }
+            TextButton(onClick = alSincronizar) { Text(Textos.t("Sincronizar")) }
         }
     }
 }
@@ -178,8 +220,8 @@ private fun TarjetaContar(alPulsar: () -> Unit) {
             IconoEnCirculo(Iconos.Barras, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary, tam = 60)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text("Contar", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("Escanear barras o QR, o digitar", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(Textos.t("Contar"), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(Textos.t("Escanear barras o QR, o digitar"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
@@ -215,9 +257,12 @@ private fun TarjetaSincronizar(pendientes: Int, alPulsar: () -> Unit) {
             IconoEnCirculo(Iconos.Bluetooth, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.onTertiary, tam = 48)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("Sincronizar con el PC", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text(if (pendientes == 0) "Todo enviado" else "$pendientes lecturas esperando · sin claves ni códigos",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(Textos.t("Sincronizar con el PC"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(
+                    if (pendientes == 0) Textos.t("Todo enviado")
+                    else Textos.t("{n} lecturas esperando · sin claves ni códigos", "n" to pendientes),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer)
         }

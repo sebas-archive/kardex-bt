@@ -2,7 +2,7 @@
 """Genera de forma reproducible la semilla de inventario.
 
 Produce dos archivos a partir de una semilla aleatoria fija:
-  * db/init/02_seed.sql  -> catalogos, conteo abierto y foto de stock del sistema.
+  * db/init/02_seed.sql  -> catalogos, conteo continuo ACTUAL y stock del sistema.
   * tools/truth.json     -> el stock FISICO "real" por SKU, del que parte fake_phone.py.
 
 Uso: python tools/gen_seed.py --seed 42
@@ -14,10 +14,10 @@ import random
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTEO_ID = "CONT-2026-11"
-CONTEO_NOMBRE = "Inventario fisico noviembre 2026"
+CONTEO_ID = "ACTUAL"
+CONTEO_NOMBRE = "Conteo continuo"
 SKU_PREFIX = "770123400"  # + 4 digitos = 13 digitos (estilo EAN-13)
-N_SIN_STOCK = 2           # SKUs del catalogo que no estan en la foto de stock
+N_SIN_STOCK = 2           # SKUs que existen en el catalogo con stock 0 (siempre tienen fila)
 
 # (categoria, tolerancia_pct, [(nombre, unidad, costo COP)])
 CATEGORIAS = [
@@ -94,24 +94,23 @@ def construir(seed: int):
                 "tolerancia": tolerancia,
             })
 
-    # Dos SKUs existen en el catalogo pero no en la foto de stock del sistema.
+    # Dos SKUs existen en el catalogo con stock 0 (la fila de stock_sistema siempre existe).
     sin_stock = set(rng.sample(range(len(productos)), N_SIN_STOCK))
     sistema = {}
     for i, p in enumerate(productos):
-        if i not in sin_stock:
-            sistema[p["sku"]] = rng.randint(12, 240)
+        sistema[p["sku"]] = 0 if i in sin_stock else rng.randint(12, 240)
 
-    # Verdad fisica: ~15 % de los SKUs con foto difiere del sistema.
-    con_foto = [p for i, p in enumerate(productos) if i not in sin_stock]
-    n_desvios = round(0.15 * len(con_foto))
-    desviados = {p["sku"] for p in rng.sample(con_foto, n_desvios)}
+    # Verdad fisica: ~15 % de los SKUs difiere del sistema; los de stock 0 quedan como sobrantes.
+    con_stock = [p for i, p in enumerate(productos) if i not in sin_stock]
+    n_desvios = round(0.15 * len(con_stock))
+    desviados = {p["sku"] for p in rng.sample(con_stock, n_desvios)}
     fisico_total = {}
     for p in productos:
         sku = p["sku"]
-        if sku not in sistema:
-            fisico_total[sku] = rng.randint(4, 15)  # producto sin registro en stock: sobrante
-            continue
         q = sistema[sku]
+        if q == 0:
+            fisico_total[sku] = rng.randint(4, 15)  # stock 0: todo lo contado es sobrante
+            continue
         if sku in desviados:
             modo = rng.choice(["falta", "sobra", "chico"])
             if modo == "falta":
@@ -146,11 +145,10 @@ def render_sql(seed: int, productos, sistema) -> str:
             f"{lit(p['unidad'])}, {p['costo']}, {p['tolerancia']});"
         )
     for p in productos:
-        if p["sku"] in sistema:
-            out.append(
-                "INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) "
-                f"VALUES ({lit(CONTEO_ID)}, {lit(p['sku'])}, {sistema[p['sku']]});"
-            )
+        out.append(
+            "INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) "
+            f"VALUES ({lit(CONTEO_ID)}, {lit(p['sku'])}, {sistema[p['sku']]});"
+        )
     out += ["", "COMMIT;", ""]
     return "\n".join(out)
 

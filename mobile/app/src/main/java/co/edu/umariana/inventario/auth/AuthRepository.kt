@@ -13,6 +13,10 @@ data class Sesion(
     val rol: String,
     val estado: String = EstadoCuenta.ACTIVO,
     val motivo: String? = null,
+    /** Dato de perfil opcional (no se usa para entrar). */
+    val correo: String? = null,
+    /** Foto de perfil elegida por el usuario; null = inicial. */
+    val foto: String? = null,
 ) {
     val puedeTrabajar: Boolean get() = estado == EstadoCuenta.ACTIVO
 }
@@ -21,6 +25,7 @@ sealed class AuthResult {
     data class Ok(val usuario: UsuarioEntity) : AuthResult()
     data object UsuarioInvalido : AuthResult()
     data object NombreInvalido : AuthResult()
+    data object CorreoInvalido : AuthResult()
     data object ClaveDebil : AuthResult()
     data object ClavesDistintas : AuthResult()
     data object PreguntaFaltante : AuthResult()
@@ -32,7 +37,6 @@ sealed class AuthResult {
     data class Bloqueado(val segundos: Int) : AuthResult()
     data object UsuarioNoExiste : AuthResult()
     data object RespuestaIncorrecta : AuthResult()
-    data object SinSesion : AuthResult()
 }
 
 /**
@@ -55,12 +59,14 @@ class AuthRepository(
 ) {
     fun registrar(
         usuario: String, nombre: String, clave: String, confirmacion: String,
-        pregunta: String, respuesta: String,
+        pregunta: String, respuesta: String, correo: String = "",
     ): AuthResult {
         val alias = normalizar(usuario)
         val nombreLimpio = nombre.trim()
         if (!USUARIO.matches(alias)) return AuthResult.UsuarioInvalido
         if (nombreLimpio.isEmpty() || nombreLimpio.codePointCount(0, nombreLimpio.length) > MAX_NOMBRE) return AuthResult.NombreInvalido
+        val correoLimpio = correo.trim().lowercase().takeIf { it.isNotEmpty() }
+        if (correoLimpio != null && (correoLimpio.length > MAX_CORREO || !CORREO.matches(correoLimpio))) return AuthResult.CorreoInvalido
         validarClave(clave, confirmacion)?.let { return it }
         if (pregunta.isBlank()) return AuthResult.PreguntaFaltante
         if (normalizarRespuesta(respuesta).length < 2) return AuthResult.RespuestaCorta
@@ -70,6 +76,7 @@ class AuthRepository(
             usuario = alias, nombre = nombreLimpio, rol = Rol.OPERADOR, estado = EstadoCuenta.PENDIENTE,
             claveHash = Claves.crear(clave, iteraciones), pregunta = pregunta.trim(),
             respuestaHash = Claves.crear(normalizarRespuesta(respuesta), iteraciones), creadoMs = ahoraMs(),
+            correo = correoLimpio,
         )
         val guardado = nuevo.copy(id = dao.insertar(nuevo))
         abrirSesion(guardado)
@@ -102,24 +109,27 @@ class AuthRepository(
         return AuthResult.Ok(actualizada)
     }
 
-    /** Cambia la contraseña de quien tiene la sesión abierta; exige la actual. */
-    fun cambiarClave(actual: String, nueva: String, confirmacion: String): AuthResult {
-        val sesion = sesion() ?: return AuthResult.SinSesion
-        val cuenta = dao.porUsuario(sesion.usuario) ?: return AuthResult.SinSesion
-        if (!Claves.verificar(actual, cuenta.claveHash)) return AuthResult.CredencialesInvalidas
-        validarClave(nueva, confirmacion)?.let { return it }
-        val actualizada = cuenta.copy(claveHash = Claves.crear(nueva, iteraciones))
-        dao.actualizar(actualizada)
-        return AuthResult.Ok(actualizada)
-    }
-
     fun sesion(): Sesion? {
         val usuario = settings.sesionUsuario ?: return null
         return Sesion(usuario, settings.sesionNombre.orEmpty(), settings.sesionRol ?: Rol.OPERADOR,
-            settings.sesionEstado ?: EstadoCuenta.PENDIENTE, settings.sesionMotivo)
+            settings.sesionEstado ?: EstadoCuenta.PENDIENTE, settings.sesionMotivo,
+            settings.sesionCorreo, settings.sesionFoto)
     }
 
     fun cerrarSesion() = settings.cerrarSesion()
+
+    /** La foto de perfil de una cuenta (ruta en el teléfono), o null. */
+    fun fotoDe(usuario: String): String? = dao.porUsuario(normalizar(usuario))?.foto
+
+    /** Asocia (o quita, con null) la foto de perfil. Si es la sesión abierta, se refleja de inmediato. */
+    fun guardarFoto(usuario: String, ruta: String?) {
+        val cuenta = dao.porUsuario(normalizar(usuario)) ?: return
+        dao.actualizar(cuenta.copy(foto = ruta))
+        if (settings.sesionUsuario == cuenta.usuario) settings.actualizarFoto(ruta)
+    }
+
+    /** El correo opcional de la cuenta. */
+    fun correoDe(usuario: String): String? = dao.porUsuario(normalizar(usuario))?.correo
 
     /**
      * Guarda lo que el PC respondió sobre la cuenta (`ACCTST`). Si es la de la sesión abierta, la sesión se entera
@@ -137,7 +147,7 @@ class AuthRepository(
     fun registradoMs(usuario: String): Long? = dao.porUsuario(normalizar(usuario))?.creadoMs
 
     private fun abrirSesion(cuenta: UsuarioEntity) =
-        settings.abrirSesion(cuenta.usuario, cuenta.nombre, cuenta.rol, cuenta.estado, cuenta.motivo)
+        settings.abrirSesion(cuenta.usuario, cuenta.nombre, cuenta.rol, cuenta.estado, cuenta.motivo, cuenta.correo, cuenta.foto)
 
     private fun validarClave(clave: String, confirmacion: String): AuthResult? = when {
         !Claves.esAceptable(clave) -> AuthResult.ClaveDebil
@@ -166,7 +176,10 @@ class AuthRepository(
         const val BLOQUEO_MS = 30_000L
         /** El nombre es el operador que viaja con cada lectura: mismo límite (D20). */
         const val MAX_NOMBRE = 60
+        const val MAX_CORREO = 120
         val USUARIO = Regex("[a-z0-9._-]{3,20}")
+        /** Correo solo como dato de perfil: formato común, sin espacios. */
+        val CORREO = Regex("[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
         val PREGUNTAS = listOf(
             "¿Cuál es el nombre de tu primera mascota?",
             "¿En qué ciudad naciste?",

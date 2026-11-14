@@ -69,6 +69,7 @@ def server():
     finally:
         transport.stop()
         store.rollback()
+        store.close()
         purge_test_rows()
 
 

@@ -1,13 +1,13 @@
 @startuml
 !include estilo.iuml
-title 22 · Tiempos: ventana de 120 s y ventana de 50 REC entre ACK
+title 22 · Tiempos: latido del servicio y ventana de 50 REC entre ACK
 scale 5 as 40 pixels
 
-robust "SyncController" as C
+robust "SyncController / servicio" as C
 analog "REC sin ACK (ventana máx. 50)" between 0 and 50 as W
 
 @0
-C is IDLE
+C is ESPERANDO
 W is 0
 
 @10
@@ -41,11 +41,8 @@ C is PROCESANDO
 @52
 C is LISTO
 
-@130
-C is LISTO
-
-C@10 <-> @130 : plazo de 120 s desde start(); si nadie se conecta → TIEMPO_AGOTADO → IDLE
+C@0 <-> @52 : el servicio está siempre activo; escribe estado y latido cada 1 s.\nEl escritorio lo marca DETENIDO si el latido tiene más de 10 s
 W@44 <-> @45 : ventana llena: espera ACK|25
 
-caption Valores del protocolo (ilustrativo): hasta 50 REC sin ACK; el PC hace COMMIT y responde ACK cada 25 insertados; ACK|n libera la ventana.
+caption Valores del protocolo (ilustrativo): hasta 50 REC sin ACK; el PC hace COMMIT y responde ACK cada 25 insertados; ACK|n libera la ventana. El servicio renueva la ventana de visibilidad mientras esté activo y sin pausa.
 @enduml

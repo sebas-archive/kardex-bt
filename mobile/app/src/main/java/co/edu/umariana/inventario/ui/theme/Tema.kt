@@ -8,6 +8,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import co.edu.umariana.inventario.ui.Apariencia
+import co.edu.umariana.inventario.ui.SettingsStore
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -73,7 +75,17 @@ private val Letras = Typography(
 /** Cifras grandes con dígitos de ancho fijo: no «bailan» cuando cambia el número. */
 val Cifra = TextStyle(fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
 
+/**
+ * Tema de la app. Lee [Apariencia.tema] (estado de Compose): al cambiarlo desde «Mi cuenta» todas las pantallas
+ * se vuelven a componer con el tema nuevo. `oscuro` explícito se usa en las capturas de prueba.
+ */
 @Composable
-fun InventarioTheme(oscuro: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (oscuro) Oscuro else Claro, typography = Letras, shapes = Formas, content = content)
+fun InventarioTheme(oscuro: Boolean? = null, content: @Composable () -> Unit) {
+    val sistemaOscuro = isSystemInDarkTheme()
+    val usarOscuro = oscuro ?: when (Apariencia.tema) {
+        SettingsStore.TEMA_CLARO -> false
+        SettingsStore.TEMA_OSCURO -> true
+        else -> sistemaOscuro
+    }
+    MaterialTheme(colorScheme = if (usarOscuro) Oscuro else Claro, typography = Letras, shapes = Formas, content = content)
 }

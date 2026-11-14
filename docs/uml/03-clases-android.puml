@@ -6,12 +6,14 @@ left to right direction
 
 package "auth (contraseña local, estado del PC)" {
   class AuthRepository {
-    +registrar(usuario, nombre, clave, confirmacion, pregunta, respuesta) : AuthResult
+    +registrar(usuario, nombre, clave, confirmacion, correo, pregunta, respuesta) : AuthResult
     +aplicarEstado(usuario, estado, rol, motivo)
     +iniciarSesion(usuario, clave) : AuthResult
     +preguntaDe(usuario) : String?
     +restablecer(usuario, respuesta, clave, confirmacion) : AuthResult
-    +cambiarClave(actual, nueva, confirmacion) : AuthResult
+    +fotoDe(usuario) : String?
+    +guardarFoto(usuario, ruta)
+    +correoDe(usuario) : String?
     +sesion() : Sesion?
     +cerrarSesion()
   }
@@ -25,6 +27,8 @@ package "auth (contraseña local, estado del PC)" {
     +rol
     +estado
     +motivo
+    +correo
+    +foto
     +puedeTrabajar : Boolean
   }
   class Rol <<object>> {
@@ -49,6 +53,9 @@ package "auth (contraseña local, estado del PC)" {
     +respuestaHash
     +intentosFallidos
     +bloqueadoHastaMs
+    +creadoMs
+    +correo
+    +foto
   }
   class CuentasDatabase
 }
@@ -61,23 +68,28 @@ package "scan" {
 
 package "ui (vista y modelo de vista)" {
   class AuthActivity
-  class PerfilActivity
+  class EstadoCuentaActivity
   class HomeActivity
+  class CatalogoActivity
   class ContarActivity
+  class LecturasActivity
+  class PendientesActivity
   class SincronizarActivity
+  class PerfilActivity
+  class NotificacionesActivity
   class PantallaActivity
   class CountViewModel {
     +operador : StateFlow<String>
-    +conteo : StateFlow<String?>
-    +guardar(sku, cantidad, nota) : SaveResult
+    +guardar(sku, cantidad, nota, danados, foto) : SaveResult
     +ultimaLectura(sku) : LecturaEntity?
-    +setOperador(nombre)
+    +productos() / producto(sku)
+    +fotosPendientes() / conFoto() / foto(seq)
     +lecturas() : List<LecturaEntity>
   }
   class SaveResult <<sealed>> {
     Guardada(seq, reemplazo, skuDesconocido)
-    OperadorFaltante · SinConteo
-    SkuFaltante · CantidadInvalida · NotaLarga
+    OperadorFaltante · SinCatalogo
+    SkuFaltante · CantidadInvalida · NotaLarga · DanadosInvalidos
   }
   class SyncViewModel {
     +estado : StateFlow<SyncEstado?>
@@ -93,8 +105,10 @@ package "ui (vista y modelo de vista)" {
   }
   class SettingsStore {
     +operador
-    +conteo
     +pcDireccion
+    +sesion
+    +tema(usuario) / guardarTema(usuario, valor)
+    +idioma(usuario) / guardarIdioma(usuario, valor)
   }
   class Servicios
 }
@@ -149,9 +163,10 @@ package "data (Room)" {
     +insertar(l) : Long
     +pendientesDesde(seq)
     +confirmarHasta(seq)
-    +reemplazar(idConteo, sku, cantidad, ts) : Boolean
-    +tomarParaEnviar(seq)
-    +reconciliar(ultimoSeqServidor)
+    +reemplazar(sku, cantidad, ts) : Boolean
+    +ultimaDe(conteo, sku) : LecturaEntity?
+    +vigentes(conteo) : List<LecturaEntity>
+    +contarPendientes() : Int
   }
   class LecturaEntity {
     +seq : Long
@@ -168,21 +183,22 @@ package "data (Room)" {
   }
   class CatalogRepository {
     +reemplazarTodo(c : Catalog)
-    +tareas() / items(idTarea)
-    +marcarIniciada(idTarea)
-    +producto(sku)
+    +productos() : List<ProductoEntity>
+    +producto(sku) : ProductoEntity?
   }
   class CatalogDao
   class Catalog
-  class TareaEntity
-  class ItemTareaEntity
-  class InicioEntity
+  class ProductoEntity {
+    +sku
+    +nombre
+    +categoria
+    +unidad
+  }
   class FotoEntity
   class FotoRepository {
     +adjuntar(seq, temporal)
     +enviables()
   }
-  class ProductoEntity
 }
 
 class DeviceIdentity <<object>> {
@@ -190,7 +206,15 @@ class DeviceIdentity <<object>> {
 }
 
 AuthActivity --|> PantallaActivity
+EstadoCuentaActivity --|> PantallaActivity
+HomeActivity --|> PantallaActivity
+CatalogoActivity --|> PantallaActivity
+ContarActivity --|> PantallaActivity
+LecturasActivity --|> PantallaActivity
+PendientesActivity --|> PantallaActivity
+SincronizarActivity --|> PantallaActivity
 PerfilActivity --|> PantallaActivity
+NotificacionesActivity --|> PantallaActivity
 AuthActivity --> AuthRepository
 PerfilActivity --> AuthRepository
 HomeActivity ..> AuthRepository : exige sesión
@@ -203,10 +227,8 @@ AuthRepository ..> Sesion
 CuentasDatabase "1" o-- "*" UsuarioEntity
 UsuarioEntity ..> Rol
 ContarActivity ..> CodigoEscaneado : barras o QR → SKU
-HomeActivity --|> PantallaActivity
-ContarActivity --|> PantallaActivity
-SincronizarActivity --|> PantallaActivity
 ContarActivity --> CountViewModel
+CatalogoActivity --> CountViewModel
 SincronizarActivity --> SyncViewModel
 Servicios *-- CountViewModel
 Servicios *-- SettingsStore
@@ -214,6 +236,7 @@ Servicios *-- PcConnector
 CountViewModel --> Outbox
 CountViewModel --> CatalogRepository
 CountViewModel --> SettingsStore
+CountViewModel --> FotoRepository
 CountViewModel ..> SaveResult
 SyncViewModel *-- SyncRunner
 SyncViewModel ..> DeviceIdentity
@@ -236,8 +259,6 @@ AppDatabase *-- Outbox
 AppDatabase *-- CatalogDao
 CatalogRepository --> CatalogDao
 CatalogDao ..> Catalog
-Catalog o-- TareaEntity
-Catalog o-- ItemTareaEntity
-CatalogDao ..> InicioEntity
 Catalog o-- ProductoEntity
+CatalogDao ..> FotoEntity
 @enduml

@@ -1,18 +1,25 @@
-"""Ventana principal de la aplicación de escritorio (``python -m app.main``)."""
+"""Ventana principal de la aplicación de escritorio (``python -m app.main``).
+
+Acceso (sin sesión), Estado de cuenta (solo cuentas que no pueden entrar) y la aplicación con su barra lateral.
+Cada sección se registra con el módulo de la matriz de permisos: solo aparece si el rol puede consultarlo. Las
+barras son exactas por rol; el Perfil se abre desde el pie, no ocupa un lugar en la lista.
+
+El conteo es continuo y único (``ACTUAL``): no hay selector de conteos ni cierre. La aplicación de escritorio no
+recibe Bluetooth: lee el estado del servicio en Oracle y puede pausarlo o reanudarlo desde Sincronización.
+"""
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime
+from typing import Callable
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
     QButtonGroup,
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -23,100 +30,83 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from btsync import esquema
-from btsync import tareas as tareas_bt
-
-from . import auditoria, auth, configuracion, db, maestros, movimientos, permisos
-from .models import Conteo
+from . import auth, configuracion, db, i18n, notificaciones, permisos, tema
 from .servicio_remoto import ServicioRemoto
 from .views.acceso import AccesoView
+from .views.auditoria import AuditoriaView
 from .views.base import QueryRunner, StateBanner, estilo
 from .views.charts import ChartsView
+from .views.configuracion import ConfiguracionView
 from .views.dashboard import DashboardView
 from .views.estado_cuenta import EstadoCuentaView
-from .views.ajustes import AjustesView
-from .views.auditoria import AuditoriaView
-from .views.configuracion import ConfiguracionView
-from .views.respaldos import RespaldosView
-from .views.diferencias import DiferenciasView
-from .views.existencias import ExistenciasView
-from .views.movimientos import MovimientosView
-from .views.tareas import TareasView
+from .views.foto import pixmap_avatar
 from .views.iconos import icono
 from .views.inventario import InventarioView
-from .views.maestros import AlmacenesView, CategoriasView
+from .views.notificaciones import NotificacionesView
 from .views.perfil import PerfilView
+from .views.respaldos import RespaldosView
 from .views.roles import RolesView
 from .views.solicitudes import SolicitudesView
 from .views.sync import SyncView
 from .views.usuarios import UsuariosView
 from .views.widgets import Aviso, Transicion
 
-# Texto y color del indicador de Bluetooth, según el estado del controlador.
-ESTADO_BLUETOOTH = {
-    "IDLE": ("escuchando", "activo"),
-    "ESPERANDO_EMPAREJAMIENTO": ("escuchando", "activo"),
-    "CONFIRMAR_CODIGO": ("esperando el código", "activo"),
-    "CONECTADO": ("celular conectado", "activo"),
-    "RECIBIENDO": ("recibiendo", "activo"),
-    "PROCESANDO": ("procesando", "activo"),
-    "LISTO": ("listo", "ok"),
-    "ERROR": ("error", "error"),
-    "PAUSANDO": ("pausando", "activo"),
-    "PAUSADO": ("en pausa", ""),
-    "DETENIDO": ("servicio detenido", "error"),
-}
-
-
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
+ANCHO_MAXIMO_CONTENIDO = 1440
+MARGEN_LATERAL = 24
+
+
+def _ping() -> bool:
+    with db._conexion() as conn:
+        conn.cursor().execute("SELECT 1 FROM dual")
+    return True
 
 
 class MainWindow(QMainWindow):
-    """Acceso (sin sesión) o la aplicación: barra lateral con las secciones y, a la derecha, la página elegida.
-
-    Las secciones se registran con ``add_view`` con su módulo de la matriz de permisos: solo aparecen si el rol
-    de la sesión puede consultarlo (``Sesion.puede``, con los permisos leídos al entrar).
-    ``refresh_requested`` pide a todas que vuelvan a consultar (el temporizador, «Actualizar», F5 y el fin de una
-    sincronización lo emiten). Cada vista recibe el conteo elegido (``set_conteo``) y, si lo implementa, la sesión
-    (``set_sesion``) para ajustar lo que su rol puede hacer.
-    """
+    """Acceso o la aplicación: barra lateral con las secciones y, a la derecha, la página elegida."""
 
     refresh_requested = pyqtSignal()
-    cerrando = pyqtSignal()        # la ventana se está cerrando: hay que cortar la sincronización abierta
-    sesion_cambiada = pyqtSignal(object)  # auth.Sesion al entrar, None al salir
+    cerrando = pyqtSignal()
+    sesion_cambiada = pyqtSignal(object)
 
-    def __init__(self, auto_refresh_ms: int = 5000, sesion: auth.Sesion | None = None, parent: QWidget | None = None) -> None:
+    def __init__(self, auto_refresh_ms: int = 5000, sesion: auth.Sesion | None = None,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Gestión de inventario")
+        self._aplicar_tema_idioma("sistema", "es")
+        self.setWindowTitle(i18n.t("Gestión de inventario"))
         self.setMinimumSize(900, 600)
         self.resize(1240, 800)
-        self.setStyleSheet(estilo())
         self._runner = QueryRunner(self)
         self._sesion: auth.Sesion | None = None
-        self._conteo_actual: str | None = None
-        self._conteos_cargados = False
-        self._secciones: list[tuple[str, QWidget, QPushButton, str]] = []  # (título, vista, botón, módulo)
+        self._secciones: list[tuple[str, QWidget, QPushButton, str, tuple[str, ...] | None]] = []
         self._avisos: list[Aviso] = []
-        self._indice_previo = 0
+        self._sin_leer = 0
+        self._colapsada = False
+        self._colapso_manual = False
+        self._auto_colapsada = False
+        self._registrar_vistas: Callable[[], None] | None = None
 
         # ------------------------------------------------------------ barra lateral
-        self.marca = QLabel("Inventario")
+        self.marca = QLabel(i18n.t("Inventario"))
         self.marca.setObjectName("marca")
+        self.marca.setToolTip(i18n.t("Volver al inicio"))
         self.btn_colapsar = QPushButton()
         self.btn_colapsar.setObjectName("iconoLateral")
         self.btn_colapsar.setIcon(icono("panel"))
-        self.btn_colapsar.setToolTip("Contraer o expandir la barra (Ctrl+B)")
+        self.btn_colapsar.setToolTip(i18n.t("Contraer o expandir la barra (Ctrl+B)"))
         self.btn_colapsar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_avisos = QPushButton()
         self.btn_avisos.setObjectName("iconoLateral")
         self.btn_avisos.setIcon(icono("campana"))
-        self.btn_avisos.setToolTip("Sin solicitudes por revisar")
+        self.btn_avisos.setToolTip(i18n.t("Sin notificaciones sin leer"))
         self.btn_avisos.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_avisos.hide()                   # solo el administrador recibe avisos
+        self.btn_avisos.hide()
+
         self._nav = QVBoxLayout()
         self._nav.setSpacing(2)
         self._grupo = QButtonGroup(self)
         self._grupo.setExclusive(True)
+
         self.lbl_avatar = QLabel("")
         self.lbl_avatar.setObjectName("avatar")
         self.lbl_avatar.setFixedSize(36, 36)
@@ -129,10 +119,10 @@ class MainWindow(QMainWindow):
         textos.setSpacing(0)
         textos.addWidget(self.lbl_usuario)
         textos.addWidget(self.lbl_rol)
-        self.btn_cuenta = QPushButton()          # foto + nombre: abre el perfil
+        self.btn_cuenta = QPushButton()
         self.btn_cuenta.setObjectName("cuenta")
         self.btn_cuenta.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_cuenta.setToolTip("Abrir mi perfil")
+        self.btn_cuenta.setToolTip(i18n.t("Abrir mi perfil"))
         self.btn_cuenta.setMinimumHeight(48)
         en_cuenta = QHBoxLayout(self.btn_cuenta)
         en_cuenta.setContentsMargins(6, 4, 6, 4)
@@ -145,7 +135,7 @@ class MainWindow(QMainWindow):
         self.btn_salir = QPushButton()
         self.btn_salir.setObjectName("iconoLateral")
         self.btn_salir.setIcon(icono("salir"))
-        self.btn_salir.setToolTip("Cerrar sesión")
+        self.btn_salir.setToolTip(i18n.t("Cerrar sesión"))
         self.btn_salir.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pie = QFrame()
         self._pie.setObjectName("pieCuenta")
@@ -154,6 +144,7 @@ class MainWindow(QMainWindow):
         self._en_pie.setSpacing(2)
         self._en_pie.addWidget(self.btn_cuenta, 1)
         self._en_pie.addWidget(self.btn_salir)
+
         lateral = QFrame()
         lateral.setObjectName("lateral")
         self._lateral = lateral
@@ -163,55 +154,57 @@ class MainWindow(QMainWindow):
         self._cabecera.addWidget(self.marca, 1)
         self._cabecera.addWidget(self.btn_avisos)
         self._cabecera.addWidget(self.btn_colapsar)
-        cabecera = self._cabecera
         en_lateral = QVBoxLayout(lateral)
         en_lateral.setContentsMargins(10, 16, 10, 12)
         en_lateral.setSpacing(6)
-        en_lateral.addLayout(cabecera)
+        en_lateral.addLayout(self._cabecera)
         en_lateral.addSpacing(14)
         en_lateral.addLayout(self._nav)
         en_lateral.addStretch(1)
         en_lateral.addWidget(self._pie)
-        self._colapsada = False
 
         # ------------------------------------------------------------ encabezado y páginas
         self.lbl_titulo = QLabel("")
         self.lbl_titulo.setObjectName("tituloPagina")
-        self.combo_conteo = QComboBox()
-        self.combo_conteo.setMinimumWidth(280)
-        self.combo_conteo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)  # no cortar nombres largos
-        self.chip_oracle = QLabel("Oracle: conectando…")
-        self.chip_bluetooth = QLabel("Bluetooth: apagado")
+        self.chip_oracle = QLabel(i18n.t("Oracle: conectando…"))
+        self.chip_bluetooth = QLabel(i18n.t("Bluetooth: apagado"))
         for chip in (self.chip_oracle, self.chip_bluetooth):
             chip.setObjectName("chipEstado")
             chip.setFixedHeight(24)
         self.lbl_actualizado = QLabel("")
         self.lbl_actualizado.setObjectName("subtitulo")
-        self.btn_actualizar = QPushButton("Actualizar")
-        self.btn_actualizar.setToolTip("Volver a consultar (F5)")
-        encabezado = QHBoxLayout()
-        encabezado.setSpacing(10)
-        encabezado.addWidget(self.lbl_titulo)
-        encabezado.addStretch(1)
-        encabezado.addWidget(self.chip_oracle)
-        encabezado.addWidget(self.chip_bluetooth)
-        encabezado.addWidget(self.combo_conteo)
-        encabezado.addWidget(self.btn_actualizar)
+        self.btn_actualizar = QPushButton(i18n.t("Actualizar"))
+        self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
+        fila_titulo = QHBoxLayout()
+        fila_titulo.setSpacing(10)
+        fila_titulo.addWidget(self.lbl_titulo)
+        fila_titulo.addWidget(self.lbl_actualizado)
+        fila_titulo.addStretch(1)
+        fila_titulo.addWidget(self.chip_oracle)
+        fila_titulo.addWidget(self.chip_bluetooth)
+        fila_titulo.addWidget(self.btn_actualizar)
+        encabezado = QVBoxLayout()
+        encabezado.setSpacing(8)
+        encabezado.addLayout(fila_titulo)
         self.banner = StateBanner()
-        self.banner.retry.connect(self._cargar_conteos)
+        self.banner.retry.connect(self.comprobar_oracle)
         self.paginas = QStackedWidget()
         contenido = QWidget()
         contenido.setObjectName("contenido")
+        self._centro = QWidget()
+        self._centro.setObjectName("centro")
+        self._en_centro = QVBoxLayout(self._centro)
+        self._en_centro.setContentsMargins(MARGEN_LATERAL, 18, MARGEN_LATERAL, 18)
+        self._en_centro.setSpacing(12)
+        self._en_centro.addLayout(encabezado)
+        self._en_centro.addWidget(self.banner)
+        self._en_centro.addWidget(self.paginas, 1)
         en_contenido = QVBoxLayout(contenido)
-        en_contenido.setContentsMargins(24, 18, 24, 18)
-        en_contenido.setSpacing(12)
-        en_contenido.addLayout(encabezado)
-        en_contenido.addWidget(self.banner)
-        en_contenido.addWidget(self.paginas, 1)
+        en_contenido.setContentsMargins(0, 0, 0, 0)
+        en_contenido.addWidget(self._centro)
+        self._contenido = contenido
         self._transicion = Transicion(self.paginas)
 
-        # Marco exterior continuo (#161616): la barra se funde con él y el contenido queda encajado en un lienzo
-        # redondeado. Margen arriba, derecha y abajo; a la izquierda ninguno (la barra toca el borde).
         lienzo = QFrame()
         lienzo.setObjectName("lienzo")
         en_lienzo = QVBoxLayout(lienzo)
@@ -233,52 +226,117 @@ class MainWindow(QMainWindow):
         self._raiz.addWidget(aplicacion)
         self._raiz.addWidget(self.estado_cuenta)
         self.setCentralWidget(self._raiz)
+        self._instalar_atajos()
 
         self.acceso.entro.connect(self.iniciar)
         self.acceso.sin_acceso.connect(self.mostrar_estado_cuenta)
         self.estado_cuenta.volver.connect(self._volver_al_acceso)
         self.btn_salir.clicked.connect(self.cerrar_sesion)
-        self.btn_cuenta.clicked.connect(lambda: self.ir_a("Perfil"))
-        self.btn_colapsar.clicked.connect(self.alternar_lateral)
-        self.btn_avisos.clicked.connect(lambda: self.ir_a("Solicitudes"))
-        QShortcut(QKeySequence("Ctrl+B"), self, activated=self.alternar_lateral)
-        self.combo_conteo.currentIndexChanged.connect(self._conteo_cambiado)
-        self.btn_actualizar.clicked.connect(lambda: self.refresh_requested.emit())
-        QShortcut(QKeySequence("F5"), self, activated=lambda: self.refresh_requested.emit())
-        self.refresh_requested.connect(self._cargar_conteos)
+        self.btn_cuenta.clicked.connect(self.abrir_perfil)
+        self.btn_colapsar.clicked.connect(self._alternar_manual)
+        self.btn_avisos.clicked.connect(self._abrir_notificaciones)
+        self.btn_actualizar.clicked.connect(self.refresh_requested.emit)
+        self.refresh_requested.connect(self.comprobar_oracle)
 
         self._timer = QTimer(self)
         if auto_refresh_ms > 0:
             self._timer.setInterval(auto_refresh_ms)
             self._timer.timeout.connect(lambda: self.refresh_requested.emit() if self._sesion else None)
             self._timer.start()
+        self.refresh_requested.connect(self.contar_notificaciones)
         if sesion is not None:
             self.iniciar(sesion)
+
+    def _instalar_atajos(self) -> None:
+        """Atajos globales: F5 refresca, Ctrl+B contrae la barra, Ctrl+F busca y Ctrl+1..9 abren secciones."""
+        QShortcut(QKeySequence("F5"), self, activated=self.refresh_requested.emit)
+        QShortcut(QKeySequence("Ctrl+B"), self, activated=self._alternar_manual)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self._buscar_en_vista)
+        for numero in range(1, 10):
+            QShortcut(QKeySequence(f"Ctrl+{numero}"), self,
+                      activated=lambda n=numero: self._ir_a_numero(n))
+
+    def _ir_a_numero(self, numero: int) -> None:
+        visibles = [t for t, _v, b, _m, _r in self._secciones if b.isVisible() and not b.property("fuera")]
+        if 0 < numero <= len(visibles):
+            self.ir_a(visibles[numero - 1])
+
+    def _buscar_en_vista(self) -> None:
+        vista = self.paginas.currentWidget()
+        if vista is None:
+            return
+        from PyQt6.QtWidgets import QLineEdit
+        for campo in vista.findChildren(QLineEdit):
+            if campo.isVisible() and campo.isEnabled():
+                campo.setFocus(Qt.FocusReason.ShortcutFocusReason)
+                campo.selectAll()
+                return
+
+    # ------------------------------------------------------------------ tema e idioma
+    def _aplicar_tema_idioma(self, modo: str, idioma: str) -> None:
+        i18n.set_idioma(idioma)
+        tema.aplicar(QApplication.instance(), modo)
+
+    def cambiar_tema(self, modo: str) -> None:
+        """Aplica el tema de inmediato y lo recuerda en la sesión (Perfil ya lo guardó en Oracle)."""
+        from dataclasses import replace
+        tema.aplicar(QApplication.instance(), modo)
+        if self._sesion is not None:
+            self._sesion = replace(self._sesion, tema=modo)
+        self.btn_colapsar.setIcon(icono("panel"))
+        self.btn_salir.setIcon(icono("salir"))
+        self.btn_avisos.setIcon(icono("campana_aviso" if self._sin_leer else "campana"))
+        self.update()
+        QTimer.singleShot(0, self._reconstruir_vistas)
+
+    def cambiar_idioma(self, idioma: str) -> None:
+        """Aplica el idioma de inmediato: vuelve a construir las vistas para que cada texto pase por ``t()``."""
+        from dataclasses import replace
+        i18n.set_idioma(idioma)
+        if self._sesion is not None:
+            self._sesion = replace(self._sesion, idioma=idioma)
+        self.setWindowTitle(i18n.t("Gestión de inventario"))
+        self.marca.setText(i18n.t("Inventario"))
+        self.marca.setToolTip(i18n.t("Volver al inicio"))
+        self.btn_colapsar.setToolTip(i18n.t("Contraer o expandir la barra (Ctrl+B)"))
+        self.btn_salir.setToolTip(i18n.t("Cerrar sesión"))
+        self.btn_cuenta.setToolTip(i18n.t("Abrir mi perfil"))
+        self.btn_actualizar.setText(i18n.t("Actualizar"))
+        self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
+        QTimer.singleShot(0, self._reconstruir_vistas)
+
+    def retranslate(self) -> None:
+        self.cambiar_idioma(i18n.idioma())
 
     # ------------------------------------------------------------------ sesión
     def sesion(self) -> auth.Sesion | None:
         return self._sesion
 
     def iniciar(self, sesion: auth.Sesion) -> None:
-        """Entra a la aplicación con esa sesión: muestra las secciones de su rol y carga los datos."""
+        """Entra a la aplicación con esa sesión: aplica sus preferencias y muestra las secciones de su rol."""
         self._sesion = sesion
+        self._aplicar_tema_idioma(sesion.tema, sesion.idioma)
         self.lbl_usuario.setText(sesion.nombre)
-        self.lbl_avatar.setText(sesion.nombre[:1].upper())
-        self.btn_avisos.setVisible(sesion.puede("solicitudes", "GESTION"))
-        self.lbl_rol.setText(auth.NOMBRE_ROL[sesion.rol])
-        for _titulo, vista, boton, modulo in self._secciones:
-            boton.setVisible(not boton.property("fuera") and sesion.puede(modulo))
+        self.lbl_rol.setText(i18n.t(auth.NOMBRE_ROL[sesion.rol]))
+        self._poner_avatar()
+        self.btn_avisos.setVisible(sesion.puede("notificaciones"))
+        for titulo, vista, boton, modulo, roles in self._secciones:
+            boton.setVisible(self._visible(sesion, modulo, roles) and not boton.property("fuera"))
             if hasattr(vista, "set_sesion"):
                 vista.set_sesion(sesion)
         self._raiz.setCurrentIndex(1)
-        visibles = [t for t in self.secciones() if not next(b for tt, _v, b, _m in self._secciones if tt == t).property("fuera")]
-        if visibles:   # la primera que su rol puede ver (el Dashboard puede estar en «Sin acceso»)
+        visibles = [t for t, _v, b, _m, _r in self._secciones if b.isVisible() and not b.property("fuera")]
+        if visibles:
             self.ir_a(visibles[0])
         self.sesion_cambiada.emit(sesion)
-        self._cargar_conteos()
+        self.comprobar_oracle()
+        self.contar_notificaciones()
+        if sesion.aviso_clave:
+            self.avisar(f"{i18n.t('Tu solicitud de contraseña fue rechazada:')} {sesion.aviso_clave}", "error")
+            self._runner.run(auth.consumir_aviso_clave, lambda _: None, lambda _m: None, sesion.usuario)
 
     def mostrar_estado_cuenta(self, cuenta: auth.CuentaSinAcceso) -> None:
-        """La cuenta no puede entrar (pendiente, rechazada o suspendida): se muestra su estado, sin abrir sesión."""
+        """La cuenta no puede entrar (pendiente o rechazada): se muestra su estado, sin abrir sesión."""
         self.estado_cuenta.mostrar(cuenta)
         self._raiz.setCurrentWidget(self.estado_cuenta)
 
@@ -288,49 +346,56 @@ class MainWindow(QMainWindow):
 
     def cerrar_sesion(self) -> None:
         self._sesion = None
-        for _titulo, vista, _boton, _modulo in self._secciones:
+        for _titulo, vista, _boton, _modulo, _roles in self._secciones:
             if hasattr(vista, "set_sesion"):
                 vista.set_sesion(None)
         self.acceso.limpiar()
         self._raiz.setCurrentIndex(0)
         self.sesion_cambiada.emit(None)
 
-    def alternar_lateral(self) -> None:
-        """Contrae la barra a solo iconos o la expande con los nombres."""
-        self._colapsada = not self._colapsada
-        c = self._colapsada
-        self._lateral.setFixedWidth(ANCHO_LATERAL_CONTRAIDA if c else ANCHO_LATERAL)
-        self.marca.setVisible(not c)
-        self._textos_cuenta.setVisible(not c)
-        for _t, _v, boton, _s in self._secciones:
-            boton.setText("" if c else f"  {boton.toolTip()}")
-        for marco in (self._lateral, self._pie):
-            marco.setProperty("contraida", c)
-        # Contraída todo se apila y se centra; expandida, el título a la izquierda y los botones a la derecha.
-        self._cabecera.setDirection(QBoxLayout.Direction.TopToBottom if c else QBoxLayout.Direction.LeftToRight)
-        for boton in (self.btn_avisos, self.btn_colapsar):
-            self._cabecera.setAlignment(boton, Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignRight)
-        self._en_pie.setDirection(QBoxLayout.Direction.TopToBottom if c else QBoxLayout.Direction.LeftToRight)
-        self._en_pie.setAlignment(self.btn_cuenta, Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignVCenter)
-        self.btn_cuenta.setMinimumWidth(48 if c else 0)
-        self.btn_cuenta.setMaximumWidth(48 if c else 16777215)
-        for marco in (self._lateral, self._pie):
-            marco.style().unpolish(marco)
-            marco.style().polish(marco)
+    def _poner_avatar(self) -> None:
+        if self._sesion is None:
+            return
+        mapa = pixmap_avatar(self._sesion.foto, 36)
+        if mapa is not None:
+            self.lbl_avatar.setPixmap(mapa)
+            self.lbl_avatar.setText("")
+        else:
+            self.lbl_avatar.setPixmap(QPixmap())
+            self.lbl_avatar.setText(self._sesion.nombre[:1].upper())
 
-    def poner_avisos(self, cantidad: int) -> None:
-        """La campana avisa cuántas solicitudes (cuentas o contraseñas) espera el administrador."""
-        self.btn_avisos.setIcon(icono("campana_aviso" if cantidad else "campana"))
-        self.btn_avisos.setToolTip(f"{cantidad} solicitud{'es' if cantidad != 1 else ''} por revisar" if cantidad else "Sin solicitudes por revisar")
+    def actualizar_avatar(self, ruta: str | None = None) -> None:
+        from dataclasses import replace
+        if self._sesion is not None:
+            self._sesion = replace(self._sesion, foto=ruta)
+        self._poner_avatar()
 
-    def lateral_contraida(self) -> bool:
-        return self._colapsada
+    def abrir_perfil(self) -> None:
+        self.ir_a(i18n.t("Perfil"))
+
+    def _abrir_notificaciones(self) -> None:
+        self.ir_a(i18n.t("Notificaciones"))
+
+    def _drill(self, tipo: str, valor: str) -> None:
+        """Clic en una gráfica: lleva a Inventario con el filtro cuando la vista lo permite."""
+        self.ir_a(i18n.t("Inventario"))
+        vista = self.vista(i18n.t("Inventario"))
+        if tipo in ("categoria", "categoría") and vista is not None:
+            aplicar = getattr(vista, "aplicar_filtro", None)
+            if callable(aplicar):
+                aplicar(categoria=valor)
+        elif tipo == "sku" and vista is not None:
+            buscar = getattr(vista, "buscar", None)
+            if callable(buscar):
+                buscar(valor)
+        self.avisar(f"{tipo}: {valor}", "info")
 
     # ------------------------------------------------------------------ secciones
-    def add_view(self, view: QWidget, title: str, modulo: str, en_barra: bool = True) -> None:
+    def add_view(self, view: QWidget, title: str, modulo: str, en_barra: bool = True,
+                 roles: tuple[str, ...] | None = None, icono_id: str | None = None) -> QPushButton:
         """Registra una sección en la barra lateral y la incluye en el refresco."""
         boton = QPushButton(f"  {title}")
-        boton.setIcon(icono(title))
+        boton.setIcon(icono(icono_id or title))
         boton.setToolTip(title)
         boton.setObjectName("nav")
         boton.setCheckable(True)
@@ -339,32 +404,38 @@ class MainWindow(QMainWindow):
         self._grupo.addButton(boton)
         self._nav.addWidget(boton)
         self.paginas.addWidget(view)
-        self._secciones.append((title, view, boton, modulo))
+        self._secciones.append((title, view, boton, modulo, roles))
         if not en_barra:
-            boton.setProperty("fuera", True)  # el perfil se abre desde el pie, no desde la lista
+            boton.setProperty("fuera", True)
             boton.hide()
-        self.refresh_requested.connect(view.refresh)
+        refrescar = getattr(view, "refresh", None) or getattr(view, "refrescar", None)
+        if callable(refrescar):
+            self.refresh_requested.connect(refrescar)
         if self._sesion is not None:
-            boton.setVisible(en_barra and self._sesion.puede(modulo))
+            boton.setVisible(self._visible(self._sesion, modulo, roles) and not boton.property("fuera"))
             if hasattr(view, "set_sesion"):
                 view.set_sesion(self._sesion)
-        if self._conteos_cargados:
-            view.set_conteo(self._conteo_actual)
         if len(self._secciones) == 1:
             boton.setChecked(True)
             self.lbl_titulo.setText(title)
+        return boton
+
+    @staticmethod
+    def _visible(sesion: auth.Sesion, modulo: str, roles: tuple[str, ...] | None) -> bool:
+        return sesion.puede(modulo) and (roles is None or sesion.rol in roles)
 
     def secciones(self) -> list[str]:
         """Las secciones que ve quien tiene la sesión abierta, en el orden de la barra lateral."""
         if self._sesion is None:
             return []
-        return [titulo for titulo, _v, _b, modulo in self._secciones if self._sesion.puede(modulo)]
+        return [titulo for titulo, _v, _b, modulo, roles in self._secciones
+                if self._visible(self._sesion, modulo, roles)]
 
     def seccion_actual(self) -> str:
         return self.lbl_titulo.text()
 
-    def vista(self, titulo: str) -> QWidget:
-        return next(v for t, v, _b, _s in self._secciones if t == titulo)
+    def vista(self, titulo: str) -> QWidget | None:
+        return next((v for t, v, _b, _s, _r in self._secciones if t == titulo), None)
 
     def ir_a(self, titulo: str) -> None:
         """Abre una sección. Las que el rol no puede consultar no se abren."""
@@ -372,23 +443,27 @@ class MainWindow(QMainWindow):
             return
         indice = next(i for i, s in enumerate(self._secciones) if s[0] == titulo)
         anterior = self.paginas.currentWidget()
-        if anterior is not None and indice != self._indice_previo and self.isVisible():
-            self._transicion.lanzar(anterior.grab(), 1 if indice > self._indice_previo else -1)
-        self._indice_previo = indice
+        if anterior is not None and self.isVisible():
+            self._transicion.lanzar(anterior.grab(), 1)
         self.paginas.setCurrentIndex(indice)
         self._secciones[indice][2].setChecked(True)
         self.lbl_titulo.setText(titulo)
-        # El conteo solo importa en las páginas que muestran datos de un conteo.
-        self.combo_conteo.setVisible(titulo in ("Dashboard", "Inventario", "Gráficas"))
+        self._actualizar_progreso_vista()
 
-    # ------------------------------------------------------------------ conteo, estado y avisos
-    def select_conteo(self, id_conteo: str) -> None:
-        indice = self.combo_conteo.findData(id_conteo)
-        if indice >= 0:
-            self.combo_conteo.setCurrentIndex(indice)
+    # ------------------------------------------------------------------ notificaciones y avisos
+    def contar_notificaciones(self) -> None:
+        if self._sesion is None or not self._sesion.puede("notificaciones"):
+            return
+        self._runner.run(notificaciones.sin_leer, self.poner_avisos, lambda _m: None, self._sesion, key="campana")
 
-    def conteo_actual(self) -> str | None:
-        return self._conteo_actual
+    def poner_avisos(self, cantidad: int) -> None:
+        self._sin_leer = cantidad
+        self.btn_avisos.setIcon(icono("campana_aviso" if cantidad else "campana"))
+        if cantidad:
+            self.btn_avisos.setToolTip(i18n.t("1 notificación sin leer") if cantidad == 1
+                                       else i18n.t("{n} notificaciones sin leer", n=cantidad))
+        else:
+            self.btn_avisos.setToolTip(i18n.t("Sin notificaciones sin leer"))
 
     def conectar_servicio(self, remoto: ServicioRemoto) -> None:
         """Refleja el estado del servicio Bluetooth en el encabezado y avisa cuando termina una sincronización."""
@@ -398,31 +473,42 @@ class MainWindow(QMainWindow):
 
     def tras_restaurar(self) -> None:
         self.cerrar_sesion()
-        self.avisar("Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras.", "info")
+        self.avisar(i18n.t("Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras."), "info")
 
-    def avisar(self, texto: str, tipo: str = "ok") -> None:
-        """Muestra un aviso flotante que sube desde la esquina inferior derecha y se va solo."""
+    def avisar(self, texto: str, tipo: str = "ok", duracion_ms: int = 4200) -> None:
+        """Aviso flotante que sube desde la esquina inferior derecha y se apila."""
         self._avisos = [a for a in self._avisos if self._vivo(a)]
         aviso = Aviso(texto, tipo, self)
+        aviso.cerrado.connect(self._reacomodar_avisos)
         ocupados = sum(a.height() + 10 for a in self._avisos)
-        aviso.mostrar(self.height() - aviso.height() - 24 - ocupados)
+        aviso.mostrar(self.height() - aviso.height() - 24 - ocupados, duracion_ms)
         self._avisos.append(aviso)
+
+    def _reacomodar_avisos(self, _aviso=None) -> None:
+        self._avisos = [a for a in self._avisos if self._vivo(a)]
+        ocupados = 0
+        for aviso in reversed(self._avisos):
+            destino = self.height() - aviso.height() - 24 - ocupados
+            if abs(aviso.y() - destino) > 1:
+                aviso.move(aviso.x(), destino)
+            ocupados += aviso.height() + 10
 
     def avisos_visibles(self) -> list[str]:
         return [a.texto for a in self._avisos if self._vivo(a)]
 
-    # ------------------------------------------------------------- internos
     @staticmethod
     def _vivo(aviso: Aviso) -> bool:
         try:
             return not aviso.isHidden()
-        except RuntimeError:  # Qt ya lo destruyó al cerrarse
+        except RuntimeError:
             return False
 
     @staticmethod
     def _texto_listo(status: dict) -> str:
         recibidos = status["ultima"].recibidos if status.get("ultima") is not None else 0
-        return f"Sincronización lista: {recibidos} {'lectura recibida' if recibidos == 1 else 'lecturas recibidas'}"
+        if recibidos == 1:
+            return i18n.t("Sincronización lista: 1 lectura recibida")
+        return i18n.t("Sincronización lista: {n} lecturas recibidas", n=recibidos)
 
     def _poner_chip(self, chip: QLabel, texto: str, estado: str) -> None:
         chip.setText(texto)
@@ -431,52 +517,122 @@ class MainWindow(QMainWindow):
         chip.style().polish(chip)
 
     def _estado_bluetooth(self, status: dict) -> None:
-        texto, estado = ESTADO_BLUETOOTH.get(status["estado"], (status["estado"].lower(), ""))
-        self._poner_chip(self.chip_bluetooth, f"Bluetooth: {texto}", estado)
+        textos = {
+            "IDLE": ("escuchando", "activo"), "ESPERANDO_EMPAREJAMIENTO": ("escuchando", "activo"),
+            "CONFIRMAR_CODIGO": ("esperando el código", "activo"), "CONECTADO": ("celular conectado", "activo"),
+            "RECIBIENDO": ("recibiendo", "activo"), "PROCESANDO": ("procesando", "activo"),
+            "LISTO": ("listo", "ok"), "ERROR": ("error", "error"), "PAUSANDO": ("pausando", "activo"),
+            "PAUSADO": ("en pausa", ""), "DETENIDO": ("servicio detenido", "error"),
+        }
+        texto, estado = textos.get(status["estado"], (status["estado"].lower(), ""))
+        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), estado)
 
-    def _cargar_conteos(self) -> None:
+    # ------------------------------------------------------------------ Oracle y encabezado
+    def comprobar_oracle(self) -> None:
         if self._sesion is None:
-            return  # sin sesión no se consulta nada
-        if not self._conteos_cargados:
-            self.banner.show_loading()
-        self._runner.run(db.fetch_conteos, self._conteos_listos, self._conteos_fallo, key="conteos")
+            return
+        self._runner.run(_ping, self._oracle_ok, self._oracle_fallo, key="oracle")
 
-    def _conteos_fallo(self, mensaje: str) -> None:
-        self._poner_chip(self.chip_oracle, "Oracle: sin conexión", "error")
+    def _oracle_ok(self, _valor) -> None:
+        self._poner_chip(self.chip_oracle, i18n.t("Oracle: conectado"), "ok")
+        ahora = datetime.now()
+        self.lbl_actualizado.setText(i18n.t("Actualizado {hora}", hora=f"{ahora:%H:%M:%S}"))
+        self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
+        self.banner.clear()
+
+    def _oracle_fallo(self, mensaje: str) -> None:
+        self._poner_chip(self.chip_oracle, i18n.t("Oracle: sin conexión"), "error")
         self.banner.show_error(mensaje)
 
-    def _conteos_listos(self, conteos: list[Conteo]) -> None:
-        self._conteos_cargados = True
-        self._poner_chip(self.chip_oracle, "Oracle: conectado", "ok")
-        self.lbl_actualizado.setText(f"Actualizado {datetime.now():%H:%M:%S}")
-        self.btn_actualizar.setToolTip(f"Volver a consultar (F5) · actualizado {datetime.now():%H:%M:%S}")
-        previo = self._conteo_actual
-        if not conteos:
-            self.banner.show_empty("Sin datos")
-            self.combo_conteo.blockSignals(True)
-            self.combo_conteo.clear()
-            self.combo_conteo.blockSignals(False)
-            self._aplicar_conteo(None)
+    # ------------------------------------------------------------------ lateral
+    def _alternar_manual(self) -> None:
+        self._colapso_manual = True
+        self._auto_colapsada = False
+        self.alternar_lateral()
+
+    def alternar_lateral(self) -> None:
+        self._colapsada = not self._colapsada
+        c = self._colapsada
+        destino = ANCHO_LATERAL_CONTRAIDA if c else ANCHO_LATERAL
+        self._aplicar_lateral(c)
+        self._lateral.setFixedWidth(destino)
+        QTimer.singleShot(0, self._centrar_contenido)
+
+    def _aplicar_lateral(self, c: bool) -> None:
+        self.marca.setVisible(not c)
+        self._textos_cuenta.setVisible(not c)
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.setText("" if c else f"  {boton.toolTip()}")
+        for marco in (self._lateral, self._pie):
+            marco.setProperty("contraida", c)
+            marco.style().unpolish(marco)
+            marco.style().polish(marco)
+        self._cabecera.setDirection(QBoxLayout.Direction.TopToBottom if c else QBoxLayout.Direction.LeftToRight)
+        for boton in (self.btn_avisos, self.btn_colapsar):
+            self._cabecera.setAlignment(boton, Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignRight)
+        self._en_pie.setDirection(QBoxLayout.Direction.TopToBottom if c else QBoxLayout.Direction.LeftToRight)
+        self._en_pie.setAlignment(self.btn_cuenta, Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignVCenter)
+        self.btn_cuenta.setMinimumWidth(48 if c else 0)
+        self.btn_cuenta.setMaximumWidth(48 if c else 16777215)
+
+    def lateral_contraida(self) -> bool:
+        return self._colapsada
+
+    # ------------------------------------------------------------------ reconstrucción
+    def _reconstruir_vistas(self) -> None:
+        """Vuelve a crear las vistas para aplicar un idioma o tema nuevo (cada texto se construye con ``t()``)."""
+        if self._registrar_vistas is None:
             return
-        self.banner.clear()
-        elegido = previo if any(c.id_conteo == previo for c in conteos) else next(
-            (c.id_conteo for c in conteos if c.estado == "ABIERTO"), conteos[0].id_conteo)
-        self.combo_conteo.blockSignals(True)
-        self.combo_conteo.clear()
-        for c in conteos:
-            self.combo_conteo.addItem(f"{c.id_conteo} — {c.nombre}", c.id_conteo)
-        self.combo_conteo.setCurrentIndex(self.combo_conteo.findData(elegido))
-        self.combo_conteo.blockSignals(False)
-        if elegido != previo:
-            self._aplicar_conteo(elegido)
+        actual = next((modulo for _t, vista, _b, modulo, _r in self._secciones
+                       if vista is self.paginas.currentWidget()), None)
+        for _titulo, vista, boton, _modulo, _roles in self._secciones:
+            if hasattr(vista, "set_sesion"):
+                vista.set_sesion(None)
+            self.paginas.removeWidget(vista)
+            vista.deleteLater()
+            boton.deleteLater()
+        self._secciones.clear()
+        while self._nav.count():
+            item = self._nav.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        if self._registrar_vistas is not None:
+            self._registrar_vistas()
+        if self._sesion is not None:
+            self.iniciar(self._sesion)
+            titulo = next((t for t, _v, _b, modulo, _r in self._secciones if modulo == actual), None)
+            if titulo is not None:
+                self.ir_a(titulo)
 
-    def _conteo_cambiado(self, indice: int) -> None:
-        self._aplicar_conteo(self.combo_conteo.itemData(indice))
+    def _centrar_contenido(self) -> None:
+        if not hasattr(self, "_centro"):
+            return
+        ancho = self._centro.width()
+        sobra = max(0, ancho - ANCHO_MAXIMO_CONTENIDO)
+        margen = MARGEN_LATERAL + sobra // 2
+        self._en_centro.setContentsMargins(margen, 18, margen, 18)
 
-    def _aplicar_conteo(self, id_conteo: str | None) -> None:
-        self._conteo_actual = id_conteo
-        for _titulo, vista, _boton, _modulo in self._secciones:
-            vista.set_conteo(id_conteo)
+    def _actualizar_progreso_vista(self) -> None:
+        """Sin indicador de scroll: se conserva el punto de extensión para las vistas que lo consulten."""
+
+    def resizeEvent(self, evento) -> None:
+        super().resizeEvent(evento)
+        if not hasattr(self, "_raiz"):
+            return
+        self._centrar_contenido()
+        if not self._colapso_manual and self._raiz.currentIndex() == 1:
+            if self.width() < 1060 and not self._colapsada:
+                self._auto_colapsada = True
+                self.alternar_lateral()
+            elif self.width() > 1200 and self._colapsada and self._auto_colapsada:
+                self._auto_colapsada = False
+                self.alternar_lateral()
+        QTimer.singleShot(0, self._centrar_contenido)
+
+    def showEvent(self, evento) -> None:
+        super().showEvent(evento)
+        QTimer.singleShot(0, self._centrar_contenido)
 
     def closeEvent(self, evento) -> None:
         self._timer.stop()
@@ -485,37 +641,59 @@ class MainWindow(QMainWindow):
 
 
 def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: auth.Sesion | None = None) -> MainWindow:
-    """La ventana completa; cada sección se ve según la matriz de permisos del rol (entre paréntesis, su módulo)."""
+    """La ventana completa; cada sección se ve según la matriz de permisos del rol."""
     ventana = MainWindow(auto_refresh_ms=auto_refresh_ms)
-    dashboard, sync, perfil = DashboardView(), SyncView(remoto), PerfilView()
-    ventana.add_view(dashboard, "Dashboard", "dashboard")
-    ventana.add_view(InventarioView(), "Inventario", "conteos")          # conciliación de los conteos
-    ventana.add_view(TareasView(), "Tareas de conteo", "tareas")
-    ventana.add_view(DiferenciasView(), "Diferencias", "diferencias")
-    ventana.add_view(MovimientosView(), "Movimientos", "movimientos")
-    ventana.add_view(AjustesView(), "Ajustes", "ajustes")
-    ventana.add_view(AuditoriaView(), "Auditoría", "historial")
-    ventana.add_view(ConfiguracionView(), "Configuración", "configuracion")
-    vista_respaldos = RespaldosView()
-    ventana.add_view(vista_respaldos, "Respaldos", "respaldos")
-    ventana.add_view(ExistenciasView(), "Existencias", "existencias")
-    ventana.add_view(CategoriasView(), "Categorías", "categorias")
-    ventana.add_view(AlmacenesView(), "Almacenes", "categorias")
-    ventana.add_view(sync, "Sincronización", "bluetooth")
-    ventana.add_view(ChartsView(), "Gráficas", "reportes")
-    solicitudes = SolicitudesView()
-    solicitudes.cambiaron.connect(ventana.poner_avisos)
-    ventana.add_view(solicitudes, "Solicitudes", "solicitudes")
-    ventana.add_view(UsuariosView(), "Empleados", "usuarios")
-    ventana.add_view(RolesView(), "Roles y permisos", "permisos")
-    ventana.add_view(perfil, "Perfil", "perfil", en_barra=False)
+
+    def registrar() -> None:
+        dashboard = DashboardView()
+        inventario = InventarioView()
+        graficas = ChartsView()
+        sync = SyncView(remoto)
+        solicitudes = SolicitudesView()
+        empleados = UsuariosView()
+        roles = RolesView()
+        auditoria = AuditoriaView()
+        configuracion_vista = ConfiguracionView()
+        respaldos = RespaldosView()
+        avisos = NotificacionesView()
+        perfil = PerfilView()
+
+        ventana.add_view(dashboard, i18n.t("Dashboard"), "dashboard", icono_id="Dashboard")
+        ventana.add_view(inventario, i18n.t("Inventario"), "inventario", icono_id="Inventario")
+        ventana.add_view(graficas, i18n.t("Gráficas"), "graficas", roles=(auth.INVENTARIO,), icono_id="Gráficas")
+        ventana.add_view(solicitudes, i18n.t("Solicitudes"), "solicitudes", icono_id="Solicitudes")
+        ventana.add_view(empleados, i18n.t("Empleados"), "usuarios", icono_id="Empleados")
+        ventana.add_view(roles, i18n.t("Roles y permisos"), "permisos", icono_id="Roles y permisos")
+        ventana.add_view(auditoria, i18n.t("Auditoría"), "auditoria", icono_id="Auditoría")
+        ventana.add_view(configuracion_vista, i18n.t("Configuración"), "configuracion", icono_id="Configuración")
+        ventana.add_view(sync, i18n.t("Sincronización"), "sync", icono_id="Sincronización")
+        ventana.add_view(respaldos, i18n.t("Respaldos"), "respaldos", icono_id="Respaldos")
+        ventana.add_view(avisos, i18n.t("Notificaciones"), "notificaciones", icono_id="Notificaciones")
+        ventana.add_view(perfil, i18n.t("Perfil"), "perfil", en_barra=False, icono_id="Perfil")
+
+        perfil.cerrar_sesion.connect(ventana.cerrar_sesion)
+        perfil.tema_cambiado.connect(ventana.cambiar_tema)
+        perfil.idioma_cambiado.connect(ventana.cambiar_idioma)
+        perfil.foto_cambiada.connect(ventana.actualizar_avatar)
+        if hasattr(solicitudes, "aviso"):
+            solicitudes.aviso.connect(ventana.avisar)
+        if hasattr(avisos, "ir_a"):
+            avisos.ir_a.connect(ventana.ir_a)
+        if hasattr(avisos, "cambiaron"):
+            avisos.cambiaron.connect(ventana.contar_notificaciones)
+        if hasattr(respaldos, "restaurado"):
+            respaldos.restaurado.connect(ventana.tras_restaurar)
+        if hasattr(sync, "datos_cambiados"):
+            sync.datos_cambiados.connect(ventana.refresh_requested)
+        if hasattr(graficas, "filtro"):
+            graficas.filtro.connect(ventana._drill)
+        if hasattr(dashboard, "filtro"):
+            dashboard.filtro.connect(ventana._drill)
+
+    ventana._registrar_vistas = registrar
+    registrar()
     ventana.conectar_servicio(remoto)
-    remoto.listo.connect(ventana.refresh_requested)                       # llegaron datos nuevos
-    dashboard.conteo_cerrado.connect(lambda _: ventana.refresh_requested.emit())
-    dashboard.conteo_cerrado.connect(lambda id_conteo: ventana.avisar(f"Conteo {id_conteo} cerrado", "info"))
-    sync.datos_cambiados.connect(ventana.refresh_requested)
-    perfil.cerrar_sesion.connect(ventana.cerrar_sesion)
-    vista_respaldos.restaurado.connect(ventana.tras_restaurar)   # las cuentas pudieron cambiar: de vuelta al login
+    remoto.listo.connect(ventana.refresh_requested)
     if sesion is not None:
         ventana.iniciar(sesion)
     return ventana
@@ -523,16 +701,19 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
 
 def main() -> int:
     app = QApplication(sys.argv)
-    auth.migrar()      # estados de cuenta y rol OPERADOR en bases creadas antes de existir
-    permisos.migrar()  # tabla de la matriz y sus valores iniciales
-    maestros.migrar()  # categorías, almacenes y existencias (Fase 2)
-    with db._conexion() as conn:
-        esquema.migrar(conn)     # dañados, tabla fotos y paquete PL/SQL al día (Fase 4)
-        tareas_bt.migrar(conn)   # columnas de tarea en conteos y la tabla revisiones (Fase 3)
-    movimientos.migrar()         # entradas, salidas y ajustes (Fase 3b)
-    auditoria.migrar()           # quién hizo qué y cuándo (Fase 4)
-    configuracion.aplicar_jobs()  # intervalo del lote y días de purga de la Configuración (Fase 5)
-    ventana = build_window(ServicioRemoto())   # la recepción es del servicio «bluetooth»: cerrar aquí no la detiene
+    app.setStyleSheet(estilo())
+    try:                   # si Oracle aún no está listo, la ventana abre igual y muestra el error al entrar
+        auth.migrar()      # columnas nuevas (correo, pregunta, foto, tema, idioma)
+        permisos.migrar()  # 12 módulos y sus valores iniciales
+        from btsync import esquema
+        with db._conexion() as conn:
+            esquema.migrar(conn)     # tablas del servicio, fotos, notificaciones y paquete del batch
+        from . import auditoria
+        auditoria.migrar()
+        configuracion.aplicar_jobs()
+    except Exception as exc:     # noqa: BLE001 — se informa en la pantalla, no se cae la aplicación
+        print(f"Oracle no está listo: {exc}", file=sys.stderr)
+    ventana = build_window(ServicioRemoto())
     ventana.show()
     return app.exec()
 

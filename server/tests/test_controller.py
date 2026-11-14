@@ -33,6 +33,9 @@ STATUS_KEYS = {"estado", "codigo", "recibidos", "restante_s", "ultimo_error"}
 class FakeStore:
     """Store en memoria: lo justo para que una Session real funcione, y espía de run_batch."""
 
+    def notificar_sincronizacion(self, errores):
+        pass
+
     def config(self):
         from btsync.config import DEFAULTS
 
@@ -137,7 +140,7 @@ def acct(usuario=OPERADOR_ACTIVO):
     return frame(["ACCT", usuario, "Operador de prueba"])
 
 
-def rec(seq, conteo="T-01", sku="A1", cant="1", operador="Ana"):
+def rec(seq, conteo="ACTUAL", sku="A1", cant="1", operador="Ana"):
     return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, sku, cant, operador, "", ""])
 
 
@@ -372,13 +375,14 @@ def test_tcp_transport_real_store_end_to_end(escenario, db):
     finally:
         controller.cancel()
         store.rollback()
+        store.close()
 
     assert controller.status()["recibidos"] == 5 and controller.status()["ultimo_error"] is None
     cur = db.cursor()
     cur.execute(
         "SELECT skus_totales, contados, avance_pct, ok, faltantes, sobrantes, exactitud_pct, "
-        "valor_faltante, valor_sobrante FROM v_resumen_conteo WHERE id_conteo = 'T-01'"
+        "valor_faltante, valor_sobrante FROM v_resumen_conteo WHERE id_conteo = 'ACTUAL'"
     )
-    assert cur.fetchone() == (5, 4, 80.00, 1, 1, 2, 25.00, -5000, 11800)
+    assert cur.fetchone() == (65, 4, 6.15, 0, 1, 3, 0, 5000, 13800)
     cur.execute("SELECT origen FROM log_batch WHERE id > :m", m=escenario.log_mark)
     assert cur.fetchall() == [("SYNC",)]

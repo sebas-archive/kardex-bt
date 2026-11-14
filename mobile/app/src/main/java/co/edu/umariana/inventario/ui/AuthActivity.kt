@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import co.edu.umariana.inventario.auth.AuthResult
 import co.edu.umariana.inventario.auth.EstadoCuenta
+import co.edu.umariana.inventario.data.PantallaAviso
+import co.edu.umariana.inventario.data.TipoAviso
 import co.edu.umariana.inventario.ui.pantallas.AuthScreen
 import co.edu.umariana.inventario.ui.pantallas.AuthUi
 import co.edu.umariana.inventario.ui.pantallas.ModoAuth
@@ -28,7 +30,12 @@ class AuthActivity : PantallaActivity() {
                 alCambiarModo = { if (!ui.cargando) ui = AuthUi(modo = it) },
                 alEntrar = { usuario, clave -> intentar({ s.auth.iniciarSesion(usuario, clave) }, ::entrar) },
                 alRegistrar = { d ->
-                    intentar({ s.auth.registrar(d.usuario, d.nombre, d.clave, d.confirmacion, d.pregunta, d.respuesta) }, ::entrar)
+                    intentar({ s.auth.registrar(d.usuario, d.nombre, d.clave, d.confirmacion, d.pregunta, d.respuesta, d.correo) }) { resultado ->
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            s.notificaciones.crear(TipoAviso.CUENTA_CREADA, "", PantallaAviso.ESTADO_CUENTA)
+                        }
+                        entrar(resultado)
+                    }
                 },
                 alBuscarPregunta = { usuario ->
                     if (!ui.cargando) lifecycleScope.launch {
@@ -40,7 +47,10 @@ class AuthActivity : PantallaActivity() {
                 },
                 alRestablecer = { usuario, respuesta, clave, confirmacion ->
                     intentar({ s.auth.restablecer(usuario, respuesta, clave, confirmacion) }) {
-                        ui = AuthUi(modo = ModoAuth.ENTRAR, aviso = "Contraseña cambiada. Entra con la nueva.")
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            s.notificaciones.crear(TipoAviso.CLAVE_RESTABLECIDA, "", PantallaAviso.INICIO)
+                        }
+                        ui = AuthUi(modo = ModoAuth.ENTRAR, aviso = Textos.t("Contraseña restablecida. Entra con la nueva."))
                     }
                 },
             )

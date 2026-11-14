@@ -22,19 +22,18 @@ def config_tst():
 def test_sin_filas_lee_los_iniciales(config_tst):
     assert config.leer(config_tst.cursor()) == config.DEFAULTS
     assert config.DEFAULTS == {
-        "ajustes.umbral_pct": "10", "ajustes.umbral_valor": "200000", "lote.intervalo_s": "60",
-        "staging.purga_dias": "7", "fotos.max_mb": "2", "respaldos.auto": "S", "respaldos.hora": "23:00",
-        "respaldos.conservar": "7"}
+        "lote.intervalo_min": "1", "fotos.max_mb": "2", "fotos.dir": "/work/fotos",
+        "respaldos.auto": "S", "respaldos.hora": "23:00", "respaldos.conservar": "7"}
 
 
 def test_escribir_y_leer(config_tst):
     cur = config_tst.cursor()
     config.escribir(cur, {"fotos.max_mb": "5"})
-    config.escribir(cur, {"fotos.max_mb": "3", "lote.intervalo_s": "30"})
+    config.escribir(cur, {"fotos.max_mb": "3", "lote.intervalo_min": "30"})
     config_tst.commit()
     valores = config.leer(cur)
-    assert valores["fotos.max_mb"] == "3" and valores["lote.intervalo_s"] == "30"
-    assert valores["ajustes.umbral_pct"] == "10"
+    assert valores["fotos.max_mb"] == "3" and valores["lote.intervalo_min"] == "30"
+    assert valores["respaldos.auto"] == "S"
 
 
 def test_migrar_dos_veces(config_tst):
@@ -59,7 +58,7 @@ def test_el_limite_de_foto_sale_de_la_configuracion(store, config_tst, tmp_path,
 
 @pytest.mark.parametrize("clave, valor", [
     ("fotos.max_mb", "abc"), ("fotos.max_mb", "0"), ("respaldos.conservar", "0"), ("respaldos.hora", "9:00"),
-    ("respaldos.hora", "24:00"), ("respaldos.auto", "talvez"), ("lote.intervalo_s", "5"),
+    ("respaldos.hora", "24:00"), ("respaldos.auto", "talvez"), ("lote.intervalo_min", "0")
 ])
 def test_un_valor_invalido_guardado_vale_el_inicial(config_tst, clave, valor):
     """El servicio usa estos valores sin pantalla de por medio (p. ej. tras restaurar un respaldo): uno inválido

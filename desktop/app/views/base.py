@@ -6,10 +6,12 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Protocol
 
+from PyQt6 import sip
 from PyQt6.QtCore import QObject, QPointF, Qt, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
+from ..i18n import t
 from ..workers import QueryWorker
 
 ESTILO = """
@@ -59,9 +61,12 @@ QLabel#cardDetalle { color: #8A8A8A; font-size: 11px; }
 QLabel#seccion { font-size: 14px; font-weight: 600; background: transparent; }
 QLabel#subtitulo, QLabel#ayuda { color: #8A8A8A; background: transparent; }
 QLabel#insignia { border-radius: 10px; padding: 3px 10px; font-size: 11px; font-weight: 600; color: #A3A3A3; background: #1C1C1C; }
-QLabel#insignia[estado="ABIERTO"], QLabel#insignia[estado="ADMIN"] { background: #10261F; color: #34D399; }
+QLabel#insignia[estado="ABIERTO"], QLabel#insignia[estado="ADMIN"], QLabel#insignia[estado="ACTIVO"] { background: #10261F; color: #34D399; }
 QLabel#insignia[estado="CERRADO"] { background: #1C1C1C; color: #A3A3A3; }
-QLabel#insignia[estado="INVENTARIO"] { background: #1F2350; color: #A5B4FC; }
+QLabel#insignia[estado="INVENTARIO"], QLabel#insignia[estado="OPERADOR"] { background: #1F2350; color: #A5B4FC; }
+QLabel#insignia[estado="SUSPENDIDO"], QLabel#insignia[estado="RECHAZADO"] { background: #3A1512; color: #F87171; }
+QLabel#insignia[estado="PENDIENTE"] { background: #2B2410; color: #FBBF24; }
+QLabel#avatarGrande { background: transparent; border: none; }
 QLabel#resumen { color: #A3A3A3; background: transparent; }
 QLabel#estadoSync { font-size: 19px; font-weight: 600; background: transparent; }
 QLabel#codigoSync { font-size: 54px; font-weight: 700; font-family: "DejaVu Sans Mono"; color: #34D399; background: transparent; }
@@ -102,6 +107,10 @@ QHeaderView::section { background: #0F0F0F; padding: 8px 6px; border: none; bord
                        font-weight: 600; color: #A3A3A3; }
 QLineEdit, QComboBox, QSpinBox { padding: 7px 10px; border: 1px solid #2E2E2E; border-radius: 8px; background: #111111; }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 2px solid #10B981; padding: 6px 9px; }
+QLineEdit[valido="true"] { border: 1px solid #10B981; }
+QLineEdit[invalido="true"] { border: 1px solid #F87171; }
+QLineEdit[invalido="true"]:focus { border: 2px solid #F87171; padding: 6px 9px; }
+QLineEdit[valido="true"]:focus { border: 2px solid #10B981; padding: 6px 9px; }
 QComboBox::drop-down, QSpinBox::up-button, QSpinBox::down-button { border: none; width: 22px; background: transparent; }
 QComboBox QAbstractItemView { background: #111111; border: 1px solid #2E2E2E; selection-background-color: #10261F;
                               selection-color: #EDEDED; outline: none; }
@@ -111,6 +120,116 @@ QScrollArea { border: none; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: #2E2E2E; border-radius: 4px; min-height: 30px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
+/* ---------------------------------------------------------------- interactividad */
+QPushButton:hover { background: #1C1C1C; border-color: #3A3A3A; }
+QPushButton:pressed { background: #262626; }
+QPushButton:focus { border: 1px solid #10B981; }
+QToolButton { border: none; background: transparent; color: #A3A3A3; border-radius: 6px; padding: 2px; }
+QToolButton:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; }
+QToolButton:focus { border: 1px solid #10B981; }
+
+/* Barra lateral: ítem activo con indicador y glow del color primario (sin cambiar la identidad) */
+QPushButton#nav { padding-left: 12px; border-left: 3px solid transparent; }
+QPushButton#nav:hover { background: rgba(255,255,255,0.07); color: #FFFFFF; }
+QPushButton#nav:checked { border-left: 3px solid #10B981;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16,185,129,0.16), stop:1 rgba(16,185,129,0.02));
+    color: #FFFFFF; }
+QPushButton#nav:checked:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16,185,129,0.22), stop:1 rgba(16,185,129,0.03)); }
+QFrame#lateral[contraida="true"] QPushButton#nav { text-align: center; padding-left: 0; border-left: 3px solid transparent; }
+QFrame#lateral[contraida="true"] QPushButton#nav:checked { border-left: 3px solid #10B981; }
+QFrame#separadorNav { background: rgba(255,255,255,0.07); max-height: 1px; margin: 6px 10px; }
+
+/* Tarjetas con hover rico */
+QFrame#card { border: 1px solid #232323; }
+QFrame#card[hover="true"] { border: 1px solid #2F6B57; }
+QWidget#accionesCard { background: transparent; }
+QPushButton#accionCard { padding: 5px 10px; font-size: 11px; border-radius: 7px; color: #CFCFCF; }
+QPushButton#accionCard[primaria="true"] { background: #10B981; color: #04130E; border: none; }
+QLabel#cardPista { color: #34D399; font-size: 11px; font-weight: 600; background: transparent; }
+
+/* Drawer */
+QLabel#drawerFondo { background: #0A0A0A; }
+QFrame#drawerVelo { background: rgba(0,0,0,0.55); }
+QFrame#drawerPanel { background: #0F0F0F; border-left: 1px solid #2A2A2A; }
+QLabel#drawerTitulo { font-size: 18px; font-weight: 600; color: #FFFFFF; background: transparent; }
+QToolButton#cerrarDrawer { color: #A3A3A3; font-size: 15px; min-width: 28px; min-height: 28px; }
+QToolButton#cerrarDrawer:hover { background: #2A2A2A; color: #FFFFFF; }
+QLabel#datoDrawer { color: #EDEDED; font-weight: 600; background: transparent; }
+
+/* Modal de confirmación */
+QFrame#modalCaja { background: #121212; border: 1px solid #333333; border-radius: 14px; }
+QLabel#modalTitulo { font-size: 18px; font-weight: 600; color: #FFFFFF; background: transparent; }
+QLabel#modalTexto { color: #CFCFCF; font-size: 13px; background: transparent; }
+QCheckBox { color: #CFCFCF; spacing: 8px; }
+QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #4A4A4A; background: #111111; }
+QCheckBox::indicator:checked { background: #10B981; border-color: #10B981; }
+
+/* Command palette */
+QFrame#paletaCaja { background: #111111; border: 1px solid #343434; border-radius: 14px; }
+QLineEdit#paletaCampo { font-size: 15px; padding: 10px 8px; border: none; background: transparent; }
+QLineEdit#paletaCampo:focus { border: none; }
+QLabel#paletaLupa { color: #10B981; font-size: 19px; padding-left: 4px; }
+QListWidget#paletaLista { background: transparent; border: none; outline: none; }
+QListWidget#paletaLista::item { border: none; }
+QLabel#paletaPie { color: #6E6E6E; font-size: 11px; background: transparent; }
+QToolButton#ayudaVista { color: #8A8A8A; font-size: 11px; font-weight: 700; min-width: 22px; max-width: 22px;
+    min-height: 22px; max-height: 22px; border: 1px solid #3A3A3A; border-radius: 11px; }
+QToolButton#ayudaVista:hover { color: #FFFFFF; border-color: #10B981; background: #133A2C; }
+
+/* Ayuda de atajos */
+QFrame#ayudaCaja { background: #111111; border: 1px solid #343434; border-radius: 14px; }
+QLabel#ayudaCategoria { color: #10B981; font-size: 11px; font-weight: 700; letter-spacing: 1px; background: transparent; }
+QLabel#ayudaAtajo { color: #EDEDED; font-size: 13px; background: transparent; }
+QLabel#ayudaTecla { background: #1C1C1C; border: 1px solid #383838; border-radius: 6px; padding: 2px 8px;
+    color: #CFCFCF; font-family: "DejaVu Sans Mono"; font-size: 11px; min-width: 42px; }
+
+/* Toasts */
+QPushButton#accionToast { background: #10B981; color: #04130E; border: none; border-radius: 6px; padding: 4px 10px;
+    font-size: 11px; font-weight: 600; }
+QPushButton#accionToast:hover { background: #34D399; }
+
+/* Chips de filtros activos */
+QFrame#chipActivo { background: #132A22; border: 1px solid #2F6B57; border-radius: 13px; }
+QLabel#chipActivoTexto { color: #6EE7B7; font-size: 11px; font-weight: 600; background: transparent; }
+QToolButton#chipActivoCerrar { color: #6EE7B7; font-size: 10px; min-width: 16px; min-height: 16px; border-radius: 8px; }
+QToolButton#chipActivoCerrar:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }
+
+/* Barra de selección múltiple */
+QFrame#barraLote { background: #1C1C1C; border: 1px solid #3A3A3A; border-radius: 12px; }
+QLabel#barraLoteTexto { color: #FFFFFF; font-weight: 600; background: transparent; }
+QPushButton#accionLote { padding: 5px 12px; font-size: 12px; }
+QPushButton#accionLote[primaria="true"] { background: #10B981; color: #04130E; border: none; }
+
+/* Acciones rápidas de fila */
+QWidget#accionesFila { background: #1C1C1C; border: 1px solid #3A3A3A; border-radius: 7px; }
+QToolButton#accionFila { color: #CFCFCF; font-size: 12px; }
+QToolButton#accionFila:hover { background: #10B981; color: #04130E; }
+
+/* Tooltip rico y tooltip de gráfica */
+QWidget#tooltipRico { background: #1C1C1C; border: 1px solid #3A3A3A; border-radius: 9px; }
+QLabel#tooltipTitulo { color: #FFFFFF; font-weight: 700; background: transparent; }
+QLabel#tooltipTexto { color: #CFCFCF; font-size: 12px; background: transparent; }
+QLabel#tooltipDato { color: #34D399; font-weight: 600; background: transparent; }
+QLabel#tooltipGrafica { background: #1C1C1C; border: 1px solid #3A3A3A; border-radius: 7px; padding: 6px 9px;
+    color: #EDEDED; font-size: 12px; }
+
+/* Menú contextual */
+QMenu#menuContexto { background: #1A1A1A; border: 1px solid #3A3A3A; border-radius: 9px; padding: 6px; }
+QMenu#menuContexto::item { padding: 6px 18px; border-radius: 6px; color: #EDEDED; }
+QMenu#menuContexto::item:selected { background: #133A2C; color: #FFFFFF; }
+QMenu#menuContexto::separator { height: 1px; background: #2E2E2E; margin: 5px 8px; }
+
+/* Tablas */
+QTableView::item:hover, QTableWidget::item:hover { background: rgba(255,255,255,0.04); }
+QHeaderView::section:hover { color: #EDEDED; background: #161616; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
+QScrollBar::handle:horizontal { background: #2E2E2E; border-radius: 4px; min-width: 30px; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+
+/* Encabezado que se compacta */
+QLabel#tituloPagina[compacto="true"] { font-size: 17px; }
+
 """
 
 
@@ -149,9 +268,6 @@ class RefreshableView(Protocol):
     def refresh(self) -> None:
         """Vuelve a consultar y repinta. Nunca bloquea la interfaz."""
 
-    def set_conteo(self, id_conteo: str | None) -> None:
-        """Cambia el conteo mostrado (``None`` si no hay ninguno) y refresca."""
-
 
 class _Entrega(QObject):
     """Vive en el hilo de la interfaz: recibe lo que termina un worker y lo pasa al runner."""
@@ -163,11 +279,23 @@ class _Entrega(QObject):
 
     @pyqtSlot(object)
     def exito(self, resultado) -> None:
+        if not _vivo(self.runner):
+            return
         self.runner._terminar(self, self.on_done, resultado)
 
     @pyqtSlot(str)
     def fallo(self, mensaje: str) -> None:
+        if not _vivo(self.runner):
+            return
         self.runner._terminar(self, self.on_error, mensaje)
+
+
+def _vivo(objeto: QObject) -> bool:
+    """Si ``objeto`` y su dueño siguen existiendo en Qt (una ventana cerrada con consultas en curso ya no)."""
+    if sip.isdeleted(objeto):
+        return False
+    dueno = objeto.parent()
+    return dueno is None or not sip.isdeleted(dueno)
 
 
 MAX_HILOS = 8
@@ -214,7 +342,12 @@ class QueryRunner(QObject):
         if entrega.key is not None and self._ultimo.get(entrega.key) != entrega.token:
             return  # llegó tarde: ya hay una consulta más reciente
         if callback is not None:
-            callback(valor)
+            try:
+                callback(valor)
+            except RuntimeError as exc:
+                # La pantalla se cerró mientras llegaba el resultado: sus widgets ya no existen. Nada que mostrar.
+                if "has been deleted" not in str(exc):
+                    raise
 
 
 class StateBanner(QFrame):
@@ -229,7 +362,7 @@ class StateBanner(QFrame):
         lay.setContentsMargins(12, 8, 12, 8)
         self._label = QLabel()
         self._label.setWordWrap(True)
-        self.btn_reintentar = QPushButton("Reintentar")
+        self.btn_reintentar = QPushButton(t("Reintentar"))
         self.btn_reintentar.clicked.connect(self.retry)
         lay.addWidget(self._label, 1)
         lay.addWidget(self.btn_reintentar)
@@ -247,13 +380,13 @@ class StateBanner(QFrame):
         self.show()
 
     def show_loading(self) -> None:
-        self._mostrar("Cargando…", False)
+        self._mostrar(t("Cargando…"), False)
 
     def show_empty(self, texto: str = "Sin datos") -> None:
-        self._mostrar(texto, False)
+        self._mostrar(t(texto), False)
 
     def show_error(self, mensaje: str) -> None:
-        self._mostrar(f"No se pudo consultar la base de datos: {mensaje}", True)
+        self._mostrar(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje), True)
 
     def clear(self) -> None:
         self.hide()

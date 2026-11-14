@@ -27,12 +27,18 @@ class MigracionCuentasTest {
         }
 
         val db = Room.databaseBuilder(context, CuentasDatabase::class.java, "cuentas-migracion.db")
-            .addMigrations(CuentasDatabase.MIGRACION_1_2).allowMainThreadQueries().build()
+            .addMigrations(CuentasDatabase.MIGRACION_1_2, CuentasDatabase.MIGRACION_2_3).allowMainThreadQueries().build()
         try {
             val cuentas = db.usuarios().todos()   // abrirla valida el esquema nuevo
             assertEquals(listOf(Rol.OPERADOR, Rol.OPERADOR), cuentas.map { it.rol })
             assertEquals(listOf(EstadoCuenta.PENDIENTE, EstadoCuenta.PENDIENTE), cuentas.map { it.estado })
             assertEquals(listOf(null, null), cuentas.map { it.motivo })
+            assertEquals(listOf(null, null), cuentas.map { it.correo })   // versión 3: sin correo
+            assertEquals(listOf(null, null), cuentas.map { it.foto })     // versión 3: sin foto
+            db.usuarios().insertar(cuentas[0].copy(id = 0, usuario = "nueva", correo = "a@b.co", foto = "/x.jpg"))
+            val nueva = db.usuarios().porUsuario("nueva")!!
+            assertEquals("a@b.co", nueva.correo)
+            assertEquals("/x.jpg", nueva.foto)
         } finally {
             db.close()
         }

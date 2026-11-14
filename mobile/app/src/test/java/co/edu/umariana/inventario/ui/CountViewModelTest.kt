@@ -4,9 +4,8 @@ import androidx.test.core.app.ApplicationProvider
 import co.edu.umariana.inventario.data.AppDatabase
 import co.edu.umariana.inventario.data.Catalog
 import co.edu.umariana.inventario.data.CatalogRepository
-import co.edu.umariana.inventario.data.TareaEntity
-import co.edu.umariana.inventario.data.FotoRepository
 import co.edu.umariana.inventario.data.FotoEntity
+import co.edu.umariana.inventario.data.FotoRepository
 import co.edu.umariana.inventario.data.Estado
 import co.edu.umariana.inventario.data.ProductoEntity
 import co.edu.umariana.inventario.data.TestDb
@@ -38,7 +37,6 @@ class CountViewModelTest {
         settings = SettingsStore(ApplicationProvider.getApplicationContext())
         CatalogRepository(db.catalogo()).reemplazarTodo(
             Catalog(
-                tareas = listOf(TareaEntity("T-01", "Conteo de prueba", "", "", "", 0, 0)),
                 productos = listOf(ProductoEntity("A1", "Producto A1", "Abarrotes", "UND"),
                     ProductoEntity("A2", "Café | molido", "Abarrotes", "UND")),
             )
@@ -49,15 +47,11 @@ class CountViewModelTest {
     @After
     fun cerrar() = db.close()
 
-    /** Operador y conteo ya elegidos: lo que tiene el teléfono después de la configuración inicial. */
-    private fun listo() {
-        vm.setOperador("Ana")
-        vm.elegirConteo("T-01")
-    }
+    /** Operador ya elegido: lo que tiene el teléfono después de entrar. */
+    private fun listo() = vm.setOperador("Ana")
 
     @Test
     fun test_save_requires_operator_name() {
-        vm.elegirConteo("T-01")
         assertEquals(SaveResult.OperadorFaltante, vm.guardar("A1", "5", ""))
         vm.setOperador("   ")  // en blanco no cuenta
         assertEquals(SaveResult.OperadorFaltante, vm.guardar("A1", "5", ""))
@@ -71,7 +65,6 @@ class CountViewModelTest {
 
     @Test
     fun test_operator_over_60_chars_is_rejected() {
-        vm.elegirConteo("T-01")
         vm.setOperador("x".repeat(61))
         assertEquals("", vm.operador.value)
         assertEquals(SaveResult.OperadorFaltante, vm.guardar("A1", "5", ""))
@@ -150,12 +143,12 @@ class CountViewModelTest {
 
     @Test
     fun test_operator_and_note_with_pipe_and_newline_are_encoded_in_rec() {
-        vm.elegirConteo("T-01")
         vm.setOperador("Ana|Luis")
         val nota = "caja rota | 2 pzs\nrevisar 100%"
         vm.guardar("A1", "5", nota)
 
         val fila = db.outbox().todas().single()
+        assertEquals(CountViewModel.CONTEO, fila.idConteo)  // conteo continuo: ACTUAL
         assertEquals(nota, fila.nota)  // en la base va tal cual; se codifica al armar el REC
         val rec = Rec(fila.seq, fila.tsOriginalMs, fila.idConteo, fila.sku, fila.cantidad, fila.operador, fila.nota)
         val cruda = rec.toRaw()
@@ -168,17 +161,13 @@ class CountViewModelTest {
     @Test
     fun test_operator_is_remembered_across_instances() {
         vm.setOperador("Ana")
-        vm.elegirConteo("T-01")
         val otro = nuevoVm()  // la app se cerró y se volvió a abrir
         assertEquals("Ana", otro.operador.value)
-        assertEquals("T-01", otro.conteo.value)
     }
 
     @Test
-    fun test_missing_conteo_or_sku_blocks_save() {
+    fun test_missing_sku_blocks_save() {
         vm.setOperador("Ana")
-        assertEquals(SaveResult.SinConteo, vm.guardar("A1", "5", ""))
-        vm.elegirConteo("T-01")
         assertEquals(SaveResult.SkuFaltante, vm.guardar("  ", "5", ""))
         assertTrue(db.outbox().todas().isEmpty())
     }
@@ -193,30 +182,11 @@ class CountViewModelTest {
     }
 
     @Test
-    fun iniciarTareaLaRegistraYLaElige() {
-        vm.iniciarTarea("T-01")
-        assertEquals("T-01", vm.conteo.value)
-        assertEquals(setOf("T-01"), vm.iniciadas())
-        assertEquals(listOf("T-01"), vm.tareas().map { it.id })
-    }
-
-    @Test
-    fun sinTareasNoHayCatalogo() {
-        CatalogRepository(db.catalogo()).reemplazarTodo(Catalog(productos = listOf(ProductoEntity("A1", "Producto A1", "Abarrotes", "UND"))))
+    fun hayCatalogoCuandoLleganProductos() {
+        assertTrue(vm.hayCatalogo())
+        assertFalse(vm.productos().isEmpty())
+        CatalogRepository(db.catalogo()).reemplazarTodo(Catalog())
         assertFalse(vm.hayCatalogo())
-    }
-
-    @Test
-    fun tareaQueYaNoLlegaDejaDeSerLaActual() {
-        vm.setOperador("Ana")
-        vm.iniciarTarea("T-01")
-        assertNull(vm.soltarTareaSiYaNoEsta())              // sigue en el catálogo: nada cambia
-        assertEquals("T-01", vm.conteo.value)
-        CatalogRepository(db.catalogo()).reemplazarTodo(Catalog(tareas = listOf(TareaEntity("T-02", "Otra", "ALM-01", "", "ASIGNADA", 1, 0))))
-        assertEquals("T-01", vm.soltarTareaSiYaNoEsta())    // la cerraron o la reasignaron
-        assertNull(vm.conteo.value)
-        assertNull(nuevoVm().conteo.value)                   // y no vuelve al reabrir la app
-        assertEquals(SaveResult.SinConteo, vm.guardar("A1", "5", ""))
     }
 
     // ------------------------------------------------------------------ Fase 4: dañados y foto
@@ -239,7 +209,7 @@ class CountViewModelTest {
     @Test
     fun laFotoQuedaAdjuntaALaLectura() {
         val (vm, repo) = vmConFotos()
-        vm.setOperador("Ana"); vm.elegirConteo("T-01")
+        vm.setOperador("Ana")
         val temporal = carpeta.newFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val seq = (vm.guardar("A1", "5", "caja rota", foto = temporal) as SaveResult.Guardada).seq
         assertArrayEquals(byteArrayOf(1, 2, 3), repo.archivo(seq)!!.readBytes())
@@ -250,7 +220,7 @@ class CountViewModelTest {
     @Test
     fun recontarEnSitioConFotoNuevaReemplazaLaFotoYLaNota() {
         val (vm, repo) = vmConFotos()
-        vm.setOperador("Ana"); vm.elegirConteo("T-01")
+        vm.setOperador("Ana")
         val vieja = carpeta.newFile().apply { writeBytes(byteArrayOf(1)) }
         val seq = (vm.guardar("A1", "5", "", foto = vieja) as SaveResult.Guardada).seq
         val nueva = carpeta.newFile().apply { writeBytes(byteArrayOf(9, 9)) }

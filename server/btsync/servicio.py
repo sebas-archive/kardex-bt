@@ -106,7 +106,7 @@ class Servicio:
             self._hilo.start()
 
     def ocupado(self) -> bool:
-        """Si las tareas periódicas de un tick anterior siguen corriendo (no se lanza otra tanda)."""
+        """Si los trabajos periódicos de un tick anterior siguen corriendo (no se lanza otra tanda)."""
         return self._hilo is not None and self._hilo.is_alive()
 
     def _periodicas(self) -> None:

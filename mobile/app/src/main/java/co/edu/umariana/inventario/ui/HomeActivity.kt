@@ -12,7 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Inicio: dónde está contando el operario y a dónde ir. Sin sesión abierta, manda al acceso. */
+/** Inicio: quién cuenta, cuánto falta por enviar y a dónde ir. Sin sesión abierta, manda al acceso. */
 class HomeActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
     private var ui by mutableStateOf(HomeUi())
@@ -27,16 +27,12 @@ class HomeActivity : PantallaActivity() {
         pantalla {
             HomeScreen(
                 ui,
-                alContar = {
-                    when {
-                        s.contar.conteo.value == null -> abrir(TareasActivity::class.java)
-                        else -> abrir(ContarActivity::class.java)
-                    }
-                },
-                alElegir = { abrir(TareasActivity::class.java) },
+                alContar = { abrir(ContarActivity::class.java) },
+                alCatalogo = { abrir(CatalogoActivity::class.java) },
                 alLecturas = { abrir(LecturasActivity::class.java) },
                 alPendientes = { abrir(PendientesActivity::class.java) },
                 alSincronizar = { abrir(SincronizarActivity::class.java, Transicion.HOJA) },
+                alNotificaciones = { abrir(NotificacionesActivity::class.java, Transicion.HOJA) },
                 alPerfil = { abrir(PerfilActivity::class.java, Transicion.HOJA) },
             )
         }
@@ -55,13 +51,9 @@ class HomeActivity : PantallaActivity() {
                 Triple(s.contar.contarPendientes(), s.contar.todasLasLecturas().size, s.contar.hayCatalogo())
             }
             val fotos = withContext(Dispatchers.IO) { s.contar.fotosPendientes() }
-            // Tras sincronizar: si la tarea actual se cerró o se reasignó, ya no se cuenta en ella.
-            val soltada = withContext(Dispatchers.IO) { if (hayCatalogo) s.contar.soltarTareaSiYaNoEsta() else null }
-            if (soltada != null) {
-                android.widget.Toast.makeText(this@HomeActivity, "La tarea $soltada ya no está asignada a ti.",
-                    android.widget.Toast.LENGTH_LONG).show()
-            }
-            ui = HomeUi(sesion.nombre, Rol.nombre(sesion.rol), s.contar.conteo.value, pendientes, total, hayCatalogo, fotos)
+            val noLeidas = withContext(Dispatchers.IO) { s.notificaciones.noLeidas() }
+            ui = HomeUi(sesion.nombre, Rol.nombre(sesion.rol), pendientes, total, hayCatalogo, fotos,
+                sesion.foto, noLeidas)
         }
     }
 }

@@ -1,4 +1,7 @@
-"""Filas que devuelve la capa de datos. Sin lógica: la conciliación la calcula Oracle."""
+"""Filas que devuelve la capa de datos. Sin lógica de negocio: la conciliación la calcula Oracle.
+
+El conteo es continuo y único (``ACTUAL``): no hay cierres ni varias fotos de stock.
+"""
 
 from __future__ import annotations
 
@@ -7,15 +10,8 @@ from datetime import datetime
 
 
 @dataclass(frozen=True)
-class Conteo:
-    id_conteo: str
-    nombre: str
-    estado: str  # ABIERTO | CERRADO
-
-
-@dataclass(frozen=True)
 class ResumenConteo:
-    """Una fila de V_RESUMEN_CONTEO."""
+    """Una fila de ``V_RESUMEN_CONTEO`` para el conteo continuo."""
 
     id_conteo: str
     skus_totales: int
@@ -25,8 +21,6 @@ class ResumenConteo:
     faltantes: int
     sobrantes: int
     exactitud_pct: float
-    valor_faltante: float
-    valor_sobrante: float
 
     @property
     def sin_contar(self) -> int:
@@ -34,32 +28,31 @@ class ResumenConteo:
 
 
 @dataclass(frozen=True)
-class FilaConciliacion:
+class FilaInventario:
+    """Una fila de la pantalla Inventario: producto, lo del sistema y lo último contado."""
+
     sku: str
     nombre: str
     categoria: str
-    cant_sistema: float | None
     cant_contada: float | None
-    diferencia: float | None
-    diferencia_pct: float | None
-    valor_diferencia: float | None
-    clasificacion: str  # OK | FALTANTE | SOBRANTE | SIN_CONTAR
+    cant_sistema: float | None
 
 
 @dataclass(frozen=True)
 class Lectura:
-    """Una lectura procesada de un SKU (``vigente`` = la que cuenta: la más reciente, D13)."""
+    """Una lectura procesada de un SKU (``vigente`` = la que cuenta: la más reciente)."""
 
     cantidad: float
     operador: str | None
     fecha_captura: datetime
     vigente: bool
     nota: str | None
+    ruta_foto: str | None = None
 
 
 @dataclass(frozen=True)
 class EstadoBatch:
-    """Una fila de V_ESTADO_BATCH."""
+    """Una fila de ``V_ESTADO_BATCH``."""
 
     pendientes: int
     procesando: int
@@ -71,14 +64,19 @@ class EstadoBatch:
 
 @dataclass(frozen=True)
 class ErrorFila:
-    """Una fila del staging que el batch dejó en ERROR."""
+    """Una lectura que el batch dejó en ERROR (``V_ERRORES_CAPTURA``)."""
 
     id_transito: int
     uuid_dispositivo: str
     seq: int
+    sku: str
+    cantidad: str
     mensaje_error: str | None
-    datos_raw: str
     fecha_recepcion: datetime | None
+
+    @property
+    def motivo(self) -> str:
+        return self.mensaje_error or ""
 
 
 # ---------------------------------------------------------------- formatos es-CO
@@ -88,7 +86,7 @@ def fmt_pct(valor: float) -> str:
 
 
 def fmt_cop(valor: float) -> str:
-    """Pesos sin decimales y con punto de miles: 11800 → «$ 11.800», -5000 → «-$ 5.000»."""
+    """Pesos sin decimales y con punto de miles: 11800 → «$ 11.800»."""
     entero = int(round(abs(valor)))
     texto = f"{entero:,}".replace(",", ".")
     return f"-$ {texto}" if valor < 0 and entero else f"$ {texto}"

@@ -1,38 +1,6 @@
-import pytest
-
 from conftest import connect
 
 UUID = "tst-store-1"
-
-
-@pytest.fixture
-def conteos_de_prueba():
-    """Un conteo ABIERTO y uno CERRADO, con un stock del sistema distintivo, ya con COMMIT."""
-    conn = connect()
-    cur = conn.cursor()
-
-    def limpiar():
-        cur.execute("DELETE FROM stock_sistema WHERE id_conteo LIKE 'TST-%'")
-        cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TST-%'")
-        conn.commit()
-
-    limpiar()
-    cur.execute(
-        "INSERT INTO conteos (id_conteo, nombre, estado) VALUES ('TST-OPEN', 'Abierto de prueba', 'ABIERTO')"
-    )
-    cur.execute(
-        "INSERT INTO conteos (id_conteo, nombre, estado) VALUES ('TST-CLOSED', 'Cerrado de prueba', 'CERRADO')"
-    )
-    cur.execute(
-        "INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) "
-        "VALUES ('TST-OPEN', (SELECT MIN(sku) FROM productos), 987654.321)"
-    )
-    conn.commit()
-    try:
-        yield
-    finally:
-        limpiar()
-        conn.close()
 
 
 def test_last_seq_zero_for_unknown_device(store):
@@ -54,12 +22,14 @@ def test_register_device_is_idempotent(store, db):
     assert cur.fetchall() == [("Bodega 1 renombrada",)]
 
 
-def test_catalog_has_only_open_conteos(store, conteos_de_prueba):
+def test_catalog_is_a_single_pseudo_catalogo(store):
     catalog = store.catalog(None)
-    ids = [c[0] for c in catalog.tareas]
-    assert "TST-OPEN" in ids
-    assert "TST-CLOSED" not in ids
+    assert [c[0] for c in catalog.tareas] == ["CATALOGO"]
+    tarea = catalog.tareas[0]
+    assert tarea[1] == "Catálogo" and tarea[2] == "" and tarea[3] == "" and tarea[4] == "ABIERTO"
     assert len(catalog.productos) == 60
+    assert len(catalog.items) == 60
+    assert all(item[0] == "CATALOGO" and item[2] == "N" for item in catalog.items)
     # Conteo ciego: ninguna tupla del catálogo lleva cantidades de stock.
     assert all(len(p) == 4 for p in catalog.productos)
     assert "987654" not in repr(catalog)

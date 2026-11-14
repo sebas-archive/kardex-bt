@@ -35,8 +35,8 @@ def test_devuelve_el_motivo_de_una_cuenta_suspendida(store):
 
 def test_usuario_igual_a_cuenta_de_escritorio_se_rechaza(store):
     conn = connect()
-    conn.cursor().execute("INSERT INTO usuarios (usuario, nombre, rol, clave_hash, estado) "
-                          "VALUES ('tst-escritorio', 'Ana PC', 'ADMIN', 'hash', 'ACTIVO')")
+    conn.cursor().execute("INSERT INTO usuarios (usuario, nombre, correo, rol, clave_hash, estado) "
+                          "VALUES ('tst-escritorio', 'Ana PC', 'ana@pc.test', 'ADMIN', 'hash', 'ACTIVO')")
     conn.commit()
     conn.close()
     assert store.sincronizar_cuenta("tst-escritorio", "Impostor", "tst-dev-1") == EstadoCuenta(
@@ -55,16 +55,16 @@ def test_cuenta_queda_vinculada_al_primer_telefono(store):
 def test_operador_sin_permiso_de_bluetooth_no_sincroniza(store):
     conn = connect()
     cur = conn.cursor()
-    cur.execute("SELECT nivel FROM permisos WHERE rol = 'OPERADOR' AND modulo = 'bluetooth'")
+    cur.execute("SELECT nivel FROM permisos WHERE rol = 'OPERADOR' AND modulo = 'sync'")
     antes = cur.fetchone()
     try:
-        cur.execute("UPDATE permisos SET nivel = 'NINGUNO' WHERE rol = 'OPERADOR' AND modulo = 'bluetooth'")
+        cur.execute("UPDATE permisos SET nivel = 'NINGUNO' WHERE rol = 'OPERADOR' AND modulo = 'sync'")
         conn.commit()
         estado = store.sincronizar_cuenta(OPERADOR_ACTIVO, "x", "tst-dev-1")
         assert estado.estado == "SUSPENDIDO" and "permiso" in estado.motivo
     finally:
         if antes:
-            cur.execute("UPDATE permisos SET nivel = :n WHERE rol = 'OPERADOR' AND modulo = 'bluetooth'", n=antes[0])
+            cur.execute("UPDATE permisos SET nivel = :n WHERE rol = 'OPERADOR' AND modulo = 'sync'", n=antes[0])
             conn.commit()
         conn.close()
 

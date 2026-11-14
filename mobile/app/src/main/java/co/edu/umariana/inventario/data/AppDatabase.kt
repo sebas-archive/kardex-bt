@@ -8,15 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [LecturaEntity::class, TareaEntity::class, ItemTareaEntity::class, InicioEntity::class, ProductoEntity::class,
-        FotoEntity::class],
-    version = 4,
+    entities = [LecturaEntity::class, ProductoEntity::class, FotoEntity::class, NotificacionEntity::class],
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun outbox(): Outbox
     abstract fun catalogo(): CatalogDao
     abstract fun fotos(): FotoDao
+    abstract fun notificaciones(): NotificacionDao
 
     companion object {
         @Volatile private var instancia: AppDatabase? = null
@@ -45,9 +45,8 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * Versión 3 (Fase 3): los conteos pasan a ser tareas asignadas, con sus productos, y el teléfono recuerda
-         * cuáles empezó el operador. El catálogo viejo se descarta (vuelve en la próxima sincronización); las
-         * lecturas no se tocan.
+         * Versión 3 (histórica): las tareas de conteo. La versión 5 las elimina; esta migración se conserva para que
+         * un teléfono que venía de la versión 2 pueda llegar hasta la base actual sin perder sus lecturas.
          */
         val MIGRACION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -74,10 +73,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Versión 5 (conteo continuo): no hay tareas, así que se eliminan sus tablas. Se añaden las notificaciones
+         * locales. Las lecturas pendientes no se tocan.
+         */
+        val MIGRACION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS items_tarea")
+                db.execSQL("DROP TABLE IF EXISTS inicios")
+                db.execSQL("DROP TABLE IF EXISTS tareas")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS notificaciones (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "tipo TEXT NOT NULL, dato TEXT NOT NULL, pantalla TEXT, leida INTEGER NOT NULL, creadoMs INTEGER NOT NULL)"
+                )
+                // El conteo es continuo: lo que quedó pendiente de una tarea vieja pasa al conteo ACTUAL.
+                db.execSQL("UPDATE lecturas SET idConteo = 'ACTUAL' WHERE idConteo != 'ACTUAL'")
+            }
+        }
+
         /** La base del teléfono (una sola instancia por proceso). */
         fun abrir(context: Context): AppDatabase = instancia ?: synchronized(this) {
             instancia ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "inventario.db")
-                .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4)
+                .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4, MIGRACION_4_5)
                 .build()
                 .also { instancia = it }
         }

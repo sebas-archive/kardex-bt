@@ -1,4 +1,4 @@
--- Esquema de inventario fisico para Oracle XE 11g.
+-- Esquema de inventario fisico continuo para Oracle XE 11g.
 -- El contenedor ejecuta este script como SYS: todo se crea en el esquema APP.
 -- 11g no tiene IDENTITY: los IDs numericos usan secuencia + trigger BEFORE INSERT.
 -- Textos en caracteres (VARCHAR2(n CHAR)); solo DATOS_RAW se mide en bytes.
@@ -9,14 +9,14 @@ ALTER USER app QUOTA UNLIMITED ON users;
 ALTER SESSION SET CURRENT_SCHEMA = app;
 
 -- ---------------------------------------------------------------- catalogos
+-- Un unico conteo continuo: ACTUAL. No hay cierre ni estado CERRADO.
 CREATE TABLE conteos (
     id_conteo    VARCHAR2(30 CHAR)  NOT NULL,
     nombre       VARCHAR2(100 CHAR) NOT NULL,
     estado       VARCHAR2(10 CHAR)  DEFAULT 'ABIERTO' NOT NULL,
     fecha_inicio TIMESTAMP          DEFAULT SYSTIMESTAMP,
-    fecha_cierre TIMESTAMP,
     CONSTRAINT pk_conteos PRIMARY KEY (id_conteo),
-    CONSTRAINT ck_conteos_estado CHECK (estado IN ('ABIERTO', 'CERRADO'))
+    CONSTRAINT ck_conteos_estado CHECK (estado = 'ABIERTO')
 );
 
 CREATE TABLE productos (
@@ -29,12 +29,11 @@ CREATE TABLE productos (
     CONSTRAINT pk_productos PRIMARY KEY (sku)
 );
 
-
--- Foto del stock teorico al abrir el conteo.
+-- Stock del sistema por SKU (una fila por producto y conteo: ACTUAL). El operador nunca lo ve.
 CREATE TABLE stock_sistema (
     id_conteo         VARCHAR2(30 CHAR) NOT NULL,
     sku               VARCHAR2(30 CHAR) NOT NULL,
-    cantidad_sistema  NUMBER(12, 3)     NOT NULL,
+    cantidad_sistema  NUMBER(12, 3)     DEFAULT 0 NOT NULL,
     CONSTRAINT pk_stock_sistema PRIMARY KEY (id_conteo, sku),
     CONSTRAINT fk_stock_conteo FOREIGN KEY (id_conteo) REFERENCES conteos (id_conteo),
     CONSTRAINT fk_stock_producto FOREIGN KEY (sku) REFERENCES productos (sku)
@@ -90,7 +89,7 @@ CREATE TABLE registros_procesados (
     fecha_captura    TIMESTAMP          NOT NULL,
     vigente          CHAR(1)            DEFAULT 'S' NOT NULL,
     fecha_procesado  TIMESTAMP          DEFAULT SYSTIMESTAMP,
-    danados          NUMBER(12, 3),                            -- Fase 4: unidades dañadas de las contadas
+    danados          NUMBER(12, 3),
     CONSTRAINT pk_registros_procesados PRIMARY KEY (id_registro),
     CONSTRAINT uq_registros_transito UNIQUE (id_transito),
     CONSTRAINT fk_registros_transito FOREIGN KEY (id_transito)
@@ -110,26 +109,25 @@ BEGIN
 END;
 /
 
+-- Resultado de la conciliacion por SKU. Sin valor_diferencia ni clasificacion.
+-- CANT_CONTADA, DIFERENCIA y DIFERENCIA_PCT son NULL cuando el SKU aun no tiene lectura.
 CREATE TABLE conciliacion (
     id_conteo         VARCHAR2(30 CHAR) NOT NULL,
     sku               VARCHAR2(30 CHAR) NOT NULL,
-    cant_sistema      NUMBER(12, 3),
+    cant_sistema      NUMBER(12, 3)     NOT NULL,
     cant_contada      NUMBER(12, 3),
     diferencia        NUMBER(12, 3),
     diferencia_pct    NUMBER(10, 2),
-    valor_diferencia  NUMBER(14, 2),
-    clasificacion     VARCHAR2(12 CHAR) NOT NULL,
     fecha_calculo     TIMESTAMP         DEFAULT SYSTIMESTAMP,
     CONSTRAINT pk_conciliacion PRIMARY KEY (id_conteo, sku),
     CONSTRAINT fk_conciliacion_conteo FOREIGN KEY (id_conteo) REFERENCES conteos (id_conteo),
-    CONSTRAINT fk_conciliacion_producto FOREIGN KEY (sku) REFERENCES productos (sku),
-    CONSTRAINT ck_conciliacion_clase CHECK (clasificacion IN ('OK', 'FALTANTE', 'SOBRANTE', 'SIN_CONTAR'))
+    CONSTRAINT fk_conciliacion_producto FOREIGN KEY (sku) REFERENCES productos (sku)
 );
 
 -- ------------------------------------------------------------ bitacoras
 CREATE SEQUENCE seq_sync START WITH 1 INCREMENT BY 1;
 
--- Fase 4: fotos de evidencia. El archivo vive en la carpeta FOTOS_DIR del PC; aquí, su ruta relativa.
+-- Fotos de evidencia. El archivo vive en la carpeta FOTOS_DIR del PC; aqui, su ruta relativa.
 CREATE TABLE fotos (
     uuid_dispositivo  VARCHAR2(50 CHAR)  NOT NULL,
     seq               NUMBER             NOT NULL,
@@ -177,27 +175,72 @@ BEGIN
 END;
 /
 
--- ------------------------------------------------------- cuentas de la app de escritorio
--- Todas las cuentas: las del PC (ADMIN, INVENTARIO) y las de los operadores del movil (OPERADOR, origen MOVIL).
--- Estado: PENDIENTE hasta que un administrador la aprueba (ACTIVO) o la rechaza; SUSPENDIDO con motivo.
--- La clave nunca se guarda en claro (PBKDF2); las cuentas del movil guardan '-' y no entran al PC.
+-- ------------------------------------------------------- cuentas de la aplicacion
+-- Cuentas del PC (ADMIN, INVENTARIO) y de los operadores del movil (OPERADOR, origen MOVIL).
+-- Estado: PENDIENTE hasta que el administrador la aprueba (ACTIVO) o la rechaza; SUSPENDIDO con motivo.
+-- La clave nunca se guarda en claro (PBKDF2). Las cuentas del movil guardan '-' y no entran al PC.
+-- CORREO: obligatorio en cuentas del escritorio, opcional en las del movil. No es unico (el login es USUARIO).
 CREATE TABLE usuarios (
     usuario          VARCHAR2(30 CHAR)  NOT NULL,
     nombre           VARCHAR2(60 CHAR)  NOT NULL,
-    rol              VARCHAR2(12 CHAR),                       -- NULL = cuenta nueva esperando que un admin le asigne el rol
+    correo           VARCHAR2(120 CHAR),
+    rol              VARCHAR2(12 CHAR),
     clave_hash       VARCHAR2(200 CHAR) NOT NULL,
-    clave_pendiente  VARCHAR2(200 CHAR),                      -- contrasena nueva pedida por quien la olvido (hash), por aprobar
+    clave_pendiente  VARCHAR2(200 CHAR),
+    clave_motivo     VARCHAR2(300 CHAR),   -- motivo del rechazo de una solicitud de contraseña
     estado           VARCHAR2(10 CHAR)  DEFAULT 'PENDIENTE' NOT NULL,
-    motivo           VARCHAR2(300 CHAR),                      -- por que se rechazo o suspendio (lo escribe el administrador)
-    resuelto_por     VARCHAR2(30 CHAR),                       -- administrador que aprobo, rechazo o suspendio
+    motivo           VARCHAR2(300 CHAR),
+    resuelto_por     VARCHAR2(30 CHAR),
     resuelto         TIMESTAMP,
-    origen           VARCHAR2(10 CHAR)  DEFAULT 'ESCRITORIO' NOT NULL,   -- donde se registro: ESCRITORIO o MOVIL
-    uuid_dispositivo VARCHAR2(50 CHAR),                       -- cuentas MOVIL: el telefono al que quedo vinculada
+    origen           VARCHAR2(10 CHAR)  DEFAULT 'ESCRITORIO' NOT NULL,
+    uuid_dispositivo VARCHAR2(50 CHAR),
     intentos         NUMBER             DEFAULT 0 NOT NULL,
     bloqueado_hasta  TIMESTAMP,
     creado           TIMESTAMP          DEFAULT SYSTIMESTAMP,
+    pregunta         VARCHAR2(200 CHAR),
+    respuesta_hash   VARCHAR2(200 CHAR),
+    foto             VARCHAR2(200 CHAR),
+    tema             VARCHAR2(10 CHAR)  DEFAULT 'sistema' NOT NULL,
+    idioma           VARCHAR2(2 CHAR)   DEFAULT 'es' NOT NULL,
     CONSTRAINT pk_usuarios PRIMARY KEY (usuario),
     CONSTRAINT ck_usuarios_rol CHECK (rol IS NULL OR rol IN ('ADMIN', 'INVENTARIO', 'OPERADOR')),
     CONSTRAINT ck_usuarios_estado CHECK (estado IN ('PENDIENTE', 'ACTIVO', 'RECHAZADO', 'SUSPENDIDO')),
-    CONSTRAINT ck_usuarios_origen CHECK (origen IN ('ESCRITORIO', 'MOVIL'))
+    CONSTRAINT ck_usuarios_origen CHECK (origen IN ('ESCRITORIO', 'MOVIL')),
+    CONSTRAINT ck_usuarios_correo CHECK (origen = 'MOVIL' OR correo IS NOT NULL),
+    CONSTRAINT ck_usuarios_tema CHECK (tema IN ('claro', 'sistema', 'oscuro')),
+    CONSTRAINT ck_usuarios_idioma CHECK (idioma IN ('es', 'en'))
+);
+
+-- Matriz de permisos: nivel de cada rol en cada modulo (NINGUNO, CONSULTA, GESTION).
+-- Los valores iniciales los siembra 06_permisos.sql; el escritorio puede completarlos si faltan.
+CREATE TABLE permisos (
+    rol     VARCHAR2(12 CHAR) NOT NULL,
+    modulo  VARCHAR2(30 CHAR) NOT NULL,
+    nivel   VARCHAR2(10 CHAR) NOT NULL,
+    CONSTRAINT pk_permisos PRIMARY KEY (rol, modulo),
+    CONSTRAINT ck_permisos_nivel CHECK (nivel IN ('NINGUNO', 'CONSULTA', 'GESTION'))
+);
+
+-- Configuracion general. La pantalla Configuracion edita lote.intervalo_min y fotos.max_mb;
+-- fotos.dir es informativa (el servicio usa FOTOS_DIR). Las claves respaldos.* son de la pantalla Respaldos.
+CREATE TABLE configuracion (
+    clave       VARCHAR2(40 CHAR)  NOT NULL,
+    valor       VARCHAR2(200 CHAR) NOT NULL,
+    modificado  TIMESTAMP          DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT pk_configuracion PRIMARY KEY (clave)
+);
+
+-- Estado que el servicio Bluetooth publica para el escritorio (una sola fila, ID = 1).
+CREATE TABLE servicio_bt (
+    id            NUMBER             NOT NULL,
+    estado        VARCHAR2(30 CHAR)  NOT NULL,
+    codigo        VARCHAR2(10 CHAR),
+    recibidos     NUMBER             DEFAULT 0 NOT NULL,
+    ultimo_error  VARCHAR2(400 CHAR),
+    desde         TIMESTAMP          DEFAULT SYSTIMESTAMP NOT NULL,
+    latido        TIMESTAMP          DEFAULT SYSTIMESTAMP NOT NULL,
+    pausado       CHAR(1)            DEFAULT 'N' NOT NULL,
+    respuesta     CHAR(1),
+    listos        NUMBER             DEFAULT 0 NOT NULL,
+    CONSTRAINT pk_servicio_bt PRIMARY KEY (id)
 );

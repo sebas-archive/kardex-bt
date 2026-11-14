@@ -24,7 +24,7 @@ node "PC host Linux" as pc {
   }
 }
 
-cel -down- bluez : RFCOMM (Bluetooth clásico,\nsocket inseguro, sin emparejar)
+cel -down- bluez : RFCOMM (Bluetooth clásico;\nsin código por defecto)
 bluez -down- c_bt : socket D-Bus\n/var/run/dbus
 c_bt -right- xe : SQL*Net\n127.0.0.1:1521
 c_bt .. carpetas

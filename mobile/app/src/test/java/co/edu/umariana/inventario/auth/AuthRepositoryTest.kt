@@ -106,7 +106,7 @@ class AuthRepositoryTest {
         for (u in listOf(ana, luis)) {
             assertFalse(u.claveHash.contains("conteo2026"))
             assertFalse(u.respuestaHash.contains("luna", ignoreCase = true))
-            assertTrue(u.claveHash.startsWith("pbkdf2-sha1$1000$"))
+            assertTrue(u.claveHash.startsWith("pbkdf2-sha256$1000$"))
         }
         assertNotEquals(ana.claveHash, luis.claveHash)  // misma clave, sal distinta
     }
@@ -170,14 +170,33 @@ class AuthRepositoryTest {
     }
 
     @Test
-    fun test_change_password_requires_the_current_one() {
+    fun test_correo_es_opcional_y_solo_dato_de_perfil() {
+        val sinCorreo = auth.registrar("sin.correo", "Sin Correo", "conteo2026", "conteo2026", PREGUNTA, "Luna") as AuthResult.Ok
+        assertNull(sinCorreo.usuario.correo)
+        assertEquals("sin.correo", sinCorreo.usuario.usuario)
+
+        val conCorreo = auth.registrar("con.correo", "Con Correo", "conteo2026", "conteo2026", PREGUNTA, "Luna",
+            correo = "  Ana.Gomez@Example.COM ") as AuthResult.Ok
+        assertEquals("ana.gomez@example.com", conCorreo.usuario.correo)
+        assertEquals("con.correo", conCorreo.usuario.usuario)  // el correo no cambia el usuario de login
+        assertEquals("ana.gomez@example.com", auth.correoDe("con.correo"))
+
+        assertEquals(AuthResult.CorreoInvalido, auth.registrar("mal.correo", "Mal Correo", "conteo2026", "conteo2026",
+            PREGUNTA, "Luna", correo = "no-es-un-correo"))
+        assertEquals(AuthResult.CorreoInvalido, auth.registrar("mal2", "Mal Dos", "conteo2026", "conteo2026",
+            PREGUNTA, "Luna", correo = "a@b"))
+    }
+
+    @Test
+    fun test_foto_de_perfil_se_guarda_y_se_borra_solo_en_su_cuenta() {
         registrarAna()
-        assertEquals(AuthResult.CredencialesInvalidas, auth.cambiarClave("otra12345", "nueva2027", "nueva2027"))
-        assertEquals(AuthResult.ClaveDebil, auth.cambiarClave("conteo2026", "corta", "corta"))
-        assertTrue(auth.cambiarClave("conteo2026", "nueva2027", "nueva2027") is AuthResult.Ok)
-        auth.cerrarSesion()
-        assertEquals(AuthResult.SinSesion, auth.cambiarClave("nueva2027", "otra12345", "otra12345"))
-        assertTrue(auth.iniciarSesion("ana.gomez", "nueva2027") is AuthResult.Ok)
+        assertNull(auth.fotoDe("ana.gomez"))
+        auth.guardarFoto("ana.gomez", "/datos/perfil/ana.jpg")
+        assertEquals("/datos/perfil/ana.jpg", auth.fotoDe("ana.gomez"))
+        assertEquals("/datos/perfil/ana.jpg", auth.sesion()?.foto)  // la sesión abierta se entera
+        auth.guardarFoto("ana.gomez", null)
+        assertNull(auth.fotoDe("ana.gomez"))
+        assertNull(auth.sesion()?.foto)
     }
 
     @Test

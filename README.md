@@ -1,14 +1,14 @@
 # Inventario físico offline: APK → Bluetooth → Oracle → App de escritorio
 
-Un operario cuenta productos con una **APK Android** sin red (escáner de códigos de barras o digitando el SKU). Cuando
-está cerca del PC, el conteo sube por **Bluetooth** a **una sola aplicación de escritorio** que lo guarda en
-**Oracle 11g**, dispara el **batch PL/SQL** que lo concilia contra el stock del sistema y muestra y grafica las
-diferencias. Todo el lado PC corre en Docker.
+Un operador cuenta productos con una **APK Android** sin red (escáner de códigos de barras o digitando el SKU). Cuando
+está cerca del PC, el conteo sube por **Bluetooth** al PC, que lo guarda en **Oracle 11g** y dispara el **batch
+PL/SQL** que lo concilia contra el stock del sistema. Una sola **aplicación de escritorio** lo muestra. El conteo es **continuo**:
+siempre está abierto y el inventario se actualiza a medida que el batch procesa las lecturas. Todo el lado PC corre en Docker sobre Linux.
 
-- Cómo está hecho (capas, decisiones D1–D22, límites y los 22 diagramas UML): [docs/arquitectura.md](docs/arquitectura.md)
+- Cómo está hecho (capas, decisiones, tablas, matriz de permisos y los 22 diagramas UML): [docs/arquitectura.md](docs/arquitectura.md)
 - Guion de demo de 5 minutos: [docs/demo.md](docs/demo.md)
 - Protocolo de líneas: [docs/protocolo.md](docs/protocolo.md) · Bluetooth desde contenedor: [docs/spikes/bluez.md](docs/spikes/bluez.md)
-- Plan de implementación: `docs/superpowers/plans/2026-11-09-captura-movil-bluetooth-oracle.md`
+- Interactividad del escritorio (atajos, gestos móviles, estados, flujos y checklist): [docs/interactividad/00-entorno-y-decisiones.md](docs/interactividad/00-entorno-y-decisiones.md)
 
 > Las rutas del proyecto pueden tener espacios (`/home/t1an/movil oracle bluetooth`): entrecomíllalas.
 
@@ -30,8 +30,9 @@ cp .env.example .env
 docker compose up -d --wait oracle
 ```
 
-La primera vez descarga la imagen y crea la base con el esquema, la semilla (conteo `CONT-2026-11`, 58 SKU), el
-paquete `PKG_BATCH`, los jobs del Scheduler y las vistas: puede tardar varios minutos.
+La primera vez descarga la imagen y crea la base con el esquema, la semilla (conteo continuo `ACTUAL` con 58 SKU),
+el paquete `PKG_BATCH`, los jobs del Scheduler y las vistas: puede tardar varios minutos. La semilla no trae cuentas:
+la primera que crees queda como Administrador y Activa.
 
 ```bash
 docker compose up -d bluetooth app
@@ -41,8 +42,25 @@ docker compose up -d bluetooth app
 cerrada y vuelve a arrancar solo tras reiniciar el PC (si Docker arranca con el sistema). La pantalla
 **Sincronización** muestra su estado y lo pausa o reanuda.
 
-La aplicación de escritorio se abre **en tu pantalla** por X11 y muestra el acceso: crea tu cuenta (la primera queda como administrador) e inicia sesión. Con `up -d` no ves
-sus mensajes; para verlos usa `docker compose logs -f app`. Para no usar Bluetooth (pruebas y plan B de la demo):
+La aplicación de escritorio se abre **en tu pantalla** por X11 y muestra el acceso: crea la primera cuenta (queda como
+Administrador y Activa) e inicia sesión. Con `up -d` no ves sus mensajes; para verlos usa `docker compose logs -f app`.
+
+**Si tu sesión es Wayland sin XWayland** (no existe `/tmp/.X11-unix`), la ventana no puede abrirse por el compose
+normal. En ese caso usa el lanzador incluido:
+
+```bash
+tools/run_escritorio_wayland.sh
+```
+
+Añade una capa de imagen con `libwayland-cursor0` (una sola vez), corre la app en la red interna de Compose para
+llegar a `oracle:1521` y monta el socket Wayland de tu sesión. La ventana queda abierta en segundo plano; se cierra
+cerrando la ventana o con `docker rm -f app-wayland`. El servicio Bluetooth no hace falta para abrirla: la app lee su
+estado de Oracle.
+El lanzador usa el mismo wrapper `docker/run-app.sh` que el servicio `app`, así que el arranque y el log
+persistente (`./logs/app.log`) son los mismos.
+Si el puerto publicado `127.0.0.1:1521` está atascado en tu Docker, este camino también lo evita.
+
+Para no usar Bluetooth (pruebas y plan B de la demo):
 
 ```bash
 BT_TRANSPORT=tcp docker compose up -d bluetooth app
@@ -65,43 +83,66 @@ adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 > **No desinstales la APK con lecturas pendientes:** la bandeja de salida vive en el teléfono y se borra con la
 > aplicación (D18). Reinstalar crea un dispositivo nuevo con `seq` desde 1.
 >
-> **Toda cuenta nueva espera aprobación.** Las del PC (Administrador, Inventario) y las del teléfono (Operador de
-> Inventario) quedan **PENDIENTES** hasta que el administrador las aprueba en **Solicitudes**; también puede rechazarlas
-> o suspenderlas con un motivo que la persona ve al intentar entrar. La cuenta del teléfono llega al PC al sincronizar
-> (su contraseña nunca sale del teléfono; se recupera con la pregunta de seguridad). Qué ve cada rol se ajusta en
-> **Roles y permisos**.
+> **Toda cuenta nueva espera aprobación.** Las del PC quedan **PENDIENTES** hasta que el Administrador las apruebe en
+> **Solicitudes**; solo la primera cuenta del PC es el Administrador y no se pueden crear más. Las del teléfono llegan
+> al PC al sincronizar y solo pueden aprobarse como **Operador de Inventario**. Una cuenta rechazada o suspendida ve
+> el motivo en la pantalla de estado. Las cuentas del PC piden correo obligatorio y único; las del teléfono lo aceptan
+> opcional. El acceso es con usuario y contraseña: el correo es un dato de la cuenta. La contraseña del Operador es
+> local y se recupera con su pregunta de seguridad.
 >
-> **Categorías, almacenes y existencias** (Fase 2) se crean solos al arrancar la app con datos de ejemplo: dos almacenes
-> (`ALM-01`, `ALM-02`) y las existencias del conteo más reciente en `ALM-01`.
->
-> **Tareas de conteo** (Fase 3): Inventario las crea en el PC (almacén, operador, productos e instrucciones) y el operador
-> las ve en **Mis tareas** del celular tras sincronizar. El estado (Asignada, En progreso, Enviada parcialmente,
-> Sincronizada, Con diferencias, Con error, Cerrada) se actualiza solo. Las diferencias se revisan en **Diferencias**.
-> El celular y el PC deben tener la misma versión del protocolo (4): una APK anterior recibe «formato inválido».
->
-> **Movimientos y ajustes** (Fase 3b): Inventario registra entradas y salidas en **Movimientos** (cambian la existencia
-> al momento) y solicita ajustes en **Ajustes** o desde **Diferencias**. Un ajuste que cambia 10 % o más, o vale
-> $200.000 o más, espera la aprobación del Administrador.
->
-> **Fotos, dañados y auditoría** (Fase 4, protocolo 5): en «Contar» el operador puede indicar dañados y adjuntar una
-> foto (cámara o galería). Las fotos viajan después de las lecturas y quedan en `fotos/` (carpeta del PC, fuera de git;
-> otra ruta con `FOTOS_DIR`); en **Diferencias** el 📷 las abre. **Auditoría** muestra quién hizo qué y cuándo.
+> **El Operador no ve la cantidad del sistema.** El catálogo que baja al teléfono nunca lleva el stock; el conteo es
+> ciego.
 >
 > **Solo se sincroniza un teléfono a la vez** (D19): un segundo teléfono recibe «PC ocupado» y debe esperar.
 
 ### Uso en una frase
 
-En el celular: crear cuenta (queda pendiente: sincroniza una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → **Mis tareas** → iniciar una → escanear el código de barras o el QR, o digitar → guardar (sin red). El PC se anuncia
-siempre como `gestion_inventario` mientras el servicio `bluetooth` esté activo. En el celular: **Sincronizar**; la primera
-vez se busca y se elige `gestion_inventario`, y desde entonces conecta directo, sin claves ni códigos (D22).
+En el celular: crear cuenta con usuario, nombre, correo opcional y pregunta de seguridad (queda pendiente: sincroniza
+una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → **Catálogo** → contar escaneando el código de barras
+o el QR, o digitando el SKU → guardar (sin red). El PC se anuncia siempre como `gestion_inventario` mientras el
+servicio `bluetooth` esté activo. En el celular: **Sincronizar**; la primera vez se busca y se elige
+`gestion_inventario`, y desde entonces conecta directo, sin claves ni códigos (D22).
+
+### Conteo continuo
+
+El operador cuenta directamente del catálogo y el batch va conciliando contra `ACTUAL`. Si un SKU no tiene lectura, la cantidad contada se
+muestra vacía (no en 0). El Dashboard muestra el avance (SKUs con lectura vigente sobre el total), el estado del batch y la diferencia por
+categoría como referencia; el Inventario muestra SKU, producto, categoría, cantidad contada y cantidad del sistema,
+sin diferencia, porcentaje ni clasificación en las filas. Las lecturas con problemas quedan en error y se ven en **Sincronización**; el Administrador puede dar de
+alta el SKU desde el detalle del error y **Reprocesar errores**.
 
 ### Configuración y respaldos
 
-En **Configuración** (Administrador) se cambian los umbrales de ajuste crítico, el intervalo del lote, los días que se
-conservan las lecturas recibidas y el tamaño máximo de foto. En **Respaldos** se crea un respaldo (`.zip` con todos los
-datos y las fotos, en `respaldos/`, o `RESPALDOS_DIR`), se programa el automático diario y se **restaura**: escribe
-`RESTAURAR` para confirmar; antes se pausa el servicio Bluetooth y se guarda un respaldo del estado actual («Antes de
-restaurar»). Al terminar se cierra la sesión; reanuda el servicio en **Sincronización**.
+En **Configuración** (Administrador) se cambian el intervalo del lote y el tamaño máximo de foto. La carpeta de fotos
+se muestra pero no se edita. En **Respaldos** se crea un respaldo (`.zip` con todos los datos y las fotos, en
+`respaldos/`, o `RESPALDOS_DIR`), se programa el automático diario y se **restaura**: escribe `RESTAURAR` para
+confirmar; antes se pausa el servicio Bluetooth y se guarda un respaldo del estado actual («Antes de restaurar»). Al
+terminar se cierra la sesión; reanuda el servicio en **Sincronización**.
+
+## Roles y permisos
+
+| Rol | Dónde entra | Qué puede hacer |
+|---|---|---|
+| **Administrador** | Solo escritorio | Todo: inventario completo, solicitudes, empleados, roles y permisos, auditoría, configuración, sincronización, respaldos, notificaciones y perfil. Hay **uno solo** y su fila de la matriz está bloqueada. |
+| **Inventario** | Solo escritorio | Dashboard, inventario completo, gráficas, sincronización, notificaciones y perfil. No administra cuentas, permisos, configuración ni respaldos. |
+| **Operador de Inventario** | Solo móvil | Catálogo, contar, contado, pendientes, sincronizar, notificaciones y mi cuenta. No ve la cantidad del sistema ni entra al escritorio. |
+
+La captura es exclusiva del Operador: ni el Administrador ni Inventario cuentan desde el escritorio.
+
+La matriz rol × módulo tiene **12 módulos**: Dashboard, Inventario, Gráficas, Sincronización, Notificaciones, Perfil,
+Solicitudes, Empleados, Roles y permisos, Auditoría, Configuración y Respaldos. Los cambios rigen desde el próximo
+inicio de sesión para la barra lateral y se revalidan en vivo en las acciones que cambian datos. **Perfil** se abre
+desde el pie de la barra, y la campana aparece solo si el rol tiene acceso a Notificaciones.
+
+## Foto, tema e idioma
+
+En **Perfil** (escritorio) y **Mi cuenta** (móvil) cada usuario pone, edita o elimina su foto con un editor de rotar,
+zoom, recortar y vista previa; el avatar se muestra circular y el archivo se guarda cuadrado. Se validan JPEG, PNG y
+WebP; en el escritorio vale el tamaño máximo configurado (2 MB por defecto) y en el teléfono, 2 MB. El tema (claro, sistema u oscuro) y el idioma (español o inglés) se aplican de
+inmediato y se guardan por usuario. El cambio de contraseña del Administrador es directo; el de Inventario queda
+pendiente de aprobación en **Solicitudes**. El Operador recupera su contraseña localmente con la pregunta de seguridad
+del teléfono; el Administrador no puede resetearla desde el PC. Si el Administrador olvida la suya, en **Acceso** usa
+«¿Olvidaste tu contraseña?» y responde su pregunta de seguridad; se aplica al momento, sin pasar por Solicitudes.
 
 ## Pruebas
 
@@ -117,8 +158,7 @@ docker compose run --rm -e QT_QPA_PLATFORM=offscreen app pytest desktop/tests -v
 docker compose --profile build run --rm apk-build ./gradlew testDebugUnitTest
 ```
 
-Las suites del servidor y del escritorio borran por diseño el staging de los dispositivos de prueba (`tst-%`,
-`dev-e2e%`). Los diagramas UML se regeneran con `tools/render_uml.sh` y los tests de clases los comprueba
+Los diagramas UML se regeneran con `tools/render_uml.sh` y los tests de clases los comprueba
 `server/tests/test_uml.py`.
 
 ## Solución de problemas
@@ -155,5 +195,5 @@ server/btsync/      protocolo, sesión, controlador y transportes (BlueZ, TCP) �
 desktop/app/        aplicación de escritorio (PyQt6 + pyqtgraph)
 mobile/             APK Android (Kotlin, Room, ZXing) y su Dockerfile de compilación
 tools/              datos semilla, teléfono simulado (fake_phone.py), verificación y render de UML
-docs/               arquitectura, protocolo, demo, spikes, UML (docs/uml) y sus SVG (docs/img/uml)
+docs/               arquitectura, protocolo, demo, interactividad, spikes, UML (docs/uml) y sus SVG (docs/img/uml)
 ```

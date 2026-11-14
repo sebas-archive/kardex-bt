@@ -1,0 +1,28 @@
+@startuml
+!include estilo.iuml
+title 15 · Secuencia: fila en ERROR, alta del SKU y reprocesar
+autonumber
+actor Administrador as adm
+participant "SyncView\n(lecturas con error)" as mon
+participant "QueryWorker\n(hilo de trabajo)" as w
+database "Oracle (PKG_BATCH)" as ora
+
+note over ora : llegó una lectura con SKU «X9»\nque no está en PRODUCTOS
+ora -> ora : procesar_pendientes: fila → ERROR\n(mensaje SKU_DESCONOCIDO)
+mon -> w : fetch_errores()
+w -> ora : SELECT … FROM captura_transito WHERE estado = 'ERROR'
+ora --> mon : la fila con su mensaje
+adm -> mon : abre el detalle del error
+mon -> adm : SKU, cantidad, operador, fecha, motivo
+adm -> mon : «Dar de alta el SKU»\n(nombre y categoría; SKU precargado)
+mon -> w : alta_sku(sku, nombre, categoria)
+w -> ora : PKG_BATCH.alta_sku(...)
+ora -> ora : INSERT productos + stock 0 en ACTUAL
+adm -> mon : «Reprocesar errores»
+mon -> w : reprocesar_errores()
+w -> ora : PKG_BATCH.reprocesar_errores()
+ora -> ora : ERROR → PENDIENTE · procesar_pendientes('REPROCESO')
+ora -> ora : conciliar ACTUAL
+ora --> mon : fila PROCESADO
+mon -> mon : datos_cambiados → refresco de todas las vistas
+@enduml

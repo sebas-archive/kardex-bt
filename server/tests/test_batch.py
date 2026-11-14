@@ -1,18 +1,19 @@
 """Batch PL/SQL: procesar, recontar (D13), errores recuperables, huérfanas, purga y bitácora.
 
-Todos los tests usan el escenario fijo (conteo T-01, SKUs A1-A5).
+Todos los tests usan el escenario fijo (conteo ACTUAL, SKUs A1-A5).
 """
 
 import datetime as dt
 import os
 import threading
 
+import oracledb
 import pytest
 
 from conftest import connect, staging
 
 T0 = 1731170400000  # 2024-11-09 16:40:00 UTC
-C = "T-01"
+C = "ACTUAL"
 
 
 def procesar(db, *args):
@@ -58,7 +59,7 @@ def test_valid_row_becomes_procesado_with_typed_fields(escenario, db):
     r = registro(db, tid)
     del r["fecha_captura"]
     assert r == {
-        "id_conteo": "T-01", "sku": "A1",
+        "id_conteo": "ACTUAL", "sku": "A1",
         "cantidad": 12.5, "operador": "Ana", "nota": "ok", "vigente": "S",
     }
 
@@ -111,16 +112,15 @@ def test_unknown_sku_marks_error_and_batch_continues(escenario, db):
 
 
 @pytest.mark.parametrize(
-    "conteo, cant, esperado",
+    "cant, esperado",
     [
-        ("T-99", "1", "CONTEO_NO_ABIERTO"),
-        (C, "-1", "CANTIDAD_INVALIDA"),
-        (C, "1,5", "CANTIDAD_INVALIDA"),
-        (C, "1.2345", "CANTIDAD_INVALIDA"),
+        ("-1", "CANTIDAD_INVALIDA"),
+        ("1,5", "CANTIDAD_INVALIDA"),
+        ("1.2345", "CANTIDAD_INVALIDA"),
     ],
 )
-def test_other_validation_errors(escenario, db, conteo, cant, esperado):
-    tid = staging(db, "tst-b1", 1, T0, conteo, "A1", cant)
+def test_other_validation_errors(escenario, db, cant, esperado):
+    tid = staging(db, "tst-b1", 1, T0, C, "A1", cant)
     procesar(db)
     assert estado(db, tid) == ("ERROR", esperado)
     assert registro(db, tid) is None
@@ -294,7 +294,7 @@ def test_log_batch_row_written(escenario, db):
     procesados, errores, origen, inicio, fin = rows[0]
     assert (procesados, errores, origen) == (2, 1, "MANUAL")
     assert inicio <= fin
-    # Una corrida sin nada pendiente no deja fila (el job corre cada 60 s).
+    # Una corrida sin nada pendiente no deja fila (el job corre cada minuto).
     procesar(db)
     assert scalar(db, "SELECT COUNT(*) FROM log_batch WHERE id > :m", m=escenario.log_mark) == 1
 
@@ -318,7 +318,7 @@ def test_scheduler_job_is_defined_every_60_seconds(db):
     )
     row = cur.fetchone()
     assert row is not None, "falta JOB_PROCESAR_CAPTURAS"
-    assert row[0] == "FREQ=SECONDLY;INTERVAL=60"
+    assert row[0] == "FREQ=MINUTELY;INTERVAL=1"
     assert "procesar_pendientes" in row[1].lower()
     cur.execute("SELECT COUNT(*) FROM user_scheduler_jobs WHERE job_name = 'JOB_PURGA_TRANSITO'")
     assert cur.fetchone()[0] == 1
@@ -345,3 +345,40 @@ def test_danados_invalidos_o_mayores_que_la_cantidad(escenario, db, danados):
     i = staging(db, "tst-dan", 1, T0, C, "A1", "10", danados=danados)
     procesar(db)
     assert estado(db, i) == ("ERROR", "DANADOS_INVALIDO")
+
+
+# ------------------------------------------------------------------ alta de SKU
+def test_alta_sku_creates_stock_zero_and_reprocesa(escenario, db):
+    tid = staging(db, "tst-alta", 1, T0, C, "ZZ9", 7)
+    procesar(db)
+    assert estado(db, tid) == ("ERROR", "SKU_DESCONOCIDO")
+
+    db.cursor().callproc("pkg_batch.alta_sku", ["ZZ9", "Producto nuevo", "Aseo", "UND", 100])
+    cur = db.cursor()
+    cur.execute("SELECT cantidad_sistema FROM stock_sistema WHERE id_conteo = 'ACTUAL' AND sku = 'ZZ9'")
+    assert cur.fetchone()[0] == 0
+
+    db.cursor().callproc("pkg_batch.reprocesar_errores")
+    assert estado(db, tid) == ("PROCESADO", None)
+    cur.execute("SELECT cant_sistema, cant_contada, diferencia FROM conciliacion "
+                "WHERE id_conteo = 'ACTUAL' AND sku = 'ZZ9'")
+    assert cur.fetchone() == (0, 7, 7)
+
+
+def test_alta_sku_duplicado_falla(escenario, db):
+    with pytest.raises(oracledb.DatabaseError, match="ORA-20011"):
+        db.cursor().callproc("pkg_batch.alta_sku", ["A1", "Otro nombre", "Aseo", "UND", 1])
+
+
+def test_v_errores_captura_solo_lecturas(escenario, db):
+    tid = staging(db, "tst-err", 1, T0, C, "ZZ9", 5)
+    procesar(db)
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO captura_transito (uuid_dispositivo, seq, datos_raw, estado, mensaje_error) "
+        "VALUES ('tst-err', 2, 'FOTO|1|1|1|ABCD|', 'ERROR', 'GRANDE')"
+    )
+    db.commit()
+    cur.execute("SELECT id_transito, sku, cantidad, mensaje_error FROM v_errores_captura "
+                "WHERE uuid_dispositivo = 'tst-err' ORDER BY id_transito")
+    assert cur.fetchall() == [(tid, "ZZ9", "5", "SKU_DESCONOCIDO")]

@@ -42,10 +42,10 @@ class SincronizarActivity : PantallaActivity() {
 
     private val pedirPermisos = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { resultado ->
         if (resultado.values.all { it }) pendiente?.invoke()
-        else mostrar("Sin permiso de Bluetooth. Actívalo en Ajustes > Aplicaciones > Inventario > Permisos.")
+        else mostrar(Textos.t("Sin permiso de Bluetooth. Actívalo en Ajustes > Aplicaciones > Inventario > Permisos."))
     }
     private val pedirEncender = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (s.conector.adaptador()?.isEnabled == true) pendiente?.invoke() else mostrar("El Bluetooth sigue apagado.")
+        if (s.conector.adaptador()?.isEnabled == true) pendiente?.invoke() else mostrar(Textos.t("El Bluetooth sigue apagado."))
     }
 
     private val receptor = object : BroadcastReceiver() {
@@ -60,8 +60,8 @@ class SincronizarActivity : PantallaActivity() {
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                     ui = ui.copy(buscando = false)
                     if (ui.encontrados.isEmpty()) mostrar(
-                        "No encontré «${PcConnector.NOMBRE_PC}». En el PC pulsa «Iniciar sincronización» y acércate. " +
-                            "En Android 10 o anterior la ubicación del teléfono debe estar encendida para buscar.")
+                        Textos.t("No encontré «{pc}». En el PC pulsa «Iniciar sincronización» y acércate. En Android 10 o anterior la ubicación del teléfono debe estar encendida para buscar.",
+                            "pc" to PcConnector.NOMBRE_PC))
                 }
             }
         }
@@ -131,7 +131,7 @@ class SincronizarActivity : PantallaActivity() {
 
     // ------------------------------------------------------------------ permisos y Bluetooth encendido
     private fun asegurarBluetooth(buscando: Boolean, accion: () -> Unit) {
-        val adaptador = s.conector.adaptador() ?: return mostrar("Este teléfono no tiene Bluetooth.")
+        val adaptador = s.conector.adaptador() ?: return mostrar(Textos.t("Este teléfono no tiene Bluetooth."))
         val necesarios = buildList {
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -146,7 +146,7 @@ class SincronizarActivity : PantallaActivity() {
         }
         if (!adaptador.isEnabled) {
             pendiente = accion
-            mostrar("Enciende el Bluetooth para sincronizar.")
+            mostrar(Textos.t("Enciende el Bluetooth para sincronizar."))
             pedirEncender.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
@@ -164,7 +164,7 @@ class SincronizarActivity : PantallaActivity() {
     }
 
     // ------------------------------------------------------------------ buscar el PC (solo la primera vez)
-    /** Cualquier operador elige o cambia el PC (el rol Supervisor desapareció en la Fase 1). */
+    /** Cualquier operador elige o cambia el PC: no hay roles de supervisión en el teléfono. */
     private fun puedeCambiarPc(): Boolean = true
 
     private fun buscar() {

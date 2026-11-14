@@ -59,11 +59,8 @@ class ContarActivity : PantallaActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val conteo = s.contar.conteo.value
-        if (conteo == null) { finish(); return }
-
         val skuACorregir = intent.getStringExtra(EXTRA_SKU)
-        ui = uiInicial(conteo, intent)
+        ui = uiInicial(intent)
         if (skuACorregir != null) cambiarSku(skuACorregir, espera = 0)
 
         pantalla {
@@ -95,7 +92,7 @@ class ContarActivity : PantallaActivity() {
         ScanOptions()
             // Códigos de barras (EAN, UPC, Code 128…) y también el QR o el Data Matrix del producto.
             .setDesiredBarcodeFormats(ScanOptions.ONE_D_CODE_TYPES + ScanOptions.QR_CODE + ScanOptions.DATA_MATRIX)
-            .setPrompt("Apunta al código de barras o al QR")
+            .setPrompt(co.edu.umariana.inventario.ui.Textos.t("Apunta al código de barras o al QR"))
             .setBeepEnabled(true)
             .setOrientationLocked(false)
     )
@@ -151,12 +148,14 @@ class ContarActivity : PantallaActivity() {
             ui = ui.copy(exito = true, error = null, guardadas = ui.guardadas + 1)
             delay(850)
             if (actual.edicion) finish()
-            else ui = ContarUi(actual.conteo, guardadas = ui.guardadas)  // listo para el siguiente producto
+            else ui = ContarUi(guardadas = ui.guardadas)  // listo para el siguiente producto
         }
     }
 
     companion object {
         const val EXTRA_SKU = "sku"
+        /** El SKU viene del catálogo para contarlo, no para corregir una lectura existente. */
+        const val EXTRA_NUEVO = "nuevo"
         const val EXTRA_CANTIDAD = "cantidad"
         const val EXTRA_NOTA = "nota"
         const val EXTRA_DANADOS = "danados"
@@ -169,8 +168,8 @@ class ContarActivity : PantallaActivity() {
             .putExtra(EXTRA_DANADOS, fila.danados)
 
         /** El estado con que abre la pantalla: vacío para contar, o precargado con [correccion]. */
-        fun uiInicial(conteo: String, intent: Intent) = ContarUi(conteo,
-            edicion = intent.getStringExtra(EXTRA_SKU) != null,
+        fun uiInicial(intent: Intent) = ContarUi(
+            edicion = intent.getStringExtra(EXTRA_SKU) != null && !intent.getBooleanExtra(EXTRA_NUEVO, false),
             cantidad = intent.getStringExtra(EXTRA_CANTIDAD).orEmpty(),
             nota = intent.getStringExtra(EXTRA_NOTA).orEmpty(),
             danados = intent.getStringExtra(EXTRA_DANADOS).orEmpty())

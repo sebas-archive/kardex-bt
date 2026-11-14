@@ -18,6 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 object Rol {
     const val OPERADOR = "OPERADOR"
 
+    /** Etiqueta legible; la traducción se hace en la interfaz con [co.edu.umariana.inventario.ui.Textos]. */
     fun nombre(rol: String): String = if (rol == OPERADOR) "Operador de Inventario" else rol
 }
 
@@ -49,6 +50,10 @@ data class UsuarioEntity(
     val estado: String = EstadoCuenta.PENDIENTE,
     /** Por qué la rechazaron o suspendieron (lo escribió el administrador en el PC). */
     val motivo: String? = null,
+    /** Dato de perfil opcional: no se usa para entrar. */
+    val correo: String? = null,
+    /** Ruta absoluta del JPG cuadrado de la foto de perfil (null = se muestra la inicial). */
+    val foto: String? = null,
 )
 
 @Dao
@@ -63,7 +68,7 @@ interface UsuarioDao {
  * Las cuentas viven en su propia base (`cuentas.db`), aparte de `inventario.db`: así añadirlas no obliga a migrar
  * la base donde están las lecturas pendientes de un teléfono que ya tenía la app.
  */
-@Database(entities = [UsuarioEntity::class], version = 2, exportSchema = false)
+@Database(entities = [UsuarioEntity::class], version = 3, exportSchema = false)
 abstract class CuentasDatabase : RoomDatabase() {
     abstract fun usuarios(): UsuarioDao
 
@@ -77,10 +82,18 @@ abstract class CuentasDatabase : RoomDatabase() {
             }
         }
 
+        /** Versión 3: correo opcional y foto de perfil (ruta en el teléfono). Cuentas existentes quedan sin ambos. */
+        val MIGRACION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN correo TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN foto TEXT")
+            }
+        }
+
         @Volatile private var instancia: CuentasDatabase? = null
         fun abrir(context: Context): CuentasDatabase = instancia ?: synchronized(this) {
             instancia ?: Room.databaseBuilder(context.applicationContext, CuentasDatabase::class.java, "cuentas.db")
-                .addMigrations(MIGRACION_1_2)
+                .addMigrations(MIGRACION_1_2, MIGRACION_2_3)
                 .build().also { instancia = it }
         }
     }

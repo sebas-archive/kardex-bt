@@ -1,31 +1,31 @@
-"""Conciliación contra el stock del sistema, cierre de conteo y vistas.
+"""Conciliación del conteo continuo ACTUAL y vistas.
 
-Valores exactos del escenario fijo T-01 (ver server/tests/fixtures/escenario_conciliacion.sql):
-lecturas A1 60 (Ana) y luego A1 101 (Luis, recuento que la reemplaza), A2 45, A3 23, A5 4; stock A1 100, A2 50, A3 20, A4 10.
+Valores exactos del escenario fijo (ver server/tests/fixtures/escenario_conciliacion.sql):
+lecturas A1 60 (Ana) y luego A1 101 (Luis, recuento que la reemplaza), A2 45, A3 23, A5 4;
+stock A1 100, A2 50, A3 20, A4 10, A5 0. A4 no tiene lectura.
 """
 
 import threading
 
-import oracledb
 import pytest
 
 from conftest import connect, staging
 
-C = "T-01"
+C = "ACTUAL"
 T0 = 1731170400000
+SKUS = ("A1", "A2", "A3", "A4", "A5")
 
-# sku: (cant_sistema, cant_contada, diferencia, diferencia_pct, valor_diferencia, clasificacion)
-ABIERTO = {
-    "A1": (100, 101, 1, 1.00, 2000, "OK"),
-    "A2": (50, 45, -5, -10.00, -5000, "FALTANTE"),
-    "A3": (20, 23, 3, 15.00, 9000, "SOBRANTE"),
-    "A4": (10, 0, None, None, None, "SIN_CONTAR"),
-    "A5": (0, 4, 4, None, 2800, "SOBRANTE"),
+# sku: (cant_sistema, cant_contada, diferencia, diferencia_pct) — sin clasificación ni valor.
+ESPERADO = {
+    "A1": (100, 101, 1, 1.00),
+    "A2": (50, 45, -5, -10.00),
+    "A3": (20, 23, 3, 15.00),
+    "A4": (10, None, None, None),
+    "A5": (0, 4, 4, None),
 }
-CERRADO = {**ABIERTO, "A4": (10, 0, -10, -100.00, -5000, "FALTANTE")}
-# skus_totales, contados, avance_pct, ok, faltantes, sobrantes, exactitud_pct, valor_faltante, valor_sobrante
-RESUMEN_ABIERTO = (5, 4, 80.00, 1, 1, 2, 25.00, -5000, 11800)
-RESUMEN_CERRADO = (5, 5, 100.00, 1, 2, 2, 20.00, -10000, 11800)
+# skus_totales (60 de la semilla + 5 del escenario), contados, avance_pct, ok, faltantes, sobrantes,
+# exactitud_pct, valor_faltante, valor_sobrante.
+RESUMEN = (65, 4, 6.15, 0, 1, 3, 0, 5000, 13800)
 
 
 def procesar(db):
@@ -35,8 +35,8 @@ def procesar(db):
 def conciliacion(db, conteo=C):
     cur = db.cursor()
     cur.execute(
-        "SELECT sku, cant_sistema, cant_contada, diferencia, diferencia_pct, valor_diferencia, clasificacion "
-        "FROM conciliacion WHERE id_conteo = :c",
+        "SELECT sku, cant_sistema, cant_contada, diferencia, diferencia_pct "
+        "FROM conciliacion WHERE id_conteo = :c AND sku IN ('A1','A2','A3','A4','A5')",
         c=conteo,
     )
     return {row[0]: tuple(row[1:]) for row in cur}
@@ -61,46 +61,32 @@ def contado(escenario, db):
 
 
 def test_conciliacion_matches_scenario_exactly(contado, db):
-    assert conciliacion(db) == ABIERTO
+    assert conciliacion(db) == ESPERADO
 
 
 def test_resumen_matches_scenario_exactly(contado, db):
-    assert resumen(db) == RESUMEN_ABIERTO
-
-
-def test_cerrar_conteo_turns_sin_contar_into_faltante(contado, db):
-    db.cursor().callproc("pkg_batch.cerrar_conteo", [C])
-    assert conciliacion(db) == CERRADO
-    assert resumen(db) == RESUMEN_CERRADO
-    cur = db.cursor()
-    cur.execute("SELECT estado, fecha_cierre FROM conteos WHERE id_conteo = :c", c=C)
-    estado, fecha_cierre = cur.fetchone()
-    assert estado == "CERRADO" and fecha_cierre is not None
-
-
-def test_tolerance_boundary_is_inclusive(escenario, db):
-    # A1: sistema 100, tolerancia 2 % -> hasta 2 unidades de diferencia es OK.
-    staging(db, "tst-c1", 1, T0, C, "A1", 102)
-    procesar(db)
-    assert conciliacion(db)["A1"] == (100, 102, 2, 2.00, 4000, "OK")
-    staging(db, "tst-c1", 2, T0 + 1000, C, "A1", 103)  # recuento
-    procesar(db)
-    assert conciliacion(db)["A1"] == (100, 103, 3, 3.00, 6000, "SOBRANTE")
+    assert resumen(db) == RESUMEN
 
 
 def test_recount_updates_conciliation(contado, db):
-    assert conciliacion(db)["A2"][5] == "FALTANTE"
+    assert conciliacion(db)["A2"] == (50, 45, -5, -10.00)
     staging(db, "tst-c1", 1, T0 + 60_000, C, "A2", 50)  # más reciente que la lectura de 45
     procesar(db)
-    assert conciliacion(db)["A2"] == (50, 50, 0, 0.00, 0, "OK")
-    assert conciliacion(db)["A1"] == ABIERTO["A1"]  # lo demás no cambia
+    assert conciliacion(db)["A2"] == (50, 50, 0, 0.00)
+    assert conciliacion(db)["A1"] == ESPERADO["A1"]  # lo demás no cambia
 
 
-def test_counted_sku_missing_from_snapshot_is_sobrante_with_system_zero(contado, db):
+def test_counted_sku_with_zero_stock_is_conciliated(contado, db):
     cur = db.cursor()
     cur.execute("SELECT COUNT(*) FROM stock_sistema WHERE id_conteo = :c AND sku = 'A5'", c=C)
-    assert cur.fetchone()[0] == 0  # A5 no está en la foto de stock...
-    assert conciliacion(db)["A5"] == (0, 4, 4, None, 2800, "SOBRANTE")  # ...y aun así se concilia
+    assert cur.fetchone()[0] == 1
+    cur.execute("SELECT cantidad_sistema FROM stock_sistema WHERE id_conteo = :c AND sku = 'A5'", c=C)
+    assert cur.fetchone()[0] == 0
+    assert conciliacion(db)["A5"] == (0, 4, 4, None)
+
+
+def test_un_counted_sku_has_null_count_and_difference(contado, db):
+    assert conciliacion(db)["A4"] == (10, None, None, None)
 
 
 def test_v_dif_categoria_values(contado, db):
@@ -118,15 +104,15 @@ def test_v_dif_categoria_values(contado, db):
 def test_v_top_desvios_order(contado, db):
     cur = db.cursor()
     cur.execute(
-        "SELECT sku, valor_diferencia, clasificacion, nombre, categoria, diferencia "
+        "SELECT sku, valor_diferencia, nombre, categoria, diferencia, cant_sistema, cant_contada "
         "FROM v_top_desvios WHERE id_conteo = :c",
         c=C,
     )
-    rows = cur.fetchall()
+    rows = [r for r in cur if r[0] in SKUS]
     assert [(r[0], r[1]) for r in rows] == [
-        ("A3", 9000), ("A2", -5000), ("A5", 2800), ("A1", 2000), ("A4", None),
+        ("A3", 9000), ("A2", -5000), ("A5", 2800), ("A1", 2000), ("A4", 0),
     ]
-    assert rows[0][2:] == ("SOBRANTE", "Producto A3", "Aseo", 3)
+    assert rows[0][2:] == ("Producto A3", "Aseo", 3, 20, 23)
 
 
 def test_v_actividad_counts_by_operator(contado, db):
@@ -184,40 +170,12 @@ def test_concurrent_batches_leave_same_conciliation_as_single_run(escenario, db)
     for t in threads:
         t.join(timeout=120)
     assert errors == []
-    assert conciliacion(db) == ABIERTO
-    assert resumen(db) == RESUMEN_ABIERTO
-
-
-def test_reading_after_close_is_error_and_close_is_stable(contado, db):
-    db.cursor().callproc("pkg_batch.cerrar_conteo", [C])
-    tid = staging(db, "tst-c1", 1, T0 + 60_000, C, "A4", 10)  # llega tarde
-    procesar(db)
-    cur = db.cursor()
-    cur.execute("SELECT estado, mensaje_error FROM captura_transito WHERE id_transito = :i", i=tid)
-    assert cur.fetchone() == ("ERROR", "CONTEO_NO_ABIERTO")
-    db.cursor().callproc("pkg_batch.conciliar", [C])   # recalcular no revive el SIN_CONTAR
-    db.cursor().callproc("pkg_batch.cerrar_conteo", [C])  # y cerrar dos veces no rompe nada
-    assert conciliacion(db) == CERRADO
-
-
-def test_cerrar_conteo_processes_pending_readings_first(escenario, db):
-    escenario.cargar_lecturas()  # recibidas pero aún sin procesar
-    db.cursor().callproc("pkg_batch.cerrar_conteo", [C])
-    cur = db.cursor()
-    cur.execute(
-        "SELECT estado, COUNT(*) FROM captura_transito WHERE uuid_dispositivo = 'tst-escenario' GROUP BY estado"
-    )
-    assert cur.fetchall() == [("PROCESADO", 5)]
-    assert conciliacion(db) == CERRADO
-
-
-def test_cerrar_conteo_unknown_raises(db):
-    with pytest.raises(oracledb.DatabaseError, match="ORA-20002"):
-        db.cursor().callproc("pkg_batch.cerrar_conteo", ["NO-EXISTE"])
+    assert conciliacion(db) == ESPERADO
+    assert resumen(db) == RESUMEN
 
 
 def test_seed_conteo_is_conciliated_from_the_start(db):
-    """Recién creada la base, el conteo de la semilla ya muestra sus SKUs (todavía sin contar)."""
+    """Recién creada la base, el conteo ACTUAL ya tiene sus SKUs (todavía sin contar)."""
     cur = db.cursor()
-    cur.execute("SELECT skus_totales FROM v_resumen_conteo WHERE id_conteo = 'CONT-2026-11'")
-    assert cur.fetchone()[0] >= 58  # los 58 SKU de la foto de stock
+    cur.execute("SELECT skus_totales FROM v_resumen_conteo WHERE id_conteo = 'ACTUAL'")
+    assert cur.fetchone()[0] >= 60

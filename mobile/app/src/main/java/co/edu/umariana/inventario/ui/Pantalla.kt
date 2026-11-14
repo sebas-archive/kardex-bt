@@ -24,7 +24,12 @@ enum class Transicion(val entra: Int, val sale: Int, val vuelveEntra: Int, val v
  * [Transicion]; al cerrarse hace la misma en sentido contrario.
  */
 abstract class PantallaActivity : ComponentActivity() {
-    protected fun pantalla(contenido: @Composable () -> Unit) = setContent { InventarioTheme { contenido() } }
+    /** Carga el tema y el idioma del usuario de la sesión antes de dibujar: cada pantalla respeta su preferencia. */
+    protected fun pantalla(contenido: @Composable () -> Unit) {
+        val servicios = Servicios.de(this)
+        Apariencia.cargar(servicios.settings, servicios.auth.sesion()?.usuario)
+        setContent { InventarioTheme { contenido() } }
+    }
 
     @Suppress("DEPRECATION")  // overridePendingTransition: su reemplazo (overrideActivityTransition) solo existe desde Android 14
     protected fun abrir(destino: Class<*>, transicion: Transicion = Transicion.LATERAL, configurar: Intent.() -> Unit = {}) {
@@ -46,7 +51,7 @@ abstract class PantallaActivity : ComponentActivity() {
         overridePendingTransition(transicion.vuelveEntra, transicion.vuelveSale)
     }
 
-    protected fun aviso(mensaje: String) = Toast.makeText(this, mensaje, Toast.LENGTH_LONG).show()
+    protected fun aviso(mensaje: String) = Toast.makeText(this, Textos.t(mensaje), Toast.LENGTH_LONG).show()
 
     private companion object {
         const val EXTRA_TRANSICION = "transicion"
@@ -55,28 +60,27 @@ abstract class PantallaActivity : ComponentActivity() {
 
 /** El mensaje que ve el operario cuando no se pudo guardar. */
 fun SaveResult.mensaje(): String = when (this) {
-    is SaveResult.Guardada -> if (reemplazo) "Recuento guardado: reemplaza la lectura anterior" else "Guardado"
-    SaveResult.OperadorFaltante -> "Inicia sesión de nuevo: falta el nombre del operador"
-    SaveResult.SinConteo -> "Elige primero el conteo"
-    SaveResult.SkuFaltante -> "Escanea o escribe el SKU"
-    SaveResult.CantidadInvalida -> "Cantidad inválida: usa números con punto decimal (hasta 9 enteros y 3 decimales)"
-    SaveResult.NotaLarga -> "La nota admite hasta ${CountViewModel.MAX_NOTA} caracteres"
-    SaveResult.DanadosInvalidos -> "Los dañados deben ser un número (punto decimal) y no más que la cantidad"
+    is SaveResult.Guardada -> if (reemplazo) Textos.t("Recuento guardado: reemplaza la lectura anterior") else Textos.t("Guardado")
+    SaveResult.OperadorFaltante -> Textos.t("Inicia sesión de nuevo: falta el nombre del operador")
+    SaveResult.SkuFaltante -> Textos.t("Escanea o escribe el SKU")
+    SaveResult.CantidadInvalida -> Textos.t("Cantidad inválida: usa números con punto decimal (hasta 9 enteros y 3 decimales)")
+    SaveResult.NotaLarga -> Textos.t("La nota admite hasta {n} caracteres", "n" to CountViewModel.MAX_NOTA)
+    SaveResult.DanadosInvalidos -> Textos.t("Los dañados deben ser un número (punto decimal) y no más que la cantidad")
 }
 
 /** El mensaje de cada resultado de acceso que no es un éxito. */
 fun AuthResult.mensaje(): String = when (this) {
     is AuthResult.Ok -> ""
-    AuthResult.UsuarioInvalido -> "El usuario debe tener de 3 a 20 caracteres: letras, números, punto o guion"
-    AuthResult.NombreInvalido -> "Escribe tu nombre completo (máximo 60 caracteres)"
-    AuthResult.ClaveDebil -> "La contraseña necesita mínimo 8 caracteres, con letras y números"
-    AuthResult.ClavesDistintas -> "Las dos contraseñas no coinciden"
-    AuthResult.PreguntaFaltante -> "Elige una pregunta de seguridad"
-    AuthResult.RespuestaCorta -> "Escribe la respuesta a la pregunta de seguridad"
-    AuthResult.UsuarioExiste -> "Ese usuario ya existe en este teléfono"
-    AuthResult.CredencialesInvalidas -> "Usuario o contraseña incorrectos"
-    is AuthResult.Bloqueado -> "Demasiados intentos. Espera $segundos segundos y vuelve a probar"
-    AuthResult.UsuarioNoExiste -> "No hay una cuenta con ese usuario en este teléfono"
-    AuthResult.RespuestaIncorrecta -> "La respuesta no coincide"
-    AuthResult.SinSesion -> "No hay una sesión abierta"
+    AuthResult.UsuarioInvalido -> Textos.t("El usuario debe tener de 3 a 20 caracteres: letras, números, punto o guion")
+    AuthResult.NombreInvalido -> Textos.t("Escribe tu nombre completo (máximo 60 caracteres)")
+    AuthResult.CorreoInvalido -> Textos.t("Escribe un correo válido (máximo 120 caracteres)")
+    AuthResult.ClaveDebil -> Textos.t("La contraseña necesita mínimo 8 caracteres, con letras y números")
+    AuthResult.ClavesDistintas -> Textos.t("Las dos contraseñas no coinciden")
+    AuthResult.PreguntaFaltante -> Textos.t("Elige una pregunta de seguridad")
+    AuthResult.RespuestaCorta -> Textos.t("Escribe la respuesta a la pregunta de seguridad")
+    AuthResult.UsuarioExiste -> Textos.t("Ese usuario ya existe en este teléfono")
+    AuthResult.CredencialesInvalidas -> Textos.t("Usuario o contraseña incorrectos")
+    is AuthResult.Bloqueado -> Textos.t("Demasiados intentos. Espera {n} segundos y vuelve a probar", "n" to segundos)
+    AuthResult.UsuarioNoExiste -> Textos.t("No hay una cuenta con ese usuario en este teléfono")
+    AuthResult.RespuestaIncorrecta -> Textos.t("La respuesta no coincide")
 }

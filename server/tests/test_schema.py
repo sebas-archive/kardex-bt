@@ -7,7 +7,7 @@ import oracledb
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTEO = "CONT-2026-11"
+CONTEO = "ACTUAL"
 
 
 def _scalar(db, sql, **binds):
@@ -35,7 +35,7 @@ def test_seed_counts(db):
     assert _scalar(db, "SELECT COUNT(*) FROM productos") == 60
     assert (
         _scalar(db, "SELECT COUNT(*) FROM stock_sistema WHERE id_conteo = :c", c=CONTEO)
-        == 58
+        == 60
     )
     assert _scalar(db, "SELECT COUNT(*) FROM user_tables WHERE table_name = 'UBICACIONES'") == 0  # ya no hay ubicaciones
     assert _scalar(db, "SELECT COUNT(*) FROM conteos WHERE id_conteo = :c", c=CONTEO) == 1   # su estado lo cambia el uso
@@ -120,5 +120,4 @@ def test_truth_json_covers_all_seeded_skus(db):
         c=CONTEO,
     )
     outside_snapshot = {row[0] for row in cur}
-    assert len(outside_snapshot) == 2
-    assert outside_snapshot <= truth_skus
+    assert outside_snapshot == set()

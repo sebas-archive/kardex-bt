@@ -1,10 +1,11 @@
 # Arquitectura
 
-Sistema de **toma de inventario físico sin red**: un operario cuenta productos con una APK Android (escáner de
+Sistema de **toma de inventario físico sin red**: un operador cuenta productos con una APK Android (escáner de
 códigos de barras o digitación), el teléfono guarda todo localmente y, cuando está cerca del PC, lo sube por
-**Bluetooth**. El PC corre **una sola aplicación de escritorio** que recibe el conteo, lo guarda en **Oracle 11g**,
-dispara el **batch PL/SQL** que lo concilia contra el stock del sistema y muestra y grafica diferencias, exactitud y
-avance. Todo el lado PC corre en Docker.
+**Bluetooth**. El PC recibe el conteo, lo guarda en **Oracle 11g**, dispara el **batch PL/SQL** que lo concilia
+contra el stock del sistema y lo muestra y grafica en **una sola aplicación de escritorio**. El conteo es
+**continuo**: siempre está abierto y el inventario se recalcula con cada batch. Todo el lado PC corre en Docker
+sobre Linux.
 
 Los diagramas son fuente PlantUML en [`uml/`](uml/) (índice en [`uml/README.md`](uml/README.md)) y se incrustan aquí
 como SVG. El formato de línea del protocolo está en [`protocolo.md`](protocolo.md) y la prueba de Bluetooth desde
@@ -20,7 +21,7 @@ contenedor en [`spikes/bluez.md`](spikes/bluez.md).
  └────────────┘              └──────────────────────────────────────────────┘             │  CONCILIACION, V_*  │
                              ┌──────────────────────────────────────────────┐   SQL*Net   │  SERVICIO_BT,       │
                              │ App de escritorio (PyQt6 + pyqtgraph)        │ ◀─────────▶ │  CONFIGURACION      │
-                             │  lee V_*, ve y pausa el servicio (D31)       │             │                     │
+                             │  lee V_*, ve y pausa el servicio (D29)       │             │                     │
                              └──────────────────────────────────────────────┘             └─────────────────────┘
 ```
 
@@ -28,98 +29,112 @@ contenedor en [`spikes/bluez.md`](spikes/bluez.md).
 |---|---|---|
 | 1. Captura móvil | `mobile/` | Cuenta sin red. Guarda **siempre primero** en la `Outbox` (Room/SQLite); nada depende de la conexión. |
 | 2. Recepción Bluetooth | `server/btsync` (`transports`, `session`) | Acepta una conexión RFCOMM, valida cada línea (CRC, formato, secuencia), hace COMMIT cada 25 y responde `ACK`/`NAK`. |
-| 3. Staging y batch | Oracle (`CAPTURA_TRANSITO`, `PKG_BATCH`, `DBMS_SCHEDULER`) | Valida y mueve lo recibido a `REGISTROS_PROCESADOS`, decide la lectura vigente y calcula `CONCILIACION`. |
+| 3. Staging y batch | Oracle (`CAPTURA_TRANSITO`, `PKG_BATCH`, `DBMS_SCHEDULER`) | Valida y mueve lo recibido a `REGISTROS_PROCESADOS`, decide la lectura vigente y calcula `CONCILIACION` para `ACTUAL`. |
 | 4. Presentación | `desktop/app` | Lee las vistas `V_*`, muestra tarjetas, tablas y gráficas, y ve (y pausa) el servicio Bluetooth. |
 
-Desde la Fase 5 (D31) las capas 2 y 4 son **dos procesos**: el servicio `bluetooth` (`python -m btsync.servicio`)
-mantiene siempre abierta la recepción y, cuando una sesión termina, el **controlador** (no la sesión) ejecuta el batch.
-El escritorio lee el estado del servicio en `SERVICIO_BT` cada 2 s y refresca cuando llega una sincronización. Se
-comunican solo por Oracle; no hay API HTTP.
+Las capas 2 y 4 son **dos procesos**: el servicio `bluetooth` (`python -m btsync.servicio`) mantiene siempre abierta
+la recepción y, cuando una sesión termina, el **controlador** (no la sesión) ejecuta el batch. El escritorio lee el
+estado del servicio en `SERVICIO_BT` cada 2 s y refresca cuando llega una sincronización. Se comunican solo por
+Oracle; no hay otra interfaz de red.
 
 ### Cómo viaja un dato
 
-1. El clasificador guarda `(conteo, SKU, cantidad)` → fila `PENDIENTE` en la `Outbox` con el reloj del teléfono.
-2. Al sincronizar, el móvil manda `HELLO` y `ACCT` (la cuenta del operador); el PC responde `ACCTST` con el estado de esa
-   cuenta, `READY|<último seq>|<hora del servidor>` y el catálogo. Sin cuenta `ACTIVO` no se acepta ninguna lectura.
-3. El móvil envía `REC` en ventanas de 50; el PC inserta en `CAPTURA_TRANSITO` (clave `(uuid, seq)`: idempotente),
-   hace COMMIT cada 25 y responde `ACK|n` (acumulativo). Un `NAK|n|motivo` hace retroceder al móvil a `n` (go-back-N).
+1. El operador guarda `(SKU, cantidad, dañados, nota)` en la `Outbox` con el reloj del teléfono. El catálogo que
+   recibió no trae el stock: el conteo es ciego.
+2. Al sincronizar, el móvil manda `HELLO` y `ACCT`; el PC responde `ACCTST` con el estado de esa cuenta,
+   `READY|<último seq>|<hora del servidor>` y el catálogo pseudo `CATALOGO` (`CATTAREA`, un `CATITEM` por producto,
+   `CATPROD` y `CAT_END`). Sin cuenta `ACTIVO` no se acepta ninguna lectura.
+3. El móvil envía `REC` con `id_conteo = ACTUAL` en ventanas de 50; el PC inserta en `CAPTURA_TRANSITO` (clave
+   `(uuid, seq)`: idempotente), hace COMMIT cada 25 y responde `ACK|n` (acumulativo). Un `NAK|n|motivo` hace retroceder
+   al móvil a `n` (go-back-N). `INICIO` se tolera y se ignora.
 4. `END` → `ACK` final → `BYE`. La sesión termina; el controlador corre `PKG_BATCH.procesar_pendientes('SYNC')`.
-5. El batch valida, inserta en `REGISTROS_PROCESADOS`, recalcula cuál lectura vale por `(conteo, SKU)` y
-   concilia. La app de escritorio consulta las vistas y repinta.
+5. El batch valida, inserta en `REGISTROS_PROCESADOS`, marca como no vigente la lectura anterior de ese SKU y
+   concilia `ACTUAL`. La app de escritorio consulta las vistas y repinta. Una lectura con error queda en `ERROR` y no
+   entra a la conciliación hasta que se corrija y se reprocese.
 
 ## 2. Patrones
 
 **Escritorio: MVC con trabajadores.** *Modelo*: dataclasses de `models.py` más Oracle (las consultas salen de las
-vistas `V_*`, funciones `fetch_*` de `db.py`). *Vista*: las pantallas de `views/` (Dashboard, Inventario, Sincronización, Gráficas, Perfil y, para el administrador, Usuarios), más el acceso. *Controlador*: `ServicioRemoto`
-(lee el estado del servicio Bluetooth, que corre en otro proceso, y lo convierte en señales Qt) y `QueryRunner`
-(corre cada consulta en un `QueryWorker` y entrega el resultado al hilo de la interfaz). **Ninguna consulta corre en el
-hilo de la UI**; cada hilo de trabajo usa su propia conexión Oracle y toda conexión pasa por `connect_oracle`, que las
-serializa (abrir conexiones en paralelo con el cliente «thick» de Oracle abortaba el proceso).
+vistas `V_*`, funciones `fetch_*` de `db.py`). *Vista*: las pantallas de `views/` (Dashboard, Inventario, Gráficas,
+Sincronización, Notificaciones, Perfil y, para el Administrador, Solicitudes, Empleados, Roles y permisos, Auditoría,
+Configuración y Respaldos), más el acceso. *Controlador*: `ServicioRemoto` (lee el estado del servicio Bluetooth, que
+corre en otro proceso, y lo convierte en señales Qt) y `QueryRunner` (corre cada consulta en un `QueryWorker` y
+entrega el resultado al hilo de la interfaz). **Ninguna consulta corre en el hilo de la UI**; cada hilo de trabajo usa
+su propia conexión Oracle y toda conexión pasa por `connect_oracle`, que las serializa.
 
-**Android: MVVM.** *Vista*: las `Activity` (`ui/*Activity.kt`) dibujan con **Jetpack Compose y Material 3**; cada pantalla es una función sin estado propio en `ui/pantallas/`, que recibe los datos y avisa de los toques. *ViewModel*:
-`CountViewModel` (reglas de guardado, `StateFlow` de operador y conteo) y `SyncViewModel` + `SyncRunner`
-(reintentos y estado de la sincronización). *Modelo*: `Outbox` y catálogo (Room), `SyncClient` y `Protocol`. La lógica
-está en clases sin dependencia de pantallas, así que se prueba en la JVM.
+**Android: MVVM.** *Vista*: las `Activity` (`ui/*Activity.kt`) dibujan con **Jetpack Compose y Material 3**; cada
+pantalla es una función sin estado propio en `ui/pantallas/`, que recibe los datos y avisa de los toques. *ViewModel*:
+`CountViewModel` (reglas de guardado, `StateFlow` de operador y SKU) y `SyncViewModel` + `SyncRunner` (reintentos y
+estado de la sincronización). *Modelo*: `Outbox` y catálogo (Room), `SyncClient` y `Protocol`. La lógica está en
+clases sin dependencia de pantallas, así que se prueba en la JVM.
+
+**Preferencias por usuario.** `tema.py` e `i18n.py` en el escritorio, y `SettingsStore` + `Strings` en la APK,
+leen y guardan tema e idioma por cuenta. El cambio se aplica en el acto y no requiere reiniciar la sesión.
 
 **Transporte intercambiable.** `Transport`/`Connection` (`btsync.transports.base`) tienen dos implementaciones:
 `BluezTransport` (Bluetooth real por D-Bus) y `TcpTransport` (pruebas y plan B). Una sesión no sabe cuál usa.
 
-**Protocolo idéntico en dos lenguajes.** `protocol.py` y `Protocol.kt` pasan los mismos 7 vectores de
+**Protocolo idéntico en dos lenguajes.** `protocol.py` y `Protocol.kt` pasan los mismos vectores de
 [`protocol-vectors.json`](protocol-vectors.json); si uno falla, el protocolo es inconsistente.
 
 ## 3. Decisiones de diseño
 
 | # | Decisión | Por qué |
 |---|---|---|
-| D1 | Tema: toma de inventario físico de una bodega o tienda (SKU, categoría, costo). | Elegido por el usuario; caso real de terminal que cuenta offline y sube en lote. |
-| D2 | «Oracle X11» = Oracle XE 11g. | 11g no tiene `IDENTITY` ni funciones JSON: se usan secuencia + trigger y un formato de texto con `\|`. |
-| D3 | La GUI usa X11: la app corre en contenedor y se dibuja en la pantalla del host por el socket X11. | Cumple «todo en Docker» con app de escritorio. |
+| D1 | Toma de inventario físico ciego y continuo de una bodega o tienda (SKU, categoría, costo). | Caso real de terminal que cuenta offline y sube en lote; el conteo nunca se cierra. |
+| D2 | Oracle XE 11g. | 11g no tiene `IDENTITY` ni funciones JSON: se usan secuencia + trigger y un formato de texto con `\|`. |
+| D3 | La GUI usa X11: la app corre en contenedor y se dibuja en la pantalla del host por el socket X11 (o Wayland con el lanzador). | Cumple «todo el lado PC en Docker» con aplicación de escritorio. |
 | D4 | Móvil: solo Android. | iOS no permite RFCOMM clásico a apps normales. |
-| D5 | Emparejamiento nativo BlueZ con código de 6 dígitos. | **Sustituida por D22 como modo por defecto**; sigue disponible (`require_pairing`). |
+| D5 | Emparejamiento nativo BlueZ con código de 6 dígitos, **opcional** (`BT_CON_CLAVE=1`). | El modo por defecto no pide código (D22); el modo con código queda para instalaciones que lo exijan. |
 | D6 | Servicio RFCOMM registrado por D-Bus (`ProfileManager1`, UUID fijo). | `sdptool` está obsoleto; BlueZ entrega el socket ya conectado. |
-| D7 | La app corre en un contenedor con `network_mode: host`, `NET_ADMIN/NET_RAW` y `/var/run/dbus`; `bluetoothd` queda en el host. | Patrón validado en el spike (Tarea 8). |
+| D7 | Los contenedores `bluetooth` y `app` usan `network_mode: host`, `NET_ADMIN/NET_RAW` y `/var/run/dbus`; `bluetoothd` queda en el host. | Patrón validado en el spike de BlueZ. |
 | D8 | Sin cifrado propio de aplicación. | **Sustituida por D22 en el modo por defecto**; con código, el enlace emparejado lo cifra BlueZ. |
-| D9 | El batch corre **fuera de la sesión**: `BYE` cuenta lo aceptado en staging; luego el controlador ejecuta `run_batch('SYNC')`. Un job del Scheduler cada 60 s lo respalda. | El móvil no espera al batch y las pruebas de la sesión no dependen de PL/SQL. |
+| D9 | El batch corre **fuera de la sesión**: `BYE` cuenta lo aceptado en staging; luego el controlador ejecuta `run_batch('SYNC')`. Un job del Scheduler cada intervalo lo respalda. | El móvil no espera al batch y las pruebas de la sesión no dependen de PL/SQL. |
 | D10 | `REGISTROS_PROCESADOS.CANTIDAD` es `NUMBER`. | Hace falta para sumar y conciliar. |
-| D11 | El PC es **una** aplicación de escritorio. | Menos piezas; la demo sale de una sola ventana. |
-| D12 | Conteo ciego: el catálogo enviado al móvil no incluye el stock del sistema. | El operario no ve el teórico para no sesgar el conteo. |
-| D13 | Recontar reemplaza (**sin ubicaciones**: una lectura vigente por conteo y SKU); vale la lectura más reciente y, a igual fecha, el `ID_TRANSITO` mayor. | Permite corregir sin duplicar, incluso entre dos celulares. |
-| D14 | Código de barras = SKU; escáner ZXing embebido más digitación manual. El escáner lee también el **QR** del producto (SKU solo, `SKU:…`, JSON con `sku` o una dirección web con `sku=`). | Sin Google Play Services: funciona sin red. |
+| D11 | El PC es **una** aplicación de escritorio; el servicio Bluetooth es otro proceso. | Menos piezas para el usuario; la recepción no depende de la ventana. |
+| D12 | Conteo ciego: el catálogo enviado al móvil no incluye el stock del sistema. | El operador no ve el teórico para no sesgar el conteo. |
+| D13 | Recontar reemplaza: una lectura vigente por SKU; vale la más reciente y, a igual fecha, el `ID_TRANSITO` mayor. | Permite corregir sin duplicar, incluso entre dos teléfonos. |
+| D14 | Código de barras = SKU; escáner ZXing embebido más digitación manual. El escáner lee también el **QR** del producto (SKU solo, `SKU:…`, JSON con `sku` o una dirección con `sku=`). | Sin Google Play Services: funciona sin red. |
 | D15 | Reloj del móvil: `offset = hora del servidor − reloj del móvil` al recibir `READY`; se envía `ts_original + offset` y el original **no se modifica**; el offset no se acumula. | Sin red los relojes derivan y D13 depende de ellos. |
-| D16 | Los errores no se pierden: quedan en `ERROR`, visibles, y se reprocesan tras corregir el catálogo. | Aparece un producto sin alta y el administrador lo registra después. |
-| D17 | UML completo en PlantUML (22 diagramas, 13 tipos). | A pedido del usuario; una prueba evita que las clases se desvíen del código. |
+| D16 | Los errores no se pierden: quedan en `ERROR`, visibles en Sincronización, y se reprocesan tras dar de alta el SKU. | Aparece un producto sin alta y el Administrador lo registra después. |
+| D17 | UML completo en PlantUML (22 diagramas, 13 tipos). | Una prueba evita que las clases se desvíen del código y que el índice pierda diagramas. |
 | D18 | Identidad del dispositivo = UUID de instalación, con `allowBackup="false"`. | Android no da una MAC propia. Reinstalar crea un dispositivo nuevo con `seq` desde 1. |
 | D19 | Una sincronización a la vez; las demás reciben `NAK\|0\|OCUPADO`. | Evita que un segundo teléfono pise el estado del primero. |
-| D20 | Operador obligatorio (máx. 60) y nota (máx. 255); el batch trunca sin marcar error. Desde D23 el operador es el nombre de quien inició sesión. | Es lo que soporta el modelo de datos; el móvil ya limita. |
-| D21 | Nombre Bluetooth visible `gestion_inventario` mientras la ventana está abierta; después recupera el del PC. | El operario busca la aplicación, no el equipo. |
-| D22 | **Sin emparejamiento ni claves**: socket RFCOMM inseguro, agente silencioso, el teléfono recuerda al PC y conecta directo. | Quita pasos al operario. Costo de seguridad abajo. |
-| D23 | **Acceso con cuentas locales** en la APK: crear cuenta, iniciar sesión, recuperar la contraseña con una pregunta de seguridad, cambiarla y cerrar sesión. Rol por defecto **Clasificador**; el **Supervisor** además puede cambiar el PC con el que sincroniza el teléfono. Contraseñas con PBKDF2 y sal; 5 fallos bloquean 30 s. | A pedido del usuario. La app trabaja sin red: no hay servidor que valide ni correo para recuperar. Las cuentas van en su propia base (`cuentas.db`) para no migrar la de las lecturas. |
-| D24 | **Sin ubicaciones** (a pedido del usuario): se quitaron del `REC` (protocolo versión 2), del catálogo, de Oracle (tabla, columna y vistas) y de las dos aplicaciones. Una lectura vigente por `(conteo, SKU)`. | Se cuenta una vez por producto; recontar reemplaza. La APK conserva las lecturas guardadas al actualizarse (migración de Room 1 → 2). |
-| D31 | **Fase 5: configuración, respaldos y servicio Bluetooth independiente** (a pedido del usuario; reemplaza el «un solo proceso» de D11). **Servicio**: `python -m btsync.servicio` (servicio `bluetooth` de Docker Compose, `restart: unless-stopped`) reutiliza `SyncController`; cada segundo reabre la ventana de visibilidad si quedó en reposo (tras un `ERROR`, a los 10 s), escribe estado y latido en `SERVICIO_BT` y lee lo que deja el escritorio: `pausado` (una sincronización en curso termina antes: `PAUSANDO` → `PAUSADO`) y `respuesta` al código. El escritorio ve `DETENIDO` si el latido tiene más de 10 s; el contador `listos` le avisa de cada sincronización terminada. **Configuración** (`CONFIGURACION`, clave → valor; sin fila vale el inicial): umbrales de ajuste crítico, intervalo del lote y días de purga (aplicados a los jobs con `DBMS_SCHEDULER.SET_ATTRIBUTE`), tamaño máximo de foto y respaldo automático; cada cambio se audita. **Respaldo**: un zip con `manifest.json`, una tabla por `.jsonl` (NUMBER exacto, TIMESTAMP en ISO) y las fotos, leído en una transacción `READ ONLY`; se escribe a `.parcial` y luego se renombra. **Restaurar todo**: pausa el servicio, guarda un respaldo «previo», deshabilita los jobs, borra e inserta todas las tablas en una transacción (orden por las FK), adelanta las secuencias, cambia la carpeta de fotos tras el COMMIT y cierra la sesión del escritorio. El automático lo hace el servicio una vez al día. | La especificación pide configuración general y respaldos para el Administrador, y que la recepción no dependa de tener abierta la ventana. Comunicar los dos procesos por Oracle evita otra API y deja el estado a la vista de cualquier escritorio. Un zip propio (y no `expdp`) se restaura desde la pantalla, funciona igual en Docker y lleva también las fotos. |
-| D30 | **Fase 4: fotos de evidencia, dañados y auditoría** (a pedido del usuario). **Protocolo 5**: el `REC` lleva al final los dañados (≤ cantidad; el job los guarda en `registros_procesados.danados` o marca `DANADOS_INVALIDO`), y las fotos viajan como `FOTO|seq|parte|total|crc32|base64` después de las lecturas y antes del `END`, una a la vez, con `FOTOOK`/`FOTOERR`. El móvil comprime a JPG de 1280 px (calidad 70) y las encola en Room (`fotos`: PENDIENTE, ENVIADA, RECHAZADA). El PC confirma las lecturas pendientes al empezar cada foto, la arma en memoria, comprueba el CRC, la escribe en `FOTOS_DIR/<uuid>/<seq>.jpg` y guarda la ruta relativa en `FOTOS`; la purga del staging conserva las filas con foto (enlazan la evidencia con su registro). `btsync/esquema.py` lleva bases anteriores al día (columna, tabla y recompilación de `pkg_batch`). En el PC, Diferencias y el avance de la tarea muestran dañados y 📷 (clic: visor). **Auditoría**: tabla `AUDITORIA` escrita en la misma transacción que cada cambio (cuentas, permisos, categorías y almacenes, tareas, diferencias, movimientos, ajustes) y en cada inicio de sesión; pantalla «Auditoría» (módulo `historial`): el Administrador ve todo, Inventario la operación. | La especificación pide evidencia fotográfica sin bloquear el texto (cola aparte, < 50 ms por registro) y una auditoría con fechas y responsables. Auditar en la misma transacción garantiza que no haya cambios sin rastro ni rastros de cambios que fallaron. |
-| D29 | **Fase 3b: movimientos y ajustes** (a pedido del usuario). Una sola tabla `MOVIMIENTOS` (secuencia `SEQ_MOVIMIENTOS`) guarda entradas, salidas y ajustes con su delta, la existencia antes y después, fecha, motivo, observaciones, responsable y estado (`APLICADO`, `PENDIENTE`, `RECHAZADO`). Entradas y salidas cambian `EXISTENCIAS` en la misma transacción, con la fila bloqueada (`SELECT … FOR UPDATE`); una salida nunca deja la existencia por debajo de 0. Un ajuste es **crítico** si cambia 10 % o más de la existencia (desde 0, cualquier cambio) o si `|Δ| × costo` llega a $200.000; queda `PENDIENTE` sin tocar nada hasta que el Administrador lo aprueba (se aplica el **delta** sobre la existencia de ese momento) o lo rechaza con motivo. Inventario solicita; el Administrador nunca solicita, solo aprueba (rol comprobado en vivo). Desde «Diferencias», «Ajustar existencia…» propone la existencia actual más la diferencia del conteo, y la diferencia queda «Ajustada» o «Ajuste pendiente». Pantallas: **Movimientos** (entradas, salidas e historial juntos) y **Ajustes**. | La especificación pide que los críticos los apruebe el Administrador y que este no edite la operación diaria. Aplicar el delta evita pisar lo que se movió entre la solicitud y la aprobación. Los umbrales son fijos hasta la Fase 5 (Configuración). |
-| D28 | **Fase 3: tareas de conteo asignables y diferencias** (a pedido del usuario). Una tarea **es un conteo** con columnas nuevas (`almacen`, `operador`, `instrucciones`, `iniciada`, `creada_por`, `creada`); sus productos son sus filas de `STOCK_SISTEMA`, con la cantidad de `EXISTENCIAS` del almacén al crearla (0 si no hay fila). Ids `T-001` (secuencia `SEQ_TAREAS`). El **estado se calcula al consultar** (`server/btsync/tareas.py`) y gana la primera regla: `CERRADA` (conteo cerrado), `CON_ERROR` (registros en `ERROR` en el staging), todos los productos contados → `CON_DIFERENCIAS` o `SINCRONIZADA`, alguna lectura → `ENVIADA_PARCIALMENTE`, el móvil avisó → `EN_PROGRESO`, si no `ASIGNADA`. **Diferencias**: las filas FALTANTE/SOBRANTE de la conciliación; Inventario las marca revisadas o pide recuento (`REVISIONES`, una fila por producto y conteo); la acción vale hasta que llega una lectura nueva. **Protocolo 4**: `CATTAREA` + `CATITEM` (las tareas del operador, sin cantidades: conteo ciego D12) e `INICIO` (el operador empezó una tarea). En el móvil, «Mis tareas» reemplaza a «Elegir conteo». Crear, reasignar (solo `ASIGNADA`) y cerrar exigen `GESTION` en `tareas`; revisar, `GESTION` en `diferencias`. | Calcular el estado no toca el paquete PL/SQL ni puede quedar desfasado del job. Reusar los conteos mantiene igual el job, la conciliación y la pantalla Inventario. Los conteos sin operador (los de antes) siguen llegando a todos los teléfonos como «conteo general». Los ajustes de existencias, entradas, salidas y movimientos van en la fase siguiente. |
-| D27 | **Fase 2: categorías, almacenes y existencias** (a pedido del usuario). Tablas `CATEGORIAS` (el nombre es el mismo texto de `productos.categoria`; renombrar cambia también los productos), `ALMACENES` y `EXISTENCIAS` (producto × almacén), y la columna `productos.stock_minimo`. Estado de una existencia: Agotado (0), Stock bajo (menos que el mínimo) o Disponible. Desactivar no borra nada. Las crea y siembra `desktop/app/maestros.py::migrar()` al arrancar (las existencias de ejemplo salen del stock del conteo más reciente, en `ALM-01`). Escribir exige `GESTION` en el módulo `categorias` (Inventario); el Administrador consulta. | La especificación separa la gestión (Inventario) de la consulta (Administrador). Las entradas, salidas y ajustes moverán las existencias en fases siguientes; los conteos se enlazan en la Fase 3. |
-| D26 | **Fase 1: estados de cuenta, rol Operador y matriz de permisos** (a pedido del usuario; reemplaza lo de cuentas de D23 y D25). Toda cuenta vive en `USUARIOS` de Oracle con estado `PENDIENTE`, `ACTIVO`, `RECHAZADO` o `SUSPENDIDO` y rol `ADMIN`, `INVENTARIO` u `OPERADOR`. El operador se registra en el móvil; su cuenta llega al PC con `ACCT` (protocolo 3) y el administrador la aprueba o la rechaza con motivo en «Solicitudes». Rechazar y suspender exigen motivo, que la persona ve en la pantalla de su estado («Regresar al inicio de sesión»). La matriz rol × módulo (`PERMISOS`: `NINGUNO`, `CONSULTA`, `GESTION`) la edita el administrador en «Roles y permisos»; se valida en la interfaz (la sesión la lleva) y en cada función que cambia datos. El administrador siempre gestiona Usuarios, Solicitudes y Permisos. | La especificación pide aprobación de toda cuenta nueva y una matriz editable validada también en el acceso a datos. La contraseña del móvil sigue siendo local (sin red); lo que viaja es el estado. Para que nadie use en otro teléfono el usuario de un operador aprobado, la cuenta queda vinculada al UUID del teléfono que la registró («Desvincular teléfono» en Empleados la libera). Una cuenta del celular solo puede ser Operador; una del PC, Administrador o Inventario. |
-| D25 | **Cuentas del PC con roles ADMIN e INVENTARIO** (a pedido del usuario), en Oracle (`USUARIOS`, PBKDF2-SHA256). La primera cuenta es administradora; las demás, de inventario. Administrador: todo (cerrar conteos, reprocesar, administrar cuentas). Inventario: consulta, sincroniza y ve gráficas. Los clasificadores usan el celular (D23). | Roles separados por aplicación: el PC no recibe cuentas del teléfono ni al revés. |
+| D20 | Operador obligatorio (máx. 60) y nota (máx. 255); el batch trunca sin marcar error. El operador es el nombre de quien inició sesión. | Es lo que soporta el modelo de datos; el móvil ya limita. |
+| D21 | Nombre Bluetooth visible `gestion_inventario` mientras el **servicio** está activo. | El operador busca la aplicación, no el equipo, y la recepción sigue con la ventana cerrada. |
+| D22 | **Sin emparejamiento por defecto**: socket RFCOMM inseguro, agente silencioso, el teléfono recuerda al PC y conecta directo. El modo con código sigue disponible. | Quita pasos al operador. Costo de seguridad abajo. |
+| D23 | **Cuentas locales del móvil**: solo Operador de Inventario; la contraseña vive en el teléfono (PBKDF2-SHA256 con sal) y se recupera con la pregunta de seguridad. Sin red no hay servidor que la valide. | La app es offline; el PC nunca recibe la clave. El correo es opcional y solo de perfil. |
+| D24 | **Sin ubicaciones** (protocolo 2): ni en el `REC`, ni en el catálogo, ni en Oracle. Una lectura vigente por SKU. | Se cuenta una vez por producto; recontar reemplaza. |
+| D25 | **Un solo Administrador**: la primera cuenta del PC; no se crea, aprueba ni promueve otro; no se puede suspender ni degradar. Su contraseña se recupera desde Acceso con la pregunta de seguridad. | Si hubiera dos, el único que aprueba solicitudes podría quedar fuera. La pregunta es la llave de recuperación. |
+| D26 | **Cuentas en Oracle con estado** (`PENDIENTE`, `ACTIVO`, `RECHAZADO`, `SUSPENDIDO`) y rol (`ADMIN`, `INVENTARIO`, `OPERADOR`). Las del PC exigen correo único; las del móvil lo aceptan opcional. La matriz rol × módulo tiene **12 módulos** (`dashboard`, `inventario`, `graficas`, `sync`, `notificaciones`, `perfil`, `solicitudes`, `usuarios`, `permisos`, `auditoria`, `configuracion`, `respaldos`): el Administrador gestiona todo y su fila es intocable; Inventario gestiona las seis pantallas operativas; Operador tiene consulta en Notificaciones y gestión en Sync. El cambio rige en la barra desde el próximo inicio de sesión y se revalida en vivo al cambiar datos. La cuenta del móvil queda vinculada al UUID del teléfono; «Desvincular teléfono» la libera. El Administrador no resetea la contraseña del Operador. | La especificación pide aprobar toda cuenta nueva y una matriz editable, validada también al cambiar datos. El correo identifica a la persona en Empleados; no es el usuario de acceso. |
+| D27 | **Conteo continuo `ACTUAL`**: una fila `Conteo continuo` siempre `ABIERTO`, stock por SKU y conciliación por SKU. El inventario muestra SKU, producto, categoría, contada y sistema; la cantidad contada queda vacía si no hubo lectura. `CONCILIACION` calcula diferencia y porcentaje, pero el inventario no los muestra ni clasifica filas. | Es el alcance aprobado: el inventario es básico y el conteo nunca se detiene; el Dashboard puede usar los indicadores como referencia. |
+| D28 | **Fotos de evidencia**: protocolo 5; el archivo vive en `FOTOS_DIR/<uuid>/<seq>.jpg` y Oracle guarda la ruta relativa. La foto se abre desde el detalle de la lectura. **Auditoría** en la misma transacción que cada cambio. | Evidencia sin bloquear el texto (cola aparte, < 50 ms por registro) y rastro de toda modificación. |
+| D29 | **Configuración, respaldos y servicio independiente**: `CONFIGURACION` guarda el intervalo del lote, el tamaño máximo de foto y la carpeta (solo lectura); al guardar se reaplican los jobs. El respaldo es un `.zip` con `manifest.json`, una tabla por `.jsonl` y las fotos; restaurar pausa el servicio, guarda un respaldo «previo», restaura en una transacción y cierra la sesión. El servicio Bluetooth (`btsync.servicio`, `restart: unless-stopped`) escribe estado y latido en `SERVICIO_BT`. | La recepción no depende de la ventana y el respaldo se restaura desde la pantalla, sin herramientas externas. |
+| D30 | **Notificaciones**: tabla `NOTIFICACIONES` (a un rol o a un usuario; `(tipo, clave)` único cuando hay clave) y `NOTIFICACIONES_LEIDAS` (una fila por persona). La campana aparece solo con acceso al módulo. Eventos: sincronización recibida, solicitud nueva, respaldo automático, servicio caído. Una notificación se lee; una solicitud se aprueba o rechaza en Solicitudes. | Separa «algo pasó» de «algo espera tu decisión», sin perder el aviso de las solicitudes. |
+| D31 | **Foto, tema e idioma por usuario**: editor de rotar, zoom, recortar y vista previa; formatos JPEG, PNG y WebP; tamaño máximo configurable (2 MB en el teléfono); avatar circular y archivo cuadrado. Tema claro/sistema/oscuro e idioma español/inglés, aplicados de inmediato y guardados por cuenta. | La especificación los pide para los tres roles y los dos clientes, sin privilegios de administración. |
 
 ## 4. Límites conocidos
 
 - **D15 (reloj):** asume que nadie cambió la hora del móvil entre la captura y la sincronización, y no compensa la
   latencia de la conexión (≈ 1 s).
 - **D22 (seguridad):** sin autenticación el enlace no va cifrado; cualquiera al alcance (~10 m) puede conectarse y
-  subir lecturas falsas **mientras la ventana de sincronización esté abierta**. Mitigaciones: la ventana la abre el
-  administrador y dura 120 s, solo acepta un teléfono a la vez y cada línea se valida. Si hace falta más, aprobar el
-  UUID de instalación de cada dispositivo desde la app de escritorio es compatible con este diseño.
-- **D23/D26 (cuentas del móvil):** la contraseña vive solo en el teléfono; a Oracle llega el usuario y el nombre, no la clave. El teléfono se entera de una aprobación o suspensión **solo al sincronizar** («Comprobar estado»). La pregunta de seguridad es una recuperación débil: quien conozca la respuesta entra.
-- **D26 (permisos):** un cambio en la matriz rige en la interfaz desde el siguiente inicio de sesión; las funciones que cambian datos lo comprueban en vivo. Algunos botones (cerrar conteo, procesar y reprocesar) siguen reservados al rol administrador.
-- **D18:** desinstalar la APK borra la `Outbox` y las cuentas: las lecturas no enviadas se pierden.
+  subir lecturas falsas **mientras el servicio esté activo**. Mitigaciones: solo acepta un teléfono a la vez, valida
+  cada línea y el Administrador puede pausar el servicio. El modo con código (`BT_CON_CLAVE=1`) existe para quien
+  necesite emparejamiento.
+- **D23/D25 (cuentas):** la contraseña del Operador vive solo en el teléfono; el Administrador no puede resetearla y
+  la recuperación es la pregunta de seguridad (débil: quien conozca la respuesta entra). La contraseña del
+  Administrador se recupera con su pregunta desde Acceso; no hay un segundo Administrador que apruebe.
+- **D26 (permisos):** un cambio en la matriz rige en la interfaz desde el siguiente inicio de sesión; las funciones que
+  cambian datos lo comprueban en vivo. La fila del Administrador no se puede editar.
+- **D18:** desinstalar la APK borra la `Outbox` y las cuentas locales: las lecturas no enviadas se pierden.
 - **D4:** iPhone no está soportado.
 - **Cliente Android sin tiempo límite de lectura:** si el PC acepta la conexión y deja de responder sin cerrarla, el
   teléfono espera hasta que Android detecte la caída del enlace. Cancelar la pantalla cierra el socket.
 - **minSdk 23** (Android 6): el plan decía 26, pero un HUAWEI P9 lite no pasa de Android 7.
 - **Bluetooth desde contenedor** exige `network_mode: host` y el bus D-Bus del host (`bluetoothd` no corre en Docker).
 - **Oracle XE 11g** solo existe para x86_64.
+- **Windows:** el servicio Bluetooth no puede acceder al adaptador del PC desde un contenedor; el sistema se soporta
+  en Linux. La app de escritorio y Oracle también corren en Linux.
 
 ## 5. Diagramas UML
 
@@ -136,10 +151,11 @@ servicio Bluetooth (otro proceso), por Oracle.
 **03 · Clases de la APK.** MVVM: pantallas, `CountViewModel`, `SyncRunner`, `SyncClient`, `Protocol` y la `Outbox`.
 ![03 · Clases de Android](img/uml/03-clases-android.svg)
 
-**04 · Modelo de datos.** Las diez tablas de Oracle, con sus claves y cardinalidades.
+**04 · Modelo de datos.** Las tablas de Oracle, con sus claves y cardinalidades.
 ![04 · Modelo de datos](img/uml/04-modelo-datos.svg)
 
-**05 · Instantánea de objetos.** Dos lecturas de A1 del escenario `T-01` (la segunda es un recuento) hasta la fila de conciliación.
+**05 · Instantánea de objetos.** Dos lecturas del SKU A-01 (la segunda es un recuento) hasta la fila de conciliación de
+`ACTUAL`.
 ![05 · Objetos](img/uml/05-objetos-instantanea.svg)
 
 **06 · Componentes.** APK, app de escritorio, Oracle y BlueZ unidos por RFCOMM, D-Bus y SQL\*Net.
@@ -156,13 +172,13 @@ servicio Bluetooth (otro proceso), por Oracle.
 
 ### 5.2 Comportamiento
 
-**10 · Casos de uso.** Operario, Administrador y Scheduler de Oracle, con sus casos.
+**10 · Casos de uso.** Operador, Inventario, Administrador y Scheduler de Oracle, con sus casos.
 ![10 · Casos de uso](img/uml/10-casos-de-uso.svg)
 
-**11 · Actividad: conteo en el móvil.** De iniciar sesión y elegir el conteo a guardar y sincronizar.
+**11 · Actividad: conteo en el móvil.** De iniciar sesión y abrir el catálogo a guardar y sincronizar.
 ![11 · Actividad móvil](img/uml/11-actividad-conteo-movil.svg)
 
-**12 · Actividad: de la subida al batch.** Quién hace qué desde el `REC` hasta la conciliación.
+**12 · Actividad: de la subida al batch.** Quién hace qué desde el `REC` hasta la conciliación de `ACTUAL`.
 ![12 · Actividad batch](img/uml/12-actividad-batch.svg)
 
 **16 · Estados del controlador.** De `IDLE` a `LISTO`/`ERROR`, con plazo, corte y cancelación.
@@ -174,20 +190,21 @@ servicio Bluetooth (otro proceso), por Oracle.
 **18 · Estados de una lectura en la Outbox.** `PENDIENTE → ENVIADO → CONFIRMADO` y la vuelta tras un corte.
 ![18 · Estados de la lectura](img/uml/18-estados-lectura-outbox.svg)
 
-**19 · Estados del conteo.** `ABIERTO → CERRADO` y qué pasa con `SIN_CONTAR`.
-![19 · Estados del conteo](img/uml/19-estados-conteo.svg)
+**19 · Estados de una cuenta.** `PENDIENTE → ACTIVO | RECHAZADO`, y `ACTIVO → SUSPENDIDO → ACTIVO`, con lo que ve
+cada estado al entrar.
+![19 · Estados de la cuenta](img/uml/19-estados-cuenta.svg)
 
 ### 5.3 Interacción
 
-**13 · Secuencia: sincronización completa.** Ventana, conexión, `HELLO`, `READY`, catálogo, `REC`, `ACK`, `BYE`, batch y
-refresco.
+**13 · Secuencia: sincronización completa.** Conexión, `HELLO`, `ACCT`, `READY`, catálogo `CATALOGO`, `REC`, `ACK`,
+`BYE`, batch y refresco.
 ![13 · Secuencia de sincronización](img/uml/13-secuencia-sincronizacion.svg)
 
 **14 · Secuencia: corte y reanudación.** `READY|25` y go-back-N sin duplicados.
 ![14 · Corte y reanudación](img/uml/14-secuencia-corte-reanudacion.svg)
 
-**15 · Secuencia: errores y cierre.** Fila en `ERROR`, alta del producto, reproceso y cierre del conteo.
-![15 · Errores y cierre](img/uml/15-secuencia-errores-y-cierre.svg)
+**15 · Secuencia: errores y reproceso.** Fila en `ERROR`, alta del SKU y `Reprocesar errores`.
+![15 · Errores y reproceso](img/uml/15-secuencia-errores-y-reproceso.svg)
 
 **20 · Comunicación.** La colaboración numerada entre `Session`, `Store`, `SyncController`, `PKG_BATCH` y el servicio.
 ![20 · Comunicación](img/uml/20-comunicacion.svg)
@@ -195,51 +212,50 @@ refresco.
 **21 · Visión general de interacción.** El flujo de alto nivel que enlaza 13, 14 y 15.
 ![21 · Visión de interacción](img/uml/21-vision-interaccion.svg)
 
-**22 · Tiempos.** La ventana de 120 s y la ventana de 50 `REC` entre `ACK`.
+**22 · Tiempos.** El latido del servicio y la ventana de 50 `REC` entre `ACK`.
 ![22 · Tiempos](img/uml/22-tiempos.svg)
 
 El diagrama de **perfiles** no aplica: el proyecto no define ningún perfil UML propio.
 
 ## 6. Aplicación de escritorio
 
-Tras iniciar sesión (o crear la cuenta) se ve una barra lateral con las pantallas: **Dashboard** (cuatro cifras, la
-diferencia por categoría y el reparto de los SKU), **Inventario** (tabla con búsqueda, filtros por clasificación y
-categoría, detalle de lecturas y exportación a CSV), **Sincronización** (el botón, el progreso y las lecturas con error),
-**Gráficas** (seis, con filtro por categoría), **Tareas de conteo** (crear y asignar a un operador, reasignar mientras
-no empezó, cerrar, filtros por estado y operador, y el avance por producto de la tarea elegida), **Diferencias**
-(faltantes y sobrantes con la observación del operador; marcar revisada, pedir recuento o ajustar la existencia),
-**Movimientos** (registrar entradas y salidas; historial con filtros por tipo, almacén, responsable, fechas y texto),
-**Ajustes** (solicitar con motivo; el Administrador aprueba o rechaza los críticos), **Auditoría** (quién hizo qué y
-cuándo, con filtros), **Existencias** (producto × almacén, con filtros por almacén, categoría y
-estado), **Categorías** y **Almacenes** (crear, editar y activar o desactivar) y **Perfil**; según la matriz de permisos, el administrador ve además
-**Solicitudes** (aprobar con rol o rechazar con motivo, contraseñas olvidadas e historial), **Empleados** (filtros por rol,
-estado y texto; suspender con motivo y reactivar) y **Roles y permisos**. Una cuenta pendiente, rechazada o suspendida
-no entra: ve una pantalla con su estado (y el motivo, si lo hay). Las cifras cuentan
-hasta su valor y las barras crecen al cambiar los datos; sin sesión no se consulta nada. Las imágenes las genera
-`tools/capturas_escritorio.py` con **datos de ejemplo** y sin animaciones; no salen de la base ni de una pantalla real.
+Tras iniciar sesión (o crear la primera cuenta) se ve una barra lateral con las pantallas del rol. El Administrador
+tiene **Dashboard, Inventario, Solicitudes, Empleados, Roles y permisos, Auditoría, Configuración, Sincronización,
+Respaldos y Notificaciones**; **Perfil** se abre desde el pie. Inventario tiene **Dashboard, Inventario, Gráficas,
+Sincronización y Notificaciones**, también con Perfil al pie. La campana aparece solo si el rol tiene acceso a
+Notificaciones.
 
-| | |
-|---|---|
-| ![Acceso](img/escritorio-01-acceso.png) | ![Crear cuenta](img/escritorio-02-crear-cuenta.png) |
-| ![Dashboard](img/escritorio-03-dashboard.png) | ![Inventario](img/escritorio-04-inventario.png) |
-| ![Sincronización](img/escritorio-05-sincronizacion.png) | ![Gráficas](img/escritorio-06-graficas.png) |
-| ![Perfil](img/escritorio-07-perfil.png) | ![Usuarios](img/escritorio-08-usuarios.png) |
-
-Roles: **Administrador** e **Inventario** en el PC, **Operador de Inventario** en el móvil (no entra al PC). Lo que ve
-cada uno lo decide la matriz de permisos (D26); cerrar un conteo y procesar o reprocesar errores siguen siendo del
-administrador.
+- **Acceso:** usuario, contraseña con mostrar/ocultar, «¿Olvidaste tu contraseña?», Entrar y Crear cuenta. El correo
+  es un campo de la cuenta (obligatorio y único en las del PC); no se entra con correo.
+- **Estado de cuenta:** si la cuenta está pendiente, rechazada o suspendida, muestra el estado, el motivo y la fecha
+  de registro. El Administrador no pasa por aquí: su cuenta no se puede suspender ni dejar sin rol.
+- **Dashboard:** avance continuo (SKUs con lectura vigente sobre el total), contados, lecturas procesadas, errores,
+  estado del batch y gráfica de diferencia por categoría como referencia.
+- **Inventario:** cinco columnas (SKU, Producto, Categoría, Contada, Sistema), buscador, exportación CSV (las mismas
+  cinco columnas, `;`, UTF-8 con BOM) y detalle de lecturas (cantidad, operador, fecha UTC, vigente, nota y foto).
+- **Gráficas:** seis gráficas básicas con filtros por categoría y cantidad de SKU.
+- **Sincronización:** estado del servicio, pausar/reanudar, aceptar/rechazar código, procesar ahora, reprocesar
+  errores, errores con filtro por motivo y alta de SKU (solo Administrador).
+- **Solicitudes:** cuentas pendientes y solicitudes de contraseña; aprobar o rechazar con motivo (máximo 300
+  caracteres). Una cuenta del móvil solo puede aprobarse como Operador; una del PC, como Inventario.
+- **Empleados:** avatar, correo, nombre completo, rol e insignia de estado; filtros por rol, estado y texto; cambiar
+  rol, suspender con motivo, reactivar, poner contraseña nueva (solo cuentas del PC) y desvincular teléfono. La fila
+  del Administrador deshabilita rol y estado.
+- **Roles y permisos:** matriz de 12 módulos por rol, con Sin acceso, Consulta y Gestión; el Administrador tiene la
+  fila bloqueada y el guardado es inmediato; si falla, se muestra el error y se relee.
+- **Auditoría:** quién hizo qué y cuándo, con filtros por fecha, módulo y texto; no se edita.
+- **Configuración:** intervalo del lote y tamaño máximo de foto; la carpeta de fotos se muestra y no se edita.
+- **Respaldos:** lista con fecha, tamaño y origen; crear, restaurar (escribe `RESTAURAR`), abrir carpeta y programar el
+  diario con hora y cuántos conservar.
+- **Notificaciones:** avisos del sistema con filtro Todas / Sin leer, punto en las no leídas y «Marcar todas».
+- **Perfil:** inicial o foto, nombre, usuario y rol; contraseña (el Administrador la cambia directo; Inventario la deja pendiente), foto con editor, tema, idioma y cerrar sesión.
 
 ## 7. Capturas de la APK
 
-Interfaz en Jetpack Compose (Material 3) con animaciones: formularios de acceso que se relevan de lado, saludo que
-cubre la pantalla al entrar, entrada escalonada de las tarjetas, cifras que cuentan, la cantidad que «salta» con cada
-toque, ondas mientras conecta, anillo de progreso al enviar, visto con onda al guardar, y tres transiciones entre
-pantallas (lateral con escala, hoja que sube y fundido con zoom). Las imágenes las genera
-`CapturasTest` con el motor gráfico de Android (Robolectric en modo nativo) a 1080 × 2340 px, con datos de ejemplo;
-no son fotos de un teléfono físico.
+La app usa Jetpack Compose (Material 3) y guarda el tema y el idioma por cuenta. Las imágenes se generan con
+`CapturasTest` y el motor gráfico de Android (Robolectric en modo nativo) a 1080 × 2340 px, con datos de ejemplo; no
+son fotos de un teléfono físico.
 
-![Resumen de pantallas de la APK](img/movil/00-resumen.png)
-
-Cada pantalla por separado está en [`img/movil/`](img/movil/). Para regenerarlas:
+Las 28 capturas de la versión final están en [`img/movil/`](img/movil/); incluyen Catálogo, Notificaciones y el editor de foto. Para regenerarlas:
 `docker compose --profile build run --rm apk-build ./gradlew cleanTestDebugUnitTest testDebugUnitTest --tests '*CapturasTest'`
 y copiar `mobile/app/build/capturas/*.png` a `docs/img/movil/`.

@@ -431,13 +431,30 @@ class Automatico:
                 return None
             if any(r.origen == "auto" and r.fecha.date() == ahora.date() for r in listar()):
                 return None
-            r = crear(conn, "servicio", "auto", ahora=ahora)
+            try:
+                r = crear(conn, "servicio", "auto", ahora=ahora)
+            except Exception as exc:
+                _notificar(conn, "RESPALDO_FALLO", f"Falló el respaldo automático: {exc}")
+                raise
             podar(int(v["respaldos.conservar"]))
             _auditar(conn, r.archivo)
+            _notificar(conn, "RESPALDO", f"Respaldo automático creado: {r.archivo}")
             log.info("respaldo automático %s", r.archivo)
             return r
         finally:
             conn.close()
+
+
+def _notificar(conn, tipo: str, texto: str) -> None:
+    """Aviso al Administrador; si no se puede, se registra y se sigue (el respaldo es lo que importa)."""
+    from . import notificaciones
+
+    try:
+        conn.rollback()
+        notificaciones.crear(conn.cursor(), tipo, texto, "Respaldos", rol="ADMIN")
+        conn.commit()
+    except Exception:
+        log.exception("no se pudo crear la notificación del respaldo")
 
 
 def _auditar(conn, archivo: str) -> None:

@@ -1,7 +1,8 @@
 """Fixtures de las pruebas de escritorio.
 
-Reutilizan las del servidor (escenario fijo T-01, conexión, limpieza) en vez de duplicarlas:
-una sola definición del escenario y de sus valores exactos.
+Reutilizan las del servidor (escenario fijo T-01, conexión, limpieza) en vez de duplicarlas: una sola definición
+del escenario y de sus valores exactos. Las cuentas de prueba viven en ``usuarios_tst`` y la matriz en
+``permisos_tst``: las pruebas nunca tocan las cuentas reales.
 """
 
 import importlib.util
@@ -18,12 +19,15 @@ server_conftest = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(server_conftest)
 
 # Fixtures (pytest las recoge por nombre desde este módulo).
-escenario = server_conftest.escenario          # conteo T-01, ubicaciones U1-U3, SKUs A1-A5
+escenario = server_conftest.escenario          # escenario T-01, SKUs A1-A5
 scheduler_off = server_conftest.scheduler_off  # autouse: el job de 60 s no procesa a mitad de un test
 
 # Utilidades para los tests: `from conftest import staging, connect`.
 staging = server_conftest.staging
 connect = server_conftest.connect
+_tablas_notificaciones_tst = server_conftest._tablas_notificaciones_tst
+notificaciones_de_prueba = server_conftest.notificaciones_de_prueba
+configuracion_de_prueba = server_conftest.configuracion_de_prueba
 
 
 import pytest  # noqa: E402
@@ -32,6 +36,7 @@ _DDL_USUARIOS_TST = """
 CREATE TABLE usuarios_tst (
     usuario          VARCHAR2(30 CHAR)  NOT NULL,
     nombre           VARCHAR2(60 CHAR)  NOT NULL,
+    correo           VARCHAR2(120 CHAR),
     rol              VARCHAR2(12 CHAR),
     clave_hash       VARCHAR2(200 CHAR) NOT NULL,
     clave_pendiente  VARCHAR2(200 CHAR),
@@ -44,6 +49,12 @@ CREATE TABLE usuarios_tst (
     intentos         NUMBER             DEFAULT 0 NOT NULL,
     bloqueado_hasta  TIMESTAMP,
     creado           TIMESTAMP          DEFAULT SYSTIMESTAMP,
+    pregunta         VARCHAR2(200 CHAR),
+    respuesta_hash   VARCHAR2(200 CHAR),
+    foto             VARCHAR2(200 CHAR),
+    tema             VARCHAR2(10 CHAR)  DEFAULT 'sistema',
+    idioma           VARCHAR2(2 CHAR)   DEFAULT 'es',
+    clave_motivo     VARCHAR2(300 CHAR),
     CONSTRAINT pk_usuarios_tst PRIMARY KEY (usuario),
     CONSTRAINT ck_usuarios_tst_rol CHECK (rol IS NULL OR rol IN ('ADMIN', 'INVENTARIO', 'OPERADOR')),
     CONSTRAINT ck_usuarios_tst_estado CHECK (estado IN ('PENDIENTE', 'ACTIVO', 'RECHAZADO', 'SUSPENDIDO'))
@@ -68,16 +79,12 @@ def permisos_db(monkeypatch):
 
 @pytest.fixture
 def cuentas(monkeypatch, permisos_db):
-    """Cuentas de prueba en una tabla aparte (``usuarios_tst``), vacía en cada test.
-
-    Las pruebas nunca tocan la tabla real ``usuarios``: ahí están las cuentas de quien usa la aplicación.
-    """
+    """Cuentas de prueba en una tabla aparte (``usuarios_tst``), vacía en cada test."""
     from app import auth, db
 
-    # Se usa la conexión del hilo (la misma de la aplicación): abrir una por prueba satura el listener de la XE.
     with db._conexion() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM user_tab_columns WHERE table_name = 'USUARIOS_TST' AND column_name = 'UUID_DISPOSITIVO'")
+        cur.execute("SELECT COUNT(*) FROM user_tab_columns WHERE table_name = 'USUARIOS_TST' AND column_name = 'CORREO'")
         if cur.fetchone()[0] == 0:                        # no existe o es de un esquema anterior: se rehace
             cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'USUARIOS_TST'")
             if cur.fetchone()[0]:
@@ -90,73 +97,24 @@ def cuentas(monkeypatch, permisos_db):
     return auth
 
 
-@pytest.fixture
-def maestros_db(monkeypatch, cuentas):
-    """Categorías, almacenes y existencias de prueba en tablas ``*_tst``, recién sembradas en cada test."""
-    from app import db, maestros
-
-    for constante, tabla in (("CATEGORIAS", "categorias_tst"), ("ALMACENES", "almacenes_tst"), ("EXISTENCIAS", "existencias_tst")):
-        monkeypatch.setattr(maestros, constante, tabla)
-    with db._conexion() as conn:
-        cur = conn.cursor()
-        for tabla in ("existencias_tst", "almacenes_tst", "categorias_tst"):
-            cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = :t", t=tabla.upper())
-            if cur.fetchone()[0]:
-                cur.execute(f"DROP TABLE {tabla}")
-        conn.commit()
-    maestros.migrar()
-    return maestros
+@pytest.fixture(autouse=True)
+def _notificaciones_tst_limpias(notificaciones_de_prueba):
+    """Fuerza el aislamiento de notificaciones en todas las pruebas (el alias no conserva bien autouse)."""
+    yield
 
 
-def _limpiar_tareas_tst(cur) -> None:
-    for tabla in ("revisiones", "conciliacion", "registros_procesados", "stock_sistema"):
-        cur.execute(f"DELETE FROM {tabla} WHERE id_conteo LIKE 'TT-%'")
-    cur.execute("DELETE FROM fotos WHERE uuid_dispositivo = 'tst-tareas-esc'")
-    cur.execute("DELETE FROM captura_transito WHERE uuid_dispositivo = 'tst-tareas-esc'")
-    cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TT-%'")
+@pytest.fixture(autouse=True)
+def _configuracion_tst_limpia(configuracion_de_prueba):
+    yield
 
 
-@pytest.fixture
-def tareas_db(monkeypatch, maestros_db):
-    """Tareas de conteo sobre las tablas reales con ids ``TT-*`` (se borran antes y después) y almacenes,
-    categorías, existencias y cuentas de prueba (``*_tst``)."""
-    from app import db, tareas
-    from btsync import tareas as bt
-
-    from app import movimientos
-
-    monkeypatch.setattr(tareas, "PREFIJO", "TT-")
-    from btsync import esquema
-
-    movimientos.migrar()   # Diferencias mira si hay ajustes (tabla real «movimientos», sin filas de prueba)
-    with db._conexion() as conn:
-        esquema.migrar(conn)   # danados y fotos (Fase 4)
-        bt.migrar(conn)
-        _limpiar_tareas_tst(conn.cursor())
-        conn.commit()
-    yield tareas
-    with db._conexion() as conn:
-        conn.rollback()
-        _limpiar_tareas_tst(conn.cursor())
-        conn.commit()
-
-
-@pytest.fixture
-def movimientos_db(monkeypatch, tareas_db):
-    """Entradas, salidas y ajustes de prueba en ``movimientos_tst`` (vacía en cada test), sobre las existencias
-    ``*_tst`` y las tareas ``TT-*``."""
-    from app import db, movimientos
-
-    monkeypatch.setattr(movimientos, "TABLA", "movimientos_tst")
-    with db._conexion() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = 'MOVIMIENTOS_TST'")
-        if cur.fetchone()[0]:
-            cur.execute("DELETE FROM movimientos_tst")
-        conn.commit()
-    movimientos.migrar()
-    return movimientos
-
+@pytest.fixture(autouse=True)
+def idioma_es():
+    """Cada prueba empieza en español (el idioma es estado global y algunas pruebas lo cambian)."""
+    from app import i18n
+    i18n.set_idioma("es")
+    yield
+    i18n.set_idioma("es")
 
 
 @pytest.fixture(scope="session")
@@ -181,9 +139,10 @@ def auditoria_db(monkeypatch, _tabla_auditoria_tst):
 
     monkeypatch.setattr(auditoria, "TABLA", "auditoria_tst")
     with db._conexion() as conn:
-        conn.cursor().execute("DELETE FROM auditoria_tst")
+        cur = conn.cursor()
+        cur.execute("DELETE FROM auditoria_tst")
         conn.commit()
-    return auditoria
+    yield auditoria
 
 
 @pytest.fixture(scope="session")

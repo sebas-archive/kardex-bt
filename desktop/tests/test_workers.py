@@ -14,7 +14,7 @@ def run(worker):
 
 def test_worker_emits_failed_on_oracle_error(qtbot, monkeypatch):
     monkeypatch.setenv("DB_DSN", "127.0.0.1:1/XE")  # nadie escucha: ORA-12541 real, no un mock
-    worker = QueryWorker(dbq.fetch_conteos)
+    worker = QueryWorker(dbq.fetch_resumen)
     finished = []
     worker.signals.finished.connect(finished.append)
     with qtbot.waitSignal(worker.signals.failed, timeout=20000) as blocker:
@@ -24,10 +24,10 @@ def test_worker_emits_failed_on_oracle_error(qtbot, monkeypatch):
 
 
 def test_worker_emits_finished_with_the_result(qtbot, escenario):
-    worker = QueryWorker(dbq.fetch_resumen, "T-01")
+    worker = QueryWorker(dbq.fetch_resumen)
     with qtbot.waitSignal(worker.signals.finished, timeout=20000) as blocker:
         run(worker)
-    assert blocker.args[0].id_conteo == "T-01"
+    assert blocker.args[0].id_conteo == "ACTUAL"
 
 
 def test_worker_runs_the_function_off_the_ui_thread(qtbot, qapp):
@@ -61,7 +61,27 @@ def test_las_consultas_reutilizan_la_conexion_de_su_hilo(qtbot, monkeypatch):
     runner = QueryRunner()
     hechas = []
     for _ in range(10):
-        runner.run(lambda: db.fetch_conteos(), lambda r: hechas.append(r))
+        runner.run(lambda: db.fetch_resumen(), lambda r: hechas.append(r))
         qtbot.waitUntil(lambda n=len(hechas): len(hechas) == n + 1, timeout=10000)
     assert len(abiertas) <= 2                  # consultas una tras otra: uno o dos hilos del pool, no diez conexiones
     assert QThreadPool.globalInstance().maxThreadCount() <= 8
+
+
+def test_un_resultado_tardio_no_llega_a_una_pantalla_ya_destruida(qtbot):
+    """Al cerrar una ventana con consultas en curso, sus resultados llegaban a widgets ya borrados (RuntimeError y,
+    a veces, un segfault de Qt). El runner los descarta si su dueño ya no existe."""
+    import threading
+
+    from PyQt6 import sip
+    from PyQt6.QtWidgets import QWidget
+
+    from app.views.base import QueryRunner
+
+    dueno = QWidget()
+    runner = QueryRunner(dueno)
+    soltar, recibidos = threading.Event(), []
+    runner.run(lambda: soltar.wait(5) or "tarde", recibidos.append, recibidos.append)
+    sip.delete(dueno)                       # la ventana se cierra mientras la consulta sigue
+    soltar.set()
+    qtbot.wait(300)
+    assert recibidos == []

@@ -21,7 +21,7 @@ class LecturasActivity : PantallaActivity() {
         pantalla {
             val lista = filas ?: return@pantalla
             LecturasScreen(
-                s.contar.conteo.value, lista,
+                lista,
                 alEditar = { fila ->
                     abrir(ContarActivity::class.java, Transicion.LATERAL) { ContarActivity.correccion(this, fila) }
                 },
@@ -33,9 +33,8 @@ class LecturasActivity : PantallaActivity() {
 
     override fun onResume() {
         super.onResume()
-        val conteo = s.contar.conteo.value
         lifecycleScope.launch {
-            filas = if (conteo == null) emptyList() else withContext(Dispatchers.IO) {
+            filas = withContext(Dispatchers.IO) {
                 val conFoto = s.contar.conFoto()
                 s.contar.lecturas().asReversed().map {
                     LecturaFila(it.sku, s.contar.producto(it.sku)?.nombre, it.cantidad, it.estado, it.nota,

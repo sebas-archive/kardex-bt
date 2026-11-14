@@ -1,5 +1,5 @@
--- Batch de inventario: pasa las lecturas del staging (CAPTURA_TRANSITO) a REGISTROS_PROCESADOS
--- y concilia lo contado contra el stock del sistema (CONCILIACION).
+-- Batch de inventario continuo: pasa las lecturas del staging (CAPTURA_TRANSITO) a REGISTROS_PROCESADOS
+-- y concilia lo contado contra el stock del sistema (CONCILIACION) del conteo unico ACTUAL.
 -- El contenedor ejecuta este script como SYS; el paquete vive en el esquema APP.
 WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 SET DEFINE OFF
@@ -13,17 +13,24 @@ CREATE OR REPLACE PACKAGE pkg_batch AS
         p_timeout_min IN NUMBER   DEFAULT 5
     );
 
-    -- Recalcula CONCILIACION de un conteo (idempotente; hace COMMIT).
-    PROCEDURE conciliar(p_id_conteo IN VARCHAR2);
+    -- Recalcula CONCILIACION del conteo (idempotente; hace COMMIT).
+    PROCEDURE conciliar(p_id_conteo IN VARCHAR2 DEFAULT 'ACTUAL');
 
-    -- Procesa lo pendiente, cierra el conteo y lo concilia: lo que nadie conto pasa a contado 0.
-    PROCEDURE cerrar_conteo(p_id_conteo IN VARCHAR2);
-
-    -- Devuelve a PENDIENTE las filas en ERROR (de un conteo, o todas) y las vuelve a procesar.
+    -- Devuelve a PENDIENTE las filas en ERROR y las vuelve a procesar.
     PROCEDURE reprocesar_errores(p_id_conteo IN VARCHAR2 DEFAULT NULL);
 
-    -- Borra del staging las filas PROCESADO con mas de p_dias dias.
+    -- Borra del staging las filas PROCESADO con mas de p_dias dias (la ultima de cada dispositivo se conserva).
     PROCEDURE purgar_transito(p_dias IN NUMBER DEFAULT 7);
+
+    -- Alta de un SKU que llego en una lectura y no existe: producto + stock 0 en ACTUAL (hace COMMIT).
+    -- La pantalla de Sincronizacion del Administrador la llama y despues reprocesa los errores.
+    PROCEDURE alta_sku(
+        p_sku       IN VARCHAR2,
+        p_nombre    IN VARCHAR2,
+        p_categoria IN VARCHAR2,
+        p_unidad    IN VARCHAR2 DEFAULT 'UND',
+        p_costo_unit IN NUMBER  DEFAULT 0
+    );
 END pkg_batch;
 /
 
@@ -31,9 +38,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
 
     e_validacion EXCEPTION;
     g_error      VARCHAR2(40);   -- codigo de la ultima validacion fallida
-
-    TYPE t_conteos IS TABLE OF BOOLEAN INDEX BY VARCHAR2(120);
-    g_conteos    t_conteos;      -- conteos que recibieron lecturas en la corrida actual
 
     PROCEDURE fallar(p_codigo IN VARCHAR2) IS
     BEGIN
@@ -56,29 +60,33 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         RETURN UTL_URL.UNESCAPE(p_valor, 'UTF-8');
     END texto;
 
-    -- D13: en cada (conteo, SKU) vale la lectura con FECHA_CAPTURA mas reciente (recontar reemplaza);
+    -- En cada SKU vale la lectura con FECHA_CAPTURA mas reciente (recontar reemplaza);
     -- si empatan, la de ID_TRANSITO mayor (global, asignado al llegar al staging).
-    PROCEDURE recalcular_vigente(p_conteo IN VARCHAR2, p_sku IN VARCHAR2) IS
+    PROCEDURE recalcular_vigente(p_sku IN VARCHAR2) IS
         l_mejor registros_procesados.id_registro%TYPE;
     BEGIN
-        SELECT id_registro
-          INTO l_mejor
-          FROM (SELECT id_registro
-                  FROM registros_procesados
-                 WHERE id_conteo = p_conteo AND sku = p_sku
-                 ORDER BY fecha_captura DESC, NVL(id_transito, -1) DESC, id_registro DESC)
-         WHERE ROWNUM = 1;
+        BEGIN
+            SELECT id_registro
+              INTO l_mejor
+              FROM (SELECT id_registro
+                      FROM registros_procesados
+                     WHERE id_conteo = 'ACTUAL' AND sku = p_sku
+                     ORDER BY fecha_captura DESC, NVL(id_transito, -1) DESC, id_registro DESC)
+             WHERE ROWNUM = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RETURN;
+        END;
 
         UPDATE registros_procesados
            SET vigente = CASE WHEN id_registro = l_mejor THEN 'S' ELSE 'N' END
-         WHERE id_conteo = p_conteo AND sku = p_sku
+         WHERE id_conteo = 'ACTUAL' AND sku = p_sku
            AND vigente <> CASE WHEN id_registro = l_mejor THEN 'S' ELSE 'N' END;
     END recalcular_vigente;
 
     -- Valida una linea REC y la inserta. Lanza e_validacion (con g_error) si no es valida.
     PROCEDURE procesar_fila(p_id IN NUMBER, p_raw IN VARCHAR2) IS
         l_ts      VARCHAR2(4000);
-        l_conteo  VARCHAR2(4000);
         l_sku     VARCHAR2(4000);
         l_cant    VARCHAR2(4000);
         l_oper    VARCHAR2(4000);
@@ -91,16 +99,15 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
            OR l_ts IS NULL OR NOT REGEXP_LIKE(l_ts, '^[0-9]{1,15}$') THEN
             fallar('FORMATO_INVALIDO');
         END IF;
-        l_conteo := texto(campo(p_raw, 4));
         l_sku    := texto(campo(p_raw, 5));
         l_cant   := texto(campo(p_raw, 6));
         l_oper   := texto(campo(p_raw, 7));
         l_nota   := texto(campo(p_raw, 8));
         l_danados := texto(campo(p_raw, 9));
 
-        SELECT COUNT(*) INTO l_n FROM conteos WHERE id_conteo = l_conteo AND estado = 'ABIERTO';
-        IF l_n = 0 THEN
-            fallar('CONTEO_NO_ABIERTO');
+        -- El conteo es unico (ACTUAL): el campo 4 del REC se acepta pero no decide el conteo.
+        IF l_sku IS NULL OR LENGTH(l_sku) = 0 OR LENGTH(l_sku) > 30 THEN
+            fallar('SKU_DESCONOCIDO');
         END IF;
         SELECT COUNT(*) INTO l_n FROM productos WHERE sku = l_sku;
         IF l_n = 0 THEN
@@ -119,7 +126,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         INSERT INTO registros_procesados
             (id_transito, id_conteo, sku, cantidad, operador, nota, fecha_captura, vigente, danados)
         VALUES
-            (p_id, l_conteo, l_sku,
+            (p_id, 'ACTUAL', l_sku,
              -- Mascara fija: no depende del NLS de la sesion.
              TO_NUMBER(l_cant, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,'''),
              SUBSTR(l_oper, 1, 60), SUBSTR(l_nota, 1, 255),
@@ -128,61 +135,45 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
              'N',
              CASE WHEN l_danados IS NULL THEN NULL ELSE TO_NUMBER(l_danados, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,''') END);
 
-        recalcular_vigente(l_conteo, l_sku);
-        g_conteos(l_conteo) := TRUE;
+        recalcular_vigente(l_sku);
     END procesar_fila;
 
-    -- Reglas de conciliacion (por SKU del conteo):
-    --   * Entran los SKU de la foto de stock y los que tienen lecturas vigentes (sin foto: sistema 0).
-    --   * contada = la lectura vigente del SKU (una por conteo: recontar reemplaza); DIFERENCIA = contada - sistema.
-    --   * OK si |DIFERENCIA| <= sistema x TOLERANCIA_PCT / 100 (limite inclusivo);
-    --     si no, FALTANTE (contada < sistema) o SOBRANTE.
-    --   * Sin lecturas: SIN_CONTAR mientras el conteo esta ABIERTO; al cerrarlo cuenta como 0.
+    -- Conciliacion por SKU del conteo:
+    --   * Entra TODO producto del catalogo. El sistema es su fila de STOCK_SISTEMA (0 si no tiene).
+    --   * contada = la lectura vigente del SKU (una sola: recontar reemplaza); si no hay, NULL.
+    --   * DIFERENCIA = contada - sistema (NULL sin lectura); DIFERENCIA_PCT NULL sin lectura o con sistema 0.
     PROCEDURE conciliar_interno(p_id_conteo IN VARCHAR2) IS
-        l_abierto PLS_INTEGER;
+        l_existe PLS_INTEGER;
     BEGIN
-        -- Serializa conciliaciones simultaneas (dos corridas, o corrida + cierre).
-        LOCK TABLE conciliacion IN EXCLUSIVE MODE;
+        SELECT COUNT(*) INTO l_existe FROM conteos WHERE id_conteo = p_id_conteo;
+        IF l_existe = 0 THEN
+            RAISE_APPLICATION_ERROR(-20002, 'CONTEO_INEXISTENTE: ' || p_id_conteo);
+        END IF;
 
-        SELECT COUNT(*) INTO l_abierto
-          FROM conteos WHERE id_conteo = p_id_conteo AND estado = 'ABIERTO';
+        -- Serializa conciliaciones simultaneas (dos corridas del batch).
+        LOCK TABLE conciliacion IN EXCLUSIVE MODE;
 
         DELETE FROM conciliacion WHERE id_conteo = p_id_conteo;
 
         INSERT INTO conciliacion
-            (id_conteo, sku, cant_sistema, cant_contada, diferencia, diferencia_pct,
-             valor_diferencia, clasificacion, fecha_calculo)
-        SELECT p_id_conteo, x.sku, x.sistema, x.contada,
-               CASE WHEN x.sin_contar = 1 THEN NULL ELSE x.contada - x.sistema END,
-               CASE WHEN x.sin_contar = 1 OR x.sistema = 0 THEN NULL
+            (id_conteo, sku, cant_sistema, cant_contada, diferencia, diferencia_pct, fecha_calculo)
+        SELECT p_id_conteo, p.sku, NVL(s.cantidad_sistema, 0), c.contada,
+               CASE WHEN c.contada IS NULL THEN NULL
+                    ELSE c.contada - NVL(s.cantidad_sistema, 0) END,
+               CASE WHEN c.contada IS NULL OR NVL(s.cantidad_sistema, 0) = 0 THEN NULL
                     ELSE GREATEST(-99999999.99,
-                         LEAST(99999999.99, ROUND((x.contada - x.sistema) / x.sistema * 100, 2)))
-               END,
-               CASE WHEN x.sin_contar = 1 THEN NULL
-                    ELSE ROUND((x.contada - x.sistema) * p.costo_unit, 2)
-               END,
-               CASE WHEN x.sin_contar = 1 THEN 'SIN_CONTAR'
-                    WHEN ABS(x.contada - x.sistema) <= x.sistema * p.tolerancia_pct / 100 THEN 'OK'
-                    WHEN x.contada < x.sistema THEN 'FALTANTE'
-                    ELSE 'SOBRANTE'
+                         LEAST(99999999.99,
+                               ROUND((c.contada - NVL(s.cantidad_sistema, 0)) / NVL(s.cantidad_sistema, 0) * 100, 2)))
                END,
                SYSTIMESTAMP
-          FROM (SELECT k.sku,
-                       NVL(s.cantidad_sistema, 0) AS sistema,
-                       NVL(c.contada, 0)          AS contada,
-                       CASE WHEN c.sku IS NULL AND l_abierto = 1 THEN 1 ELSE 0 END AS sin_contar
-                  FROM (SELECT sku FROM stock_sistema WHERE id_conteo = p_id_conteo
-                        UNION
-                        SELECT sku FROM registros_procesados
-                         WHERE id_conteo = p_id_conteo AND vigente = 'S') k
-                  LEFT JOIN stock_sistema s
-                         ON s.id_conteo = p_id_conteo AND s.sku = k.sku
-                  LEFT JOIN (SELECT sku, SUM(cantidad) AS contada
-                               FROM registros_procesados
-                              WHERE id_conteo = p_id_conteo AND vigente = 'S'
-                              GROUP BY sku) c
-                         ON c.sku = k.sku) x
-          JOIN productos p ON p.sku = x.sku;
+          FROM productos p
+          LEFT JOIN stock_sistema s
+                 ON s.id_conteo = p_id_conteo AND s.sku = p.sku
+          LEFT JOIN (SELECT sku, SUM(cantidad) AS contada
+                       FROM registros_procesados
+                      WHERE id_conteo = p_id_conteo AND vigente = 'S'
+                      GROUP BY sku) c
+                 ON c.sku = p.sku;
     END conciliar_interno;
 
     PROCEDURE procesar_pendientes(
@@ -196,10 +187,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         l_msg     VARCHAR2(400);
         l_ok      PLS_INTEGER := 0;
         l_err     PLS_INTEGER := 0;
-        l_conteo  VARCHAR2(120);
     BEGIN
-        g_conteos.DELETE;
-
         -- 1. Recuperar huerfanas: una corrida anterior las reclamo y no termino.
         UPDATE captura_transito
            SET estado = 'PENDIENTE', fecha_reclamo = NULL
@@ -215,7 +203,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         COMMIT;
 
         IF l_ids.COUNT = 0 THEN
-            RETURN;  -- nada que hacer: no se escribe bitacora (el job corre cada 60 s)
+            RETURN;  -- nada que hacer: no se escribe bitacora (el job corre cada intervalo)
         END IF;
 
         -- 3. Procesar. El bloqueo serializa el recalculo de VIGENTE entre corridas
@@ -270,50 +258,25 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         VALUES (l_inicio, SYSTIMESTAMP, l_ok, l_err, SUBSTR(p_origen, 1, 20));
         COMMIT;
 
-        -- 5. Conciliar cada conteo que recibio lecturas.
-        l_conteo := g_conteos.FIRST;
-        WHILE l_conteo IS NOT NULL LOOP
-            conciliar_interno(l_conteo);
-            l_conteo := g_conteos.NEXT(l_conteo);
-        END LOOP;
-        COMMIT;
+        -- 5. Conciliar el conteo unico solo si entraron lecturas nuevas.
+        IF l_ok > 0 THEN
+            conciliar_interno('ACTUAL');
+            COMMIT;
+        END IF;
     END procesar_pendientes;
 
-    PROCEDURE conciliar(p_id_conteo IN VARCHAR2) IS
+    PROCEDURE conciliar(p_id_conteo IN VARCHAR2 DEFAULT 'ACTUAL') IS
     BEGIN
         conciliar_interno(p_id_conteo);
         COMMIT;
     END conciliar;
 
-    PROCEDURE cerrar_conteo(p_id_conteo IN VARCHAR2) IS
-        l_existe PLS_INTEGER;
-    BEGIN
-        SELECT COUNT(*) INTO l_existe FROM conteos WHERE id_conteo = p_id_conteo;
-        IF l_existe = 0 THEN
-            RAISE_APPLICATION_ERROR(-20002, 'CONTEO_INEXISTENTE: ' || p_id_conteo);
-        END IF;
-
-        -- Lo recibido y aun sin procesar entra al conteo antes de cerrarlo;
-        -- despues del cierre quedaria en ERROR (CONTEO_NO_ABIERTO).
-        procesar_pendientes('CIERRE');
-
-        -- Mismo bloqueo que el batch: ninguna corrida inserta lecturas mientras se cierra.
-        LOCK TABLE registros_procesados IN EXCLUSIVE MODE;
-        UPDATE conteos
-           SET estado = 'CERRADO', fecha_cierre = SYSTIMESTAMP
-         WHERE id_conteo = p_id_conteo AND estado = 'ABIERTO';
-        conciliar_interno(p_id_conteo);
-        COMMIT;
-    END cerrar_conteo;
-
     PROCEDURE reprocesar_errores(p_id_conteo IN VARCHAR2 DEFAULT NULL) IS
     BEGIN
-        -- El conteo es el campo 4 de la linea guardada (los IDs de conteo no llevan escapes).
         UPDATE captura_transito
            SET estado = 'PENDIENTE', mensaje_error = NULL, fecha_reclamo = NULL
          WHERE estado = 'ERROR'
-           AND (p_id_conteo IS NULL
-                OR REGEXP_SUBSTR(datos_raw, '([^|]*)(\||$)', 1, 4, NULL, 1) = p_id_conteo);
+           AND (p_id_conteo IS NULL OR p_id_conteo = 'ACTUAL');
         COMMIT;
         procesar_pendientes('REPROCESO');
     END reprocesar_errores;
@@ -334,6 +297,49 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         COMMIT;
     END purgar_transito;
 
+    PROCEDURE alta_sku(
+        p_sku       IN VARCHAR2,
+        p_nombre    IN VARCHAR2,
+        p_categoria IN VARCHAR2,
+        p_unidad    IN VARCHAR2 DEFAULT 'UND',
+        p_costo_unit IN NUMBER  DEFAULT 0
+    ) IS
+        l_sku       VARCHAR2(30 CHAR)  := TRIM(p_sku);
+        l_nombre    VARCHAR2(120 CHAR) := TRIM(p_nombre);
+        l_categoria VARCHAR2(40 CHAR)  := TRIM(p_categoria);
+        l_unidad    VARCHAR2(10 CHAR)  := NVL(TRIM(p_unidad), 'UND');
+    BEGIN
+        IF l_sku IS NULL OR LENGTH(l_sku) = 0 OR LENGTH(l_sku) > 30 OR INSTR(l_sku, '|') > 0
+           OR INSTR(l_sku, CHR(10)) > 0 OR INSTR(l_sku, CHR(13)) > 0 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'SKU_INVALIDO');
+        END IF;
+        IF l_nombre IS NULL OR LENGTH(l_nombre) = 0 OR LENGTH(l_nombre) > 120 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'NOMBRE_INVALIDO');
+        END IF;
+        IF l_categoria IS NULL OR LENGTH(l_categoria) = 0 OR LENGTH(l_categoria) > 40 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'CATEGORIA_INVALIDA');
+        END IF;
+        IF LENGTH(l_unidad) = 0 OR LENGTH(l_unidad) > 10 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'UNIDAD_INVALIDA');
+        END IF;
+
+        BEGIN
+            INSERT INTO productos (sku, nombre, categoria, unidad, costo_unit)
+            VALUES (l_sku, l_nombre, l_categoria, l_unidad, NVL(p_costo_unit, 0));
+        EXCEPTION
+            WHEN DUP_VAL_ON_INDEX THEN
+                RAISE_APPLICATION_ERROR(-20011, 'SKU_YA_EXISTE');
+        END;
+
+        MERGE INTO stock_sistema s
+        USING (SELECT 'ACTUAL' id_conteo, l_sku sku FROM dual) x
+           ON (s.id_conteo = x.id_conteo AND s.sku = x.sku)
+         WHEN MATCHED THEN UPDATE SET cantidad_sistema = 0
+         WHEN NOT MATCHED THEN INSERT (id_conteo, sku, cantidad_sistema) VALUES ('ACTUAL', l_sku, 0);
+
+        COMMIT;
+    END alta_sku;
+
 END pkg_batch;
 /
 
@@ -352,10 +358,13 @@ BEGIN
 END;
 /
 
--- Estado inicial: cada conteo existente queda conciliado (todo SIN_CONTAR hasta la primera lectura).
+-- Estado inicial: el conteo ACTUAL queda conciliado (todo NULL hasta la primera lectura).
+DECLARE
+    l_existe PLS_INTEGER;
 BEGIN
-    FOR c IN (SELECT id_conteo FROM conteos) LOOP
-        pkg_batch.conciliar(c.id_conteo);
-    END LOOP;
+    SELECT COUNT(*) INTO l_existe FROM conteos WHERE id_conteo = 'ACTUAL';
+    IF l_existe > 0 THEN
+        pkg_batch.conciliar('ACTUAL');
+    END IF;
 END;
 /

@@ -1,31 +1,29 @@
 @startuml
 !include estilo.iuml
-title 13 · Secuencia: sincronización completa
+title 13 · Secuencia: sincronización completa con el catálogo ACTUAL
 autonumber
 actor Administrador as adm
-participant "Servicio /\nServicioRemoto" as gui
-participant SyncController as ctrl
+participant "Servicio Bluetooth\n(SyncController)" as ctrl
 participant BluezTransport as bz
 participant "bluetoothd" as bluez
 participant "APK\n(SyncClient)" as apk
 participant Session as ses
 participant Store as st
 database "Oracle\n(PKG_BATCH)" as ora
+participant "Escritorio\n(ServicioRemoto)" as gui
 
-adm -> gui : «Iniciar sincronización»
-gui -> ctrl : start()
+note over ctrl : el servicio está siempre activo\n(se pausa o reanuda desde Sincronización)
 ctrl -> bz : begin_pairing(on_passkey) · serve(on_connection)
 bz -> bluez : Alias = gestion_inventario · Discoverable\nRegisterProfile(UUID 7a1c0b52-…)
-note over ctrl : estado ESPERANDO_EMPAREJAMIENTO\n(ventana de 120 s)
-opt Solo con require_pairing (modo con código)
+opt el teléfono pide emparejamiento (BT_CON_CLAVE=1)
   bluez -> bz : RequestConfirmation(passkey)
   bz -> ctrl : on_passkey(codigo)
   note over ctrl : estado CONFIRMAR_CODIGO
   ctrl --> gui : código de 6 dígitos
-  adm -> gui : confirma el código
-  gui -> ctrl : confirm(True)
+  adm -> gui : «Aceptar código» / «Rechazar»
+  gui -> ctrl : confirm(True/False)
 end
-apk -> bluez : conectar (socket RFCOMM inseguro, sin emparejar)
+apk -> bluez : conectar (socket RFCOMM; con código si BT_CON_CLAVE=1)
 bluez -> bz : NewConnection(fd)
 bz -> ctrl : on_connection(conn)
 note over ctrl : estado CONECTADO
@@ -39,13 +37,16 @@ note right of apk : sin ACTIVO: ningún REC\n(NAK CUENTA_NO_ACTIVA)
 ses -> st : register_device · open_sync · last_seq(uuid)
 ses -> apk : READY|ultimo_seq|epoch_ms
 ses -> st : catalog(usuario si ACTIVO)
-ses -> apk : CATTAREA · CATITEM · CATPROD … CAT_END
-opt tareas empezadas que el PC ve ASIGNADA
-  apk -> ses : INICIO|id_tarea
-  ses -> st : marcar_iniciada(usuario, id_tarea)
+ses -> apk : CATTAREA|CATALOGO|Catálogo|||ABIERTO|total|contados
+ses -> apk : CATITEM|CATALOGO|sku|N (por producto)
+ses -> apk : CATPROD|sku|nombre|categoria|unidad (por producto)
+ses -> apk : CAT_END
+opt el móvil manda INICIO (opcional)
+  apk -> ses : INICIO|id
+  note over ses : se tolera y se ignora
 end
 loop hasta 50 REC sin ACK
-  apk -> ses : REC|seq|ts|conteo|sku|cantidad|operador|nota
+  apk -> ses : REC|seq|ts|ACTUAL|sku|cantidad|operador|nota|danados
   ses -> st : insert_staging(uuid, seq, raw)
   opt cada 25 insertados
     ses -> st : commit()
@@ -66,7 +67,7 @@ ses -> apk : BYE|aceptados|rechazados
 ses --> ctrl : fin de sesión
 note over ctrl : estado PROCESANDO (D9: el batch corre fuera de la sesión)
 ctrl -> st : run_batch("SYNC")
-st -> ora : PKG_BATCH.procesar_pendientes('SYNC') + conciliar
+st -> ora : PKG_BATCH.procesar_pendientes('SYNC') + conciliar ACTUAL
 ora --> st : procesados, errores
 note over ctrl : estado LISTO
 ctrl --> gui : on_change(status) → señal listo

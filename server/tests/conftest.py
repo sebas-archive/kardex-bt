@@ -54,6 +54,11 @@ def purge_test_rows() -> None:
     conn = _conexion_purga()
     if True:
         cur = conn.cursor()
+        # El conteo es único y global: cada prueba parte sin lecturas ni conciliación contaminada.
+        # La base de pruebas no conserva datos de usuario (se recrea con db/init).
+        cur.execute("DELETE FROM registros_procesados WHERE id_conteo = 'ACTUAL'")
+        cur.execute("UPDATE conciliacion SET cant_contada = NULL, diferencia = NULL, "
+                    "diferencia_pct = NULL, fecha_calculo = SYSTIMESTAMP WHERE id_conteo = 'ACTUAL'")
         for pattern in TEST_DEVICE_PATTERNS:
             cur.execute("DELETE FROM sync_sesiones WHERE uuid_dispositivo LIKE :p", p=pattern)
             cur.execute("DELETE FROM captura_transito WHERE uuid_dispositivo LIKE :p", p=pattern)
@@ -68,12 +73,11 @@ def purge_test_rows() -> None:
 def operador_de_prueba():
     """Deja la cuenta OPERADOR_ACTIVO lista antes de cualquier prueba (también las que no usan ``store``) y, al
     terminar la corrida, borra las cuentas de prueba: no deben quedar en la tabla real (Empleados, primer admin)."""
-    from btsync import esquema, tareas
+    from btsync import esquema
 
     conn = connect()
     try:
-        esquema.migrar(conn)   # danados, fotos y paquete PL/SQL al día (en la app lo hace el escritorio al arrancar)
-        tareas.migrar(conn)   # columnas de tareas y tabla revisiones (en la app las crea el escritorio al arrancar)
+        esquema.migrar(conn)   # danados, fotos, configuración, servicio y paquete PL/SQL al día
     finally:
         conn.close()
     purge_test_rows()
@@ -119,7 +123,7 @@ def _sql_sections(path: Path) -> dict[str, list[str]]:
 
 @pytest.fixture
 def escenario():
-    """Carga el escenario fijo de conciliación (conteo T-01) y lo borra al terminar.
+    """Carga el escenario fijo de conciliación (conteo ACTUAL) y lo borra al terminar.
 
     ``escenario.cargar_lecturas()`` deja las 5 lecturas de la tabla como staging PENDIENTE.
     """
@@ -217,3 +221,33 @@ def configuracion_de_prueba(monkeypatch, _tabla_config_tst):
     from btsync import config
 
     monkeypatch.setattr(config, "TABLA", "configuracion_tst")
+
+
+@pytest.fixture(scope="session")
+def _tablas_notificaciones_tst():
+    """Crea las tablas ``_tst`` una vez y deja abierta UNA conexión para vaciarlas (abrir una por prueba hace que
+    el listener de la XE responda ORA-12516)."""
+    from btsync import notificaciones
+
+    conn = connect()
+    originales = notificaciones.TABLA, notificaciones.TABLA_LEIDAS
+    notificaciones.TABLA, notificaciones.TABLA_LEIDAS = "notificaciones_tst", "notificaciones_leidas_tst"
+    try:
+        notificaciones.migrar(conn)
+    finally:
+        notificaciones.TABLA, notificaciones.TABLA_LEIDAS = originales
+    yield conn
+    conn.close()
+
+
+@pytest.fixture(autouse=True)
+def notificaciones_de_prueba(monkeypatch, _tablas_notificaciones_tst):
+    """Las pruebas notifican en ``notificaciones_tst`` (vacía al empezar), nunca en la tabla real."""
+    from btsync import notificaciones
+
+    monkeypatch.setattr(notificaciones, "TABLA", "notificaciones_tst")
+    monkeypatch.setattr(notificaciones, "TABLA_LEIDAS", "notificaciones_leidas_tst")
+    conn = _tablas_notificaciones_tst
+    conn.cursor().execute("DELETE FROM notificaciones_leidas_tst")
+    conn.cursor().execute("DELETE FROM notificaciones_tst")
+    conn.commit()

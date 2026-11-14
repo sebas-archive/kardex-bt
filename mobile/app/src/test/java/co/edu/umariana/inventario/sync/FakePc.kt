@@ -34,10 +34,9 @@ class FakePc(
     companion object {
         const val SERVER_NOW = 1_731_170_400_000L
         val CATALOGO = listOf(
-            listOf("CATTAREA", "T-01", "Conteo de prueba", "ALM-01", "Pasillo | 2", "ASIGNADA", "2", "0"),
-            listOf("CATTAREA", "T-02", "Bebidas", "ALM-02", "", "EN_PROGRESO", "5", "1"),
-            listOf("CATITEM", "T-01", "A1", "N"),
-            listOf("CATITEM", "T-01", "A2", "S"),
+            listOf("CATTAREA", "CATALOGO", "Catálogo", "", "", "ABIERTO", "2", "0"),
+            listOf("CATITEM", "CATALOGO", "A1", "N"),
+            listOf("CATITEM", "CATALOGO", "A2", "N"),
             listOf("CATPROD", "A1", "Producto A1", "Abarrotes", "UND"),
             listOf("CATPROD", "A2", "Café | molido", "Abarrotes", "UND"),
         )

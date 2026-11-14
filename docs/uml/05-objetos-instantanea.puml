@@ -1,55 +1,54 @@
 @startuml
 !include estilo.iuml
-title 05 · Instantánea de objetos: una lectura del escenario T-01, de la línea REC a la conciliación
+title 05 · Instantánea de objetos: una lectura de ACTUAL, de la línea REC a la conciliación
 left to right direction
 
 object "Línea REC (por Bluetooth)" as linea {
-  REC|1|1731170400000|T-01|A1|60|Ana|
+  REC|1|1731170400000|ACTUAL|A-01|60|Ana||
   CRC32 al final: *XXXXXXXX
 }
 object "captura_transito (fila 1)" as t1 {
   uuid_dispositivo = "tst-escenario"
   seq = 1
   estado = "PROCESADO"
-  datos_raw = "REC|1|1731170400000|T-01|A1|60|Ana|"
+  datos_raw = "REC|1|1731170400000|ACTUAL|A-01|60|Ana||"
 }
 object "captura_transito (fila 2)" as t2 {
   uuid_dispositivo = "tst-escenario"
   seq = 2
   estado = "PROCESADO"
-  datos_raw = "REC|2|1731170401000|T-01|A1|101|Luis|recuento"
+  datos_raw = "REC|2|1731170401000|ACTUAL|A-01|101|Luis|recuento|"
 }
-object "registros_procesados (A1, primera)" as r1 {
-  id_conteo = "T-01"
-  sku = "A1"
+object "registros_procesados (A-01, primera)" as r1 {
+  id_conteo = "ACTUAL"
+  sku = "A-01"
   cantidad = 60
   operador = "Ana"
   fecha_captura = 2024-11-09 16:40:00 UTC
   vigente = "N" (la reemplaza el recuento)
 }
-object "registros_procesados (A1, recuento)" as r2 {
-  id_conteo = "T-01"
-  sku = "A1"
+object "registros_procesados (A-01, recuento)" as r2 {
+  id_conteo = "ACTUAL"
+  sku = "A-01"
   cantidad = 101
   operador = "Luis"
   fecha_captura = 2024-11-09 16:40:01 UTC
   vigente = "S"
 }
-object "stock_sistema (T-01, A1)" as st {
+object "stock_sistema (ACTUAL, A-01)" as st {
   cantidad_sistema = 100
 }
-object "conciliacion (T-01, A1)" as c {
+object "conciliacion (ACTUAL, A-01)" as c {
   cant_sistema = 100
   cant_contada = 101
   diferencia = +1
   diferencia_pct = 1,00
-  valor_diferencia = +2000
-  clasificacion = "OK"
+  fecha_calculo = 2024-11-09 16:40:02 UTC
 }
 note bottom of c
-  Producto A1: costo 2000, tolerancia 2 %.
-  |+1| ≤ 100 × 2 / 100 → OK.
   Recontar reemplaza: vale la lectura más reciente (D13).
+  El inventario muestra solo la cantidad contada y la del sistema;
+  el Dashboard puede usar la diferencia como referencia.
 end note
 
 linea --> t1 : insert_staging

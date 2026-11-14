@@ -1,9 +1,8 @@
-"""Auditoría (Fase 4): quién hizo qué y cuándo. Cada función que cambia datos llama a ``registrar`` con su propio
-cursor, **dentro de la misma transacción** que el cambio: si el cambio falla no queda fila, y si sale bien siempre la
-hay. También se registran los inicios de sesión, correctos y fallidos.
+"""Auditoría: quién hizo qué y cuándo. Solo se consulta; no se edita ni se borra.
 
-El Administrador ve todo; Inventario solo la operación (tareas, diferencias, movimientos, ajustes, categorías y
-almacenes). Lo anterior a esta fase no aparece.
+Cada función que cambia datos llama a ``registrar`` con su propio cursor, **dentro de la misma
+transacción** que el cambio: si el cambio falla no queda fila, y si sale bien siempre la hay. También
+se registran los inicios de sesión, correctos y fallidos.
 """
 
 from __future__ import annotations
@@ -14,11 +13,18 @@ from datetime import datetime
 from . import auth, db
 
 TABLA = "auditoria"   # las pruebas usan «auditoria_tst»
-OPERACION = ("tareas", "diferencias", "movimientos", "ajustes", "categorias")
 NOMBRE_MODULO = {
-    "acceso": "Acceso", "usuarios": "Usuarios", "permisos": "Permisos", "categorias": "Categorías y almacenes",
-    "tareas": "Tareas", "diferencias": "Diferencias", "movimientos": "Movimientos", "ajustes": "Ajustes",
-    "configuracion": "Configuración", "respaldos": "Respaldos", "bluetooth": "Bluetooth",
+    "acceso": "Acceso",
+    "usuarios": "Usuarios",
+    "permisos": "Permisos",
+    "solicitudes": "Solicitudes",
+    "configuracion": "Configuración",
+    "respaldos": "Respaldos",
+    "sync": "Sincronización",
+    "inventario": "Inventario",
+    "productos": "Productos",
+    "notificaciones": "Notificaciones",
+    "perfil": "Perfil",
 }
 
 
@@ -48,12 +54,13 @@ def producto(cur, sku: str) -> str:
 
 
 def listar(quien: auth.Sesion) -> list[Entrada]:
-    """Lo más reciente primero. Quien no es Administrador ve solo los módulos de la operación."""
-    filtro = "" if quien.es_admin else f"WHERE a.modulo IN ({', '.join(repr(m) for m in OPERACION)})"
+    """Lo más reciente primero. El acceso lo decide la matriz (módulo ``auditoria``)."""
+    if not quien.puede("auditoria"):
+        raise auth.ErrorDeAcceso("No tienes permiso para ver la auditoría.")
     with db._conexion() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT a.id, a.fecha, a.usuario, NVL(u.nombre, a.usuario), a.modulo, a.accion, a.detalle "
-                    f"FROM {TABLA} a LEFT JOIN {auth.TABLA} u ON u.usuario = a.usuario {filtro} "
+                    f"FROM {TABLA} a LEFT JOIN {auth.TABLA} u ON u.usuario = a.usuario "
                     f"ORDER BY a.fecha DESC, a.id DESC")
         return [Entrada(int(i), f, u, n, m, a, d or "") for i, f, u, n, m, a, d in cur]
 

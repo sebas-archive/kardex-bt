@@ -34,6 +34,14 @@ class QueryWorker(QRunnable):
         try:
             result = self.fn(*self.args, **self.kwargs)
         except Exception as exc:  # cualquier fallo llega a la UI como texto, nunca la tumba
-            self.signals.failed.emit(str(exc))
+            self._emitir("failed", str(exc))
             return
-        self.signals.finished.emit(result)
+        self._emitir("finished", result)
+
+    def _emitir(self, nombre: str, valor) -> None:
+        """Si la ventana se cerró mientras el worker terminaba, su objeto de señales ya no existe: no es un error."""
+        try:
+            senal = getattr(self.signals, nombre)
+            senal.emit(valor)
+        except RuntimeError:
+            pass
