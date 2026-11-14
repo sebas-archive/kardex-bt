@@ -114,7 +114,7 @@ def una_sesion(args, estado: dict, reloj) -> str:
                 l = lecturas[siguiente - 1]
                 sock.sendall(frame([
                     "REC", str(l["seq"]), str(l["ts_original_ms"] + offset),
-                    *(encode_text(l[k]) for k in ("id_conteo", "sku", "cantidad", "operador", "nota")),
+                    *(encode_text(l.get(k, "")) for k in ("id_conteo", "sku", "cantidad", "operador", "nota", "danados")),
                 ]))
                 siguiente += 1
                 if args.delay_ms:

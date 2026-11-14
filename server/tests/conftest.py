@@ -68,10 +68,11 @@ def purge_test_rows() -> None:
 def operador_de_prueba():
     """Deja la cuenta OPERADOR_ACTIVO lista antes de cualquier prueba (también las que no usan ``store``) y, al
     terminar la corrida, borra las cuentas de prueba: no deben quedar en la tabla real (Empleados, primer admin)."""
-    from btsync import tareas
+    from btsync import esquema, tareas
 
     conn = connect()
     try:
+        esquema.migrar(conn)   # danados, fotos y paquete PL/SQL al día (en la app lo hace el escritorio al arrancar)
         tareas.migrar(conn)   # columnas de tareas y tabla revisiones (en la app las crea el escritorio al arrancar)
     finally:
         conn.close()
@@ -145,11 +146,11 @@ def escenario():
         conn.close()
 
 
-def staging(conn, uuid, seq, ts_ms, conteo, sku, cant, operador="Ana", nota="") -> int:
+def staging(conn, uuid, seq, ts_ms, conteo, sku, cant, operador="Ana", nota="", danados="") -> int:
     """Inserta (con COMMIT) una línea REC sin CRC en CAPTURA_TRANSITO y devuelve su ID_TRANSITO."""
     from btsync.protocol import Rec
 
-    raw = Rec(seq, ts_ms, conteo, sku, str(cant), operador, nota).to_raw()
+    raw = Rec(seq, ts_ms, conteo, sku, str(cant), operador, nota, str(danados)).to_raw()
     cur = conn.cursor()
     out = cur.var(int)
     cur.execute(

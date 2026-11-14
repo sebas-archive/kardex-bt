@@ -33,12 +33,12 @@ class MigracionTest {
         }
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, "migracion.db")
-            .addMigrations(AppDatabase.MIGRACION_1_2, AppDatabase.MIGRACION_2_3).allowMainThreadQueries().build()
+            .addMigrations(AppDatabase.MIGRACION_1_2, AppDatabase.MIGRACION_2_3, AppDatabase.MIGRACION_3_4).allowMainThreadQueries().build()
         try {
             val lecturas = db.outbox().todas()  // abrirla valida el esquema nuevo: si la migración lo dejara distinto, falla aquí
             assertEquals(listOf(1L, 2L), lecturas.map { it.seq })
             assertEquals(listOf(Estado.CONFIRMADO, Estado.PENDIENTE), lecturas.map { it.estado })
-            assertEquals(LecturaEntity(2, 2000, "T-01", "A2", "7.5", "Ana", "caja rota", Estado.PENDIENTE), lecturas[1])
+            assertEquals(LecturaEntity(2, 2000, "T-01", "A2", "7.5", "Ana", "caja rota", Estado.PENDIENTE), lecturas[1])  // danados = ""
             assertEquals(3L, db.outbox().insertar(LecturaEntity(tsOriginalMs = 3000, idConteo = "T-01", sku = "A3", cantidad = "1", operador = "Ana", nota = "")))
             assertEquals(emptyList<String>(), db.catalogo().tareas().map { it.id })   // el catálogo vuelve en la próxima sincronización
         } finally {
@@ -65,10 +65,11 @@ class MigracionTest {
         }
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, "migracion3.db")
-            .addMigrations(AppDatabase.MIGRACION_1_2, AppDatabase.MIGRACION_2_3).allowMainThreadQueries().build()
+            .addMigrations(AppDatabase.MIGRACION_1_2, AppDatabase.MIGRACION_2_3, AppDatabase.MIGRACION_3_4).allowMainThreadQueries().build()
         try {
             assertEquals(listOf(LecturaEntity(7, 1000, "CONT-2026-11", "A1", "5", "Ana", "caja rota", Estado.PENDIENTE)),
                 db.outbox().todas())
+            assertEquals(0, db.fotos().contarPendientes())   // versión 4: la tabla de fotos existe y está vacía
             assertEquals(listOf("A1"), db.catalogo().productos().map { it.sku })
             assertEquals(emptyList<String>(), db.catalogo().tareas().map { it.id })
             CatalogRepository(db.catalogo()).marcarIniciada("T-001")

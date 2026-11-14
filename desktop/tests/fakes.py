@@ -93,7 +93,7 @@ class FakeTransport:
 
 
 def hello(uuid="tst-gui"):
-    return frame(["HELLO", "4", uuid, "Teléfono de prueba"])
+    return frame(["HELLO", "5", uuid, "Teléfono de prueba"])
 
 
 def acct(usuario="tst-operador"):
@@ -101,7 +101,7 @@ def acct(usuario="tst-operador"):
 
 
 def rec(seq, conteo="T-01", sku="A1", cant="1", operador="Ana"):
-    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, sku, cant, operador, ""])
+    return frame(["REC", str(seq), str(NOW + seq * 1000), conteo, sku, cant, operador, "", ""])
 
 
 def end(n):

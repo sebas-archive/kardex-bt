@@ -51,7 +51,7 @@ _CLAVES = {clave for clave, _ in MODULOS}
 INTOCABLES = frozenset({(ADMIN, "usuarios"), (ADMIN, "solicitudes"), (ADMIN, "permisos")})
 # Módulos que ya existen en las aplicaciones (los demás llegan en fases siguientes: su nivel se guarda pero aún no rige).
 EN_USO = ("dashboard", "usuarios", "roles", "permisos", "solicitudes", "existencias", "bluetooth", "reportes", "perfil",
-          "categorias", "conteos", "tareas", "diferencias", "entradas_salidas", "movimientos", "ajustes")
+          "categorias", "conteos", "tareas", "diferencias", "entradas_salidas", "movimientos", "ajustes", "historial")
 
 
 def inicial(rol: str) -> dict[str, str]:
@@ -114,9 +114,17 @@ def guardar(quien: Sesion, rol: str, modulo: str, nivel_nuevo: str) -> None:
         raise ErrorDeAcceso("El administrador siempre gestiona usuarios, solicitudes y permisos.")
     with db._conexion() as conn:
         cur = conn.cursor()
+        cur.execute(f"SELECT nivel FROM {TABLA} WHERE rol = :r AND modulo = :m", r=rol, m=modulo)
+        fila = cur.fetchone()
+        anterior = fila[0] if fila else NINGUNO
         cur.execute(f"UPDATE {TABLA} SET nivel = :n WHERE rol = :r AND modulo = :m", n=nivel_nuevo, r=rol, m=modulo)
         if cur.rowcount == 0:
             cur.execute(f"INSERT INTO {TABLA} (rol, modulo, nivel) VALUES (:r, :m, :n)", r=rol, m=modulo, n=nivel_nuevo)
+        from . import auditoria
+        from .auth import NOMBRE_ROL
+        nombre_modulo = dict(MODULOS)[modulo]
+        auditoria.registrar(cur, quien.usuario, "permisos", "Cambió permiso",
+                            f"{NOMBRE_ROL[rol]} · {nombre_modulo}: {NOMBRE_NIVEL[anterior]} → {NOMBRE_NIVEL[nivel_nuevo]}")
         conn.commit()
 
 

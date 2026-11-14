@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import os
 import threading
+from pathlib import Path
 
 import oracledb
 
@@ -78,6 +80,11 @@ class EstadoCuenta:
 CONFLICTO_ESCRITORIO = "Ese usuario ya existe en el PC"
 OTRO_TELEFONO = "Esta cuenta está vinculada a otro teléfono. Pide al administrador que la desvincule."
 SIN_PERMISO = "Tu rol no tiene permiso para sincronizar. Habla con el administrador."
+
+
+def fotos_dir() -> Path:
+    """Carpeta de las fotos de evidencia en el PC (``FOTOS_DIR``; por defecto ``fotos/`` en el directorio de trabajo)."""
+    return Path(os.environ.get("FOTOS_DIR", "fotos"))
 
 
 class Store:
@@ -202,6 +209,31 @@ class Store:
         productos = [(r[0], r[1], r[2], r[3]) for r in cur]
         return Catalog([(r.id, r.nombre, r.almacen, r.instrucciones, r.estado, r.total, r.contados) for r in propias]
                        + generales, items, productos)
+
+    def existe_rec(self, uuid: str, seq: int) -> bool:
+        cur = self._connection().cursor()
+        cur.execute("SELECT COUNT(*) FROM captura_transito WHERE uuid_dispositivo = :u AND seq = :s", u=uuid, s=seq)
+        return cur.fetchone()[0] > 0
+
+    def guardar_foto(self, uuid: str, seq: int, datos: bytes) -> str:
+        """Escribe ``<FOTOS_DIR>/<uuid>/<seq>.jpg`` (primero a un temporal: nunca queda un archivo a medias) y registra
+        su ruta relativa en ``fotos``. Repetida, la reemplaza. Confirma con el COMMIT de la sesión."""
+        ruta = f"{uuid}/{seq}.jpg"
+        base = fotos_dir().resolve()
+        destino = (base / ruta).resolve()
+        if destino.parent.parent != base:
+            raise ValueError(f"ruta de foto fuera de la carpeta: {ruta!r}")
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        temporal = destino.with_suffix(".parcial")
+        temporal.write_bytes(datos)
+        os.replace(temporal, destino)
+        self._connection().cursor().execute(
+            "MERGE INTO fotos f USING (SELECT :u uuid_dispositivo, :s seq FROM dual) x "
+            "ON (f.uuid_dispositivo = x.uuid_dispositivo AND f.seq = x.seq) "
+            "WHEN MATCHED THEN UPDATE SET ruta = :r, bytes = :b, recibida = SYSTIMESTAMP "
+            "WHEN NOT MATCHED THEN INSERT (uuid_dispositivo, seq, ruta, bytes) VALUES (:u, :s, :r, :b)",
+            u=uuid, s=seq, r=ruta, b=len(datos))
+        return ruta
 
     def marcar_iniciada(self, usuario: str, id_tarea: str) -> None:
         """El móvil avisó que empezó la tarea. Solo cuenta si es suya y sigue abierta; si no, no hace nada.

@@ -13,13 +13,16 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel, 
 from .. import auth, movimientos, tareas
 from .ajustes import pedir_ajuste, resultado
 from .base import QueryRunner, StateBanner
+from .foto import ver_foto
 from .maestros import pedir_texto
 from .tareas import _numero
 
-ENCABEZADOS = ("Tarea", "Producto", "Almacén", "Sistema", "Contado", "Dif.", "Tipo", "Observación", "Estado")
+ENCABEZADOS = ("Tarea", "Producto", "Almacén", "Sistema", "Contado", "Dif.", "Tipo", "Observación", "Estado", "Dañados",
+               "Foto")
+COL_FOTO = ENCABEZADOS.index("Foto")
 COLOR_TIPO = {"FALTANTE": "#F87171", "SOBRANTE": "#FBBF24"}
 
-__all__ = ["DiferenciasView", "pedir_texto"]
+__all__ = ["DiferenciasView", "pedir_texto", "ver_foto"]
 
 
 def _diferencia(valor: float) -> str:
@@ -88,6 +91,7 @@ class DiferenciasView(QWidget):
         raiz.addWidget(self.tabla, 1)
 
         self.tabla.itemSelectionChanged.connect(self._ajustar)
+        self.tabla.cellClicked.connect(self._clic)
         for combo in (self.combo_tarea, self.combo_tipo, self.combo_estado):
             combo.currentIndexChanged.connect(self._filtrar)
         self.btn_revisada.clicked.connect(self._revisada)
@@ -148,7 +152,8 @@ class DiferenciasView(QWidget):
         self.tabla.setRowCount(len(self._vistas))
         for fila, d in enumerate(self._vistas):
             celdas = (d.id_conteo, d.producto, d.almacen, _numero(d.sistema), _numero(d.contado), _diferencia(d.diferencia),
-                      tareas.NOMBRE_TIPO[d.tipo], d.observacion, tareas.NOMBRE_REVISION[d.estado])
+                      tareas.NOMBRE_TIPO[d.tipo], d.observacion, tareas.NOMBRE_REVISION[d.estado], _numero(d.danados),
+                      "📷" if d.foto else "")
             for columna, texto in enumerate(celdas):
                 item = QTableWidgetItem(texto)
                 if columna == 6:
@@ -192,6 +197,11 @@ class DiferenciasView(QWidget):
         d = self._elegida()
         if d is not None:
             self._accion(tareas.pedir_recuento, d.id_conteo, d.sku)
+
+    def _clic(self, fila: int, columna: int) -> None:
+        if columna == COL_FOTO and 0 <= fila < len(self._vistas) and self._vistas[fila].foto:
+            d = self._vistas[fila]
+            ver_foto(self, d.foto, f"{d.producto} · {d.id_conteo}")
 
     def _ajustar_existencia(self) -> None:
         d = self._elegida()

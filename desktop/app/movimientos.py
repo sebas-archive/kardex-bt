@@ -19,7 +19,7 @@ from datetime import date, datetime
 
 import oracledb
 
-from . import auth, db, maestros, permisos
+from . import auditoria, auth, db, maestros, permisos
 from .auth import ErrorDeAcceso, Sesion
 
 TABLA = "movimientos"   # las pruebas usan «movimientos_tst»
@@ -220,6 +220,8 @@ def registrar_entrada(quien: Sesion, sku: str, almacen: str, cantidad: float, fe
             _poner(cur, sku, almacen, antes + cantidad)
             id_mov = _insertar(cur, ENTRADA, sku, almacen, cantidad, antes, antes + cantidad, cuando, "", observaciones,
                                quien.usuario, APLICADO)
+            auditoria.registrar(cur, quien.usuario, "movimientos", "Registró entrada",
+                                f"{auditoria.producto(cur, sku)} · {almacen}: +{fmt(cantidad)}")
             conn.commit()
             return id_mov
         except Exception:
@@ -243,6 +245,8 @@ def registrar_salida(quien: Sesion, sku: str, almacen: str, cantidad: float, fec
             _poner(cur, sku, almacen, antes - cantidad)
             id_mov = _insertar(cur, SALIDA, sku, almacen, -cantidad, antes, antes - cantidad, cuando, motivo,
                                observaciones, quien.usuario, APLICADO)
+            auditoria.registrar(cur, quien.usuario, "movimientos", "Registró salida",
+                                f"{auditoria.producto(cur, sku)} · {almacen}: −{fmt(cantidad)} ({motivo})")
             conn.commit()
             return id_mov
         except Exception:
@@ -287,6 +291,9 @@ def solicitar_ajuste(quien: Sesion, sku: str, almacen: str, nueva: float, motivo
                 _poner(cur, sku, almacen, nueva)
             _insertar(cur, AJUSTE, sku, almacen, nueva - antes, antes, nueva, datetime.now(), motivo, "", quien.usuario,
                       estado, id_conteo)
+            auditoria.registrar(cur, quien.usuario, "ajustes", "Solicitó ajuste",
+                                f"{auditoria.producto(cur, sku)} · {almacen}: {fmt(antes)} → {fmt(nueva)} "
+                                f"({'pendiente' if estado == PENDIENTE else 'aplicado'})")
             conn.commit()
             return estado
         except Exception:
@@ -323,6 +330,10 @@ def aprobar(quien: Sesion, id_mov: int) -> None:
             # «antes» y «después» quedan como se pidieron: el historial muestra la solicitud y el delta aplicado.
             cur.execute(f"UPDATE {TABLA} SET estado = :e, resuelto_por = :q, resuelto = SYSTIMESTAMP WHERE id = :i",
                         e=APLICADO, q=quien.usuario, i=id_mov)
+            delta = despues - antes
+            auditoria.registrar(cur, quien.usuario, "ajustes", "Aprobó ajuste",
+                                f"#{id_mov} {auditoria.producto(cur, sku)} · {almacen}: "
+                                f"{'+' if delta > 0 else '−'}{fmt(abs(delta))} (quedó en {fmt(nuevo)})")
             conn.commit()
         except Exception:
             conn.rollback()
@@ -340,6 +351,7 @@ def rechazar(quien: Sesion, id_mov: int, motivo: str) -> None:
             _resolver(cur, quien, id_mov)
             cur.execute(f"UPDATE {TABLA} SET estado = :e, motivo_rechazo = :m, resuelto_por = :q, "
                         f"resuelto = SYSTIMESTAMP WHERE id = :i", e=RECHAZADO, m=motivo, q=quien.usuario, i=id_mov)
+            auditoria.registrar(cur, quien.usuario, "ajustes", "Rechazó ajuste", f"#{id_mov} — «{motivo}»")
             conn.commit()
         except Exception:
             conn.rollback()

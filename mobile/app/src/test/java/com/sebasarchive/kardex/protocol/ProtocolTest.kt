@@ -27,7 +27,7 @@ class ProtocolTest {
     @Test
     fun test_frame_and_parse_match_all_shared_vectors() {
         val vectors = vectors()
-        assertEquals(15, vectors.size)
+        assertEquals(18, vectors.size)
         for (v in vectors) {
             val name = v.getString("name")
             val line = v.getString("line").toByteArray(Charsets.UTF_8)
@@ -41,7 +41,7 @@ class ProtocolTest {
 
     @Test
     fun acctYAcctstCoincidenConLosVectores() {
-        assertEquals("4", Protocol.VERSION)
+        assertEquals("5", Protocol.VERSION)
         val acct = vector("acct")
         assertArrayEquals((acct.getString("line") + "\n").toByteArray(Charsets.UTF_8),
             Protocol.frame(listOf("ACCT", Protocol.encodeText("luis.ortiz"), Protocol.encodeText("Luis Ortiz"))))
@@ -50,6 +50,23 @@ class ProtocolTest {
             EstadoCuentaPc.fromMessage(st))
         val pendiente = EstadoCuentaPc.fromMessage(Protocol.parse(vector("acctst_pendiente").getString("line").toByteArray(Charsets.UTF_8)))
         assertEquals(EstadoCuentaPc("luis.ortiz", "PENDIENTE", null, null), pendiente)  // vacíos → null
+    }
+
+    @Test
+    fun recLlevaDanadosYLaFotoViajaEnPartes() {
+        val rec = Rec.fromMessage(Protocol.parse(vector("rec_danados").getString("line").toByteArray(Charsets.UTF_8)))
+        assertEquals("2", rec.danados)
+        assertEquals("caja | rota", rec.nota)
+        val foto = vector("foto")
+        val datos = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) +
+            "JFIF".toByteArray() + byteArrayOf(0) + "prueba".toByteArray() + byteArrayOf(0xFF.toByte(), 0xD9.toByte())
+        val lineas = Protocol.fotoLineas(7, datos)
+        assertEquals(1, lineas.size)
+        assertArrayEquals((foto.getString("line") + "\n").toByteArray(Charsets.UTF_8), Protocol.frame(lineas[0]))
+        val grande = ByteArray(10_000) { it.toByte() }
+        val partes = Protocol.fotoLineas(3, grande)
+        assertEquals(listOf("1", "2", "3", "4", "5"), partes.map { it[2] })
+        assertEquals(true, partes.all { Protocol.frame(it).size <= 4000 })
     }
 
     @Test
@@ -73,7 +90,7 @@ class ProtocolTest {
 
         val line = vector("rec_special_text").getString("line")
         val rec = Rec.fromMessage(Protocol.parse(line.toByteArray(Charsets.UTF_8)))
-        assertEquals(Rec(2, 1731170401000, "CONT-2026-11", "7701234000012", "3", "Ñandú|%", "a|b\nc%😀"), rec)
+        assertEquals(Rec(2, 1731170401000, "CONT-2026-11", "7701234000012", "3", "Ñandú|%", "a|b\nc%😀", ""), rec)
         assertEquals(line.substringBeforeLast('*'), rec.toRaw())
         assertArrayEquals((line + "\n").toByteArray(Charsets.UTF_8), rec.toFrame())
     }
@@ -93,7 +110,7 @@ class ProtocolTest {
         assertEquals("FORMAT", reason("ACK|3*6a8544fa".toByteArray()))         // CRC en minúsculas
         assertEquals("FORMAT", reason(Protocol.frame(listOf("REC", "1", "2"))))  // CRC bueno, faltan campos
         assertEquals("FORMAT", reason(Protocol.frame(listOf("HOLA", "1"))))    // tipo desconocido
-        val base = listOf("REC", "1", "2", "C", "U", "S", "1", "Ana")
+        val base = listOf("REC", "1", "2", "C", "U", "S", "1", "Ana", "")
         val overhead = Protocol.frame(base + "").size - 1
         assertEquals("REC", Protocol.parse(Protocol.frame(base + "x".repeat(4000 - overhead))).kind)  // 4000 bytes: válido
         assertEquals("LINEA_LARGA", reason(Protocol.frame(base + "x".repeat(4001 - overhead))))

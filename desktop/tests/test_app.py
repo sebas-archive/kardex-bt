@@ -111,7 +111,8 @@ def test_register_then_login_enters_the_app(qtbot, cuentas, contado, puente):
 def test_sections_depend_on_the_role(qtbot, contado, puente):
     ventana = abrir(qtbot, puente, LUIS)
     assert ventana.secciones() == ["Dashboard", "Inventario", "Tareas de conteo", "Diferencias", "Movimientos", "Ajustes",
-                                   "Existencias", "Categorías", "Almacenes", "Sincronización", "Gráficas", "Perfil"]
+                                   "Auditoría", "Existencias", "Categorías", "Almacenes", "Sincronización", "Gráficas",
+                                   "Perfil"]
     assert ventana.seccion_actual() == "Dashboard" and ventana.lbl_rol.text() == "Inventario"
     ventana.ir_a("Empleados")                                     # reservada al administrador: no se abre
     assert ventana.seccion_actual() == "Dashboard"
@@ -169,8 +170,10 @@ def test_dashboard_shows_the_scenario_figures(qtbot, contado, puente):
     assert "5 lecturas procesadas" in v.lbl_sync.text()
 
 
-def test_closing_the_count_needs_confirmation_and_updates_the_figures(qtbot, contado, puente, monkeypatch):
-    v = abrir(qtbot, puente, ANA).vista("Dashboard")
+def test_closing_the_count_needs_confirmation_and_updates_the_figures(qtbot, cuentas, contado, puente, monkeypatch,
+                                                                    auditoria_db):
+    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026")   # cerrar exige la cuenta viva
+    v = abrir(qtbot, puente, ana).vista("Dashboard")
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No)
     v.btn_cerrar.click()
     assert v.card_text("avance") == "80,0 %" and v.btn_cerrar.isEnabled()      # cancelar no hace nada
@@ -179,6 +182,9 @@ def test_closing_the_count_needs_confirmation_and_updates_the_figures(qtbot, con
     esperar(qtbot, lambda: v.card_text("avance") == "100,0 %")
     assert v.card_text("exactitud") == "20,0 %" and v.card_text("valor_faltante") == "-$ 10.000"
     assert not v.btn_cerrar.isEnabled() and v.btn_cerrar.text() == "Conteo cerrado" and v.insignia.text() == "Cerrado"
+    # Cerrar desde el Dashboard queda en la auditoría igual que desde Tareas.
+    assert [(e.usuario, e.modulo, e.accion, e.detalle) for e in auditoria_db.listar(ana)][:1] == [
+        ("ana.gomez", "tareas", "Cerró conteo", C)]
 
 
 def test_kpi_card_reports_final_text_while_the_number_animates(qtbot, monkeypatch):

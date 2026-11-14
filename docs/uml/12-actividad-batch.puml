@@ -3,7 +3,7 @@
 title 12 · Actividad: de la subida al ACK y el batch PKG_BATCH.PROCESAR_PENDIENTES
 |Móvil|
 start
-:HELLO|4|uuid|nombre + ACCT|usuario|nombre;
+:HELLO|5|uuid|nombre + ACCT|usuario|nombre;
 |App (Session)|
 :ACCTST (estado de la cuenta) + READY|ultimo_seq|epoch_ms + catálogo;
 |Móvil|

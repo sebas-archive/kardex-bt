@@ -23,11 +23,7 @@ class LecturasActivity : PantallaActivity() {
             LecturasScreen(
                 s.contar.conteo.value, lista,
                 alEditar = { fila ->
-                    abrir(ContarActivity::class.java, Transicion.LATERAL) {
-                        putExtra(ContarActivity.EXTRA_SKU, fila.sku)
-                        putExtra(ContarActivity.EXTRA_CANTIDAD, fila.cantidad)
-                        putExtra(ContarActivity.EXTRA_NOTA, fila.nota)
-                    }
+                    abrir(ContarActivity::class.java, Transicion.LATERAL) { ContarActivity.correccion(this, fila) }
                 },
                 alContar = { abrir(ContarActivity::class.java) },
                 alVolver = { finish() },
@@ -40,8 +36,10 @@ class LecturasActivity : PantallaActivity() {
         val conteo = s.contar.conteo.value
         lifecycleScope.launch {
             filas = if (conteo == null) emptyList() else withContext(Dispatchers.IO) {
+                val conFoto = s.contar.conFoto()
                 s.contar.lecturas().asReversed().map {
-                    LecturaFila(it.sku, s.contar.producto(it.sku)?.nombre, it.cantidad, it.estado, it.nota)
+                    LecturaFila(it.sku, s.contar.producto(it.sku)?.nombre, it.cantidad, it.estado, it.nota,
+                        foto = it.seq in conFoto, danados = it.danados)
                 }
             }
         }

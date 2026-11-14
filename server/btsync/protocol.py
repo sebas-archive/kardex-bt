@@ -8,6 +8,7 @@ preceden al último ``*``. Máximo 4000 bytes por línea (sin el ``\\n``, inclui
 from __future__ import annotations
 
 import argparse
+import base64
 import re
 import sys
 import zlib
@@ -20,7 +21,10 @@ _MIN_PARTS = {
     "HELLO": 4,
     "ACCT": 3,
     "ACCTST": 5,
-    "REC": 8,
+    "REC": 9,
+    "FOTO": 6,
+    "FOTOOK": 2,
+    "FOTOERR": 3,
     "END": 2,
     "READY": 3,
     "CATTAREA": 8,
@@ -36,7 +40,8 @@ _MIN_PARTS = {
 # Versión del protocolo que viaja en HELLO. La 2 quitó la ubicación del REC y el mensaje CATUBIC.
 # La 3 añadió ACCT/ACCTST: el móvil identifica la cuenta del operador y el PC responde su estado.
 # La 4 cambió CATCONTEO por CATTAREA + CATITEM (las tareas del operador) y añadió INICIO (el móvil empezó una tarea).
-PROTOCOL_VERSION = "4"
+# La 5 añadió los dañados al final del REC y las fotos (FOTO / FOTOOK / FOTOERR), que van tras las lecturas.
+PROTOCOL_VERSION = "5"
 
 _CRC_HEX = re.compile(rb"[0-9A-F]{8}")
 _ESCAPES = {"%25": "%", "%7C": "|", "%0D": "\r", "%0A": "\n"}
@@ -66,17 +71,18 @@ class Rec:
     cantidad: str
     operador: str
     nota: str
+    danados: str = ""   # protocolo 5: cuántas de las unidades contadas están dañadas («» si no se indicó)
 
     @classmethod
     def from_message(cls, m: Message) -> Rec:
         f = m.fields
-        if m.kind != "REC" or len(f) != 7:
-            raise FrameError("FORMAT", "REC exige exactamente 7 campos")
+        if m.kind != "REC" or len(f) != 8:
+            raise FrameError("FORMAT", "REC exige exactamente 8 campos")
         try:
             seq, ts_ms = int(f[0]), int(f[1])
         except ValueError:
             raise FrameError("FORMAT", "seq y epoch_ms deben ser enteros") from None
-        return cls(seq, ts_ms, f[2], f[3], f[4], f[5], f[6])
+        return cls(seq, ts_ms, f[2], f[3], f[4], f[5], f[6], f[7])
 
     def to_raw(self) -> str:
         """La línea REC tal como viaja por el cable, sin el CRC."""
@@ -92,10 +98,22 @@ class Rec:
                     self.cantidad,
                     self.operador,
                     self.nota,
+                    self.danados,
                 )
             ),
         ]
         return "|".join(parts)
+
+
+FOTO_PARTE = 2700   # caracteres de base64 por línea FOTO: con la cabecera queda lejos de los 4000 bytes
+
+
+def foto_lineas(seq: int, datos: bytes, tam: int = FOTO_PARTE) -> list[list[str]]:
+    """Las líneas FOTO (sin CRC de línea) de una foto: ``FOTO|seq|parte|total|crc32 del archivo|base64``."""
+    b64 = base64.b64encode(datos).decode("ascii")
+    trozos = [b64[i:i + tam] for i in range(0, len(b64), tam)] or [""]
+    crc = f"{zlib.crc32(datos) & 0xFFFFFFFF:08X}"
+    return [["FOTO", str(seq), str(n), str(len(trozos)), crc, t] for n, t in enumerate(trozos, start=1)]
 
 
 def encode_text(s: str) -> str:

@@ -20,7 +20,7 @@ import oracledb
 from btsync import tareas as bt
 from btsync.tareas import ResumenTarea
 
-from . import auth, db, maestros, movimientos, permisos
+from . import auditoria, auth, db, maestros, movimientos, permisos
 from .auth import ErrorDeAcceso, Sesion
 
 PREFIJO = "T-"   # las pruebas usan «TT-»
@@ -58,18 +58,26 @@ def productos_disponibles() -> list[tuple[str, str, str]]:
         return [(s, n, c) for s, n, c in cur]
 
 
-def avance(id_tarea: str) -> list[tuple[str, str, bool, float | None]]:
-    """Por producto de la tarea: (sku, nombre, contado, cantidad de la lectura vigente o None)."""
+# La foto (ruta relativa a FOTOS_DIR) de la lectura vigente de un producto en un conteo; NULL si esa lectura no trae.
+_FOTO_VIGENTE = """(SELECT MAX(f.ruta) KEEP (DENSE_RANK LAST ORDER BY r.fecha_procesado, r.id_registro)
+                      FROM registros_procesados r
+                      JOIN captura_transito t ON t.id_transito = r.id_transito
+                      LEFT JOIN fotos f ON f.uuid_dispositivo = t.uuid_dispositivo AND f.seq = t.seq
+                     WHERE r.id_conteo = {c} AND r.sku = {s} AND r.vigente = 'S')"""
+
+
+def avance(id_tarea: str) -> list[tuple[str, str, bool, float | None, str]]:
+    """Por producto de la tarea: (sku, nombre, contado, cantidad de la lectura vigente o None, foto o «»)."""
     pendiente = bt.RECUENTO_PENDIENTE.format(c="s.id_conteo", s="s.sku")
     with db._conexion() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT s.sku, p.nombre, (SELECT SUM(r.cantidad) FROM registros_procesados r "
                     f"WHERE r.id_conteo = s.id_conteo AND r.sku = s.sku AND r.vigente = 'S'), "
-                    f"CASE WHEN {pendiente} THEN 1 ELSE 0 END "
+                    f"CASE WHEN {pendiente} THEN 1 ELSE 0 END, {_FOTO_VIGENTE.format(c='s.id_conteo', s='s.sku')} "
                     f"FROM stock_sistema s JOIN productos p ON p.sku = s.sku WHERE s.id_conteo = :c ORDER BY s.sku",
                     c=id_tarea)
-        return [(sku, nombre, cantidad is not None and not recontar, db._f(cantidad))
-                for sku, nombre, cantidad, recontar in cur]
+        return [(sku, nombre, cantidad is not None and not recontar, db._f(cantidad), foto or "")
+                for sku, nombre, cantidad, recontar, foto in cur]
 
 
 @dataclass(frozen=True)
@@ -83,7 +91,9 @@ class Diferencia:
     diferencia: float
     tipo: str          # FALTANTE o SOBRANTE
     observacion: str   # la nota de la lectura vigente
-    estado: str        # PENDIENTE, REVISADA o RECUENTO
+    estado: str        # PENDIENTE, REVISADA, RECUENTO, AJUSTADA o AJUSTE_PENDIENTE
+    danados: float | None = None   # Fase 4: unidades dañadas de la lectura vigente
+    foto: str = ""                 # Fase 4: ruta relativa (a FOTOS_DIR) de su foto de evidencia, o «»
 
 
 _VIGENTES = "FROM registros_procesados r WHERE r.id_conteo = k.id_conteo AND r.sku = k.sku AND r.vigente = 'S'"
@@ -99,7 +109,9 @@ def listar_diferencias() -> list[Diferencia]:
                    (SELECT MAX(r.nota) KEEP (DENSE_RANK LAST ORDER BY r.fecha_procesado) {_VIGENTES}),
                    v.accion, v.fecha, (SELECT MAX(r.fecha_procesado) {_VIGENTES}),
                    (SELECT MAX(CASE x.estado WHEN 'APLICADO' THEN 2 WHEN 'PENDIENTE' THEN 1 ELSE 0 END)
-                      FROM {movimientos.TABLA} x WHERE x.tipo = 'AJUSTE' AND x.id_conteo = k.id_conteo AND x.sku = k.sku)
+                      FROM {movimientos.TABLA} x WHERE x.tipo = 'AJUSTE' AND x.id_conteo = k.id_conteo AND x.sku = k.sku),
+                   (SELECT MAX(r.danados) KEEP (DENSE_RANK LAST ORDER BY r.fecha_procesado) {_VIGENTES}),
+                   {_FOTO_VIGENTE.format(c="k.id_conteo", s="k.sku")}
               FROM conciliacion k
               JOIN productos p ON p.sku = k.sku
               JOIN conteos c ON c.id_conteo = k.id_conteo
@@ -107,11 +119,11 @@ def listar_diferencias() -> list[Diferencia]:
              WHERE k.clasificacion IN ('FALTANTE', 'SOBRANTE')
              ORDER BY c.creada DESC NULLS LAST, k.id_conteo DESC, ABS(k.valor_diferencia) DESC NULLS LAST, k.sku""")
         filas = []
-        for id_, sku, nombre, almacen, sistema, contado, dif, tipo, nota, accion, fecha, ultima, ajuste in cur:
+        for id_, sku, nombre, almacen, sistema, contado, dif, tipo, nota, accion, fecha, ultima, ajuste, danados, foto in cur:
             vigente = accion is not None and (ultima is None or ultima <= fecha)
             estado = {2: AJUSTADA, 1: AJUSTE_PENDIENTE}.get(ajuste or 0, accion if vigente else PENDIENTE)
             filas.append(Diferencia(id_, sku, nombre, almacen.strip(), db._f(sistema) or 0.0, db._f(contado) or 0.0,
-                                    db._f(dif) or 0.0, tipo, nota or "", estado))
+                                    db._f(dif) or 0.0, tipo, nota or "", estado, db._f(danados), foto or ""))
         return filas
 
 
@@ -189,6 +201,8 @@ def crear_tarea(quien: Sesion, nombre: str, almacen: str, operador: str, skus: l
         cur.executemany(f"INSERT INTO stock_sistema (id_conteo, sku, cantidad_sistema) SELECT :c, :s, "
                         f"NVL((SELECT cantidad FROM {maestros.EXISTENCIAS} WHERE sku = :s AND codigo_almacen = :a), 0) "
                         f"FROM dual", [dict(c=id_tarea, s=s, a=almacen) for s in skus])
+        auditoria.registrar(cur, quien.usuario, "tareas", "Creó tarea",
+                            f"{id_tarea} · {nombre} → {operador} ({len(skus)} productos)")
         conn.commit()
         return id_tarea
 
@@ -201,6 +215,7 @@ def reasignar(quien: Sesion, id_tarea: str, operador: str) -> None:
             raise ErrorDeAcceso("Solo se puede reasignar una tarea que aún no empezó.")
         _exigir_operador(cur, operador)
         cur.execute("UPDATE conteos SET operador = :o WHERE id_conteo = :i AND estado = 'ABIERTO'", o=operador, i=id_tarea)
+        auditoria.registrar(cur, quien.usuario, "tareas", "Reasignó tarea", f"{id_tarea} → {operador}")
         conn.commit()
 
 
@@ -209,7 +224,20 @@ def cerrar(quien: Sesion, id_tarea: str) -> None:
     permisos.exigir(quien, "tareas")
     with db._conexion() as conn:
         _estado(conn.cursor(), id_tarea)
-    db.cerrar_conteo(id_tarea)
+    db.cerrar_conteo(id_tarea)   # el PL/SQL confirma por su cuenta; la auditoría va justo después
+    with db._conexion() as conn:
+        auditoria.registrar(conn.cursor(), quien.usuario, "tareas", "Cerró tarea", id_tarea)
+        conn.commit()
+
+
+def cerrar_conteo(quien: Sesion, id_conteo: str) -> None:
+    """El cierre del Dashboard: cualquier conteo, con operador o sin él, con el permiso del Dashboard (el
+    Administrador lo gestiona aunque no gestione tareas). Queda en la auditoría como el de Tareas."""
+    permisos.exigir(quien, "dashboard")
+    db.cerrar_conteo(id_conteo)   # el PL/SQL confirma por su cuenta; la auditoría va justo después
+    with db._conexion() as conn:
+        auditoria.registrar(conn.cursor(), quien.usuario, "tareas", "Cerró conteo", id_conteo)
+        conn.commit()
 
 
 # ------------------------------------------------------------------ diferencias
@@ -249,6 +277,8 @@ def marcar_revisada(quien: Sesion, id_conteo: str, sku: str, nota: str) -> None:
         cur = conn.cursor()
         _exigir_diferencia(cur, id_conteo, sku)
         _registrar(cur, id_conteo, sku, REVISADA, nota or None, quien.usuario)
+        auditoria.registrar(cur, quien.usuario, "diferencias", "Marcó revisada",
+                            f"{auditoria.producto(cur, sku)} · {id_conteo}" + (f" — «{nota}»" if nota else ""))
         conn.commit()
 
 
@@ -264,4 +294,5 @@ def pedir_recuento(quien: Sesion, id_conteo: str, sku: str) -> None:
             raise ErrorDeAcceso("Este producto no está en la lista de la tarea: el teléfono no lo mostraría. "
                                 "Avisa al operador directamente.")
         _registrar(cur, id_conteo, sku, RECUENTO, None, quien.usuario)
+        auditoria.registrar(cur, quien.usuario, "diferencias", "Pidió recuento", f"{auditoria.producto(cur, sku)} · {id_conteo}")
         conn.commit()

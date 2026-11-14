@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import oracledb
 
-from . import db, permisos
+from . import auditoria, db, permisos
 from .auth import ErrorDeAcceso, Sesion
 
 CATEGORIAS, ALMACENES, EXISTENCIAS = "categorias", "almacenes", "existencias"   # las pruebas usan *_tst
@@ -133,6 +133,7 @@ def crear_categoria(quien: Sesion, nombre: str) -> None:
             raise ErrorDeAcceso("Esa categoría ya existe.")
         with _sin_duplicados("Esa categoría ya existe."):
             cur.execute(f"INSERT INTO {CATEGORIAS} (nombre) VALUES (:n)", n=nombre)
+        auditoria.registrar(cur, quien.usuario, "categorias", "Creó categoría", nombre)
         conn.commit()
 
 
@@ -148,6 +149,7 @@ def renombrar_categoria(quien: Sesion, actual: str, nuevo: str) -> None:
             cur.execute(f"UPDATE {CATEGORIAS} SET nombre = :n WHERE nombre = :a", n=nuevo, a=actual)
         _exigir_fila(cur, "Esa categoría")
         cur.execute("UPDATE productos SET categoria = :n WHERE categoria = :a", n=nuevo, a=actual)
+        auditoria.registrar(cur, quien.usuario, "categorias", "Renombró categoría", f"{actual} → {nuevo}")
         conn.commit()
 
 
@@ -157,6 +159,7 @@ def activar_categoria(quien: Sesion, nombre: str, activa: bool) -> None:
         cur = conn.cursor()
         cur.execute(f"UPDATE {CATEGORIAS} SET activa = :a WHERE nombre = :n", a="S" if activa else "N", n=nombre)
         _exigir_fila(cur, "Esa categoría")
+        auditoria.registrar(cur, quien.usuario, "categorias", "Activó categoría" if activa else "Desactivó categoría", nombre)
         conn.commit()
 
 
@@ -182,6 +185,7 @@ def crear_almacen(quien: Sesion, codigo: str, nombre: str, ubicacion: str) -> No
             raise ErrorDeAcceso("Ese código de almacén ya existe.")
         with _sin_duplicados("Ese código de almacén ya existe."):
             cur.execute(f"INSERT INTO {ALMACENES} (codigo, nombre, ubicacion) VALUES (:c, :n, :u)", c=codigo, n=nombre, u=ubicacion)
+        auditoria.registrar(cur, quien.usuario, "categorias", "Creó almacén", f"{codigo} · {nombre}")
         conn.commit()
 
 
@@ -197,6 +201,7 @@ def editar_almacen(quien: Sesion, codigo: str, nombre: str, ubicacion: str) -> N
         cur = conn.cursor()
         cur.execute(f"UPDATE {ALMACENES} SET nombre = :n, ubicacion = :u WHERE codigo = :c", n=nombre, u=ubicacion, c=codigo)
         _exigir_fila(cur, "Ese almacén")
+        auditoria.registrar(cur, quien.usuario, "categorias", "Editó almacén", f"{codigo} · {nombre}")
         conn.commit()
 
 
@@ -206,6 +211,7 @@ def activar_almacen(quien: Sesion, codigo: str, activo: bool) -> None:
         cur = conn.cursor()
         cur.execute(f"UPDATE {ALMACENES} SET activo = :a WHERE codigo = :c", a="S" if activo else "N", c=codigo)
         _exigir_fila(cur, "Ese almacén")
+        auditoria.registrar(cur, quien.usuario, "categorias", "Activó almacén" if activo else "Desactivó almacén", codigo)
         conn.commit()
 
 

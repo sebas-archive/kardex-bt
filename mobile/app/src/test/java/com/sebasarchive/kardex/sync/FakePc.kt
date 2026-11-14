@@ -27,6 +27,9 @@ class FakePc(
     private val stallBeforeAck: Boolean = false,          // retiene los ACK hasta que el teléfono deja de enviar
     private val estadoCuenta: String = "ACTIVO",          // lo que responde ACCTST; sin ACTIVO rechaza todo REC
     private val motivoCuenta: String = "",
+    private val fotoErr: Map<Long, String> = emptyMap(),     // seq -> motivo: responde FOTOERR en vez de FOTOOK
+    private val cutOnFotoPart: Int? = null,                   // corta al recibir la parte N de cualquier foto
+    private val nakFotoFinal: Long? = null,                   // la última parte de esa foto "llega corrupta": solo NAK
 ) {
     companion object {
         const val SERVER_NOW = 1_731_170_400_000L
@@ -45,6 +48,7 @@ class FakePc(
     val bursts = CopyOnWriteArrayList<Int>()     // con stallBeforeAck: cuántos REC llegaron en cada ráfaga
     val recibidos = CopyOnWriteArrayList<String>()  // tipo de cada mensaje que llegó después de ACCT, en orden
     val inicios = CopyOnWriteArrayList<String>()    // las tareas de cada INICIO
+    val fotos = java.util.concurrent.ConcurrentHashMap<Long, ByteArray>()   // fotos completas aceptadas (FOTOOK)
     @Volatile var hello: Message? = null
     @Volatile var acct: Message? = null
     @Volatile private var error: Throwable? = null
@@ -118,6 +122,7 @@ class FakePc(
         val uncommitted = ArrayList<Rec>()
         val pendingNaks = HashMap(nakOnce)
         val heldAcks = ArrayList<Long>()
+        val partes = HashMap<Long, StringBuilder>()
 
         fun flushHeld() {
             for (ack in heldAcks) send("ACK", ack.toString())
@@ -163,6 +168,30 @@ class FakePc(
             recibidos += msg.kind
             when (msg.kind) {
                 "INICIO" -> inicios += msg.fields[0]
+                "FOTO" -> {
+                    val seq = msg.fields[0].toLong()
+                    val parte = msg.fields[1].toInt()
+                    val total = msg.fields[2].toInt()
+                    if (cutOnFotoPart != null && parte >= cutOnFotoPart) return  // corte a mitad de la foto
+                    if (parte == 1) {
+                        if (uncommitted.isNotEmpty()) commitAndAck()  // como el PC real: confirma antes de la foto
+                        partes[seq] = StringBuilder()
+                    }
+                    partes[seq]!!.append(msg.fields[4])
+                    if (parte == total && nakFotoFinal == seq) {   // CRC de línea malo: el PC real solo manda NAK
+                        partes.remove(seq)
+                        send("NAK", expected.toString(), "CRC")
+                        out.flush()
+                    } else if (parte == total) {
+                        val datos = java.util.Base64.getDecoder().decode(partes.remove(seq).toString())
+                        val crc = java.util.zip.CRC32().apply { update(datos) }.value
+                        val motivo = fotoErr[seq] ?: if ("%08X".format(crc) != msg.fields[3]) "CRC"
+                            else if (seq > lastSeq && accepted.none { it.seq == seq }) "SIN_LECTURA" else null
+                        if (motivo == null) { fotos[seq] = datos; send("FOTOOK", seq.toString()) }
+                        else send("FOTOERR", seq.toString(), motivo)
+                        out.flush()
+                    }
+                }
                 "REC" -> {
                     val rec = Rec.fromMessage(msg)
                     received += rec

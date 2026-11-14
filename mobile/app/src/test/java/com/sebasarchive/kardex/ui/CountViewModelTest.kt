@@ -5,12 +5,15 @@ import com.sebasarchive.kardex.data.AppDatabase
 import com.sebasarchive.kardex.data.Catalog
 import com.sebasarchive.kardex.data.CatalogRepository
 import com.sebasarchive.kardex.data.TareaEntity
+import com.sebasarchive.kardex.data.FotoRepository
+import com.sebasarchive.kardex.data.FotoEntity
 import com.sebasarchive.kardex.data.Estado
 import com.sebasarchive.kardex.data.ProductoEntity
 import com.sebasarchive.kardex.data.TestDb
 import com.sebasarchive.kardex.protocol.Protocol
 import com.sebasarchive.kardex.protocol.Rec
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -156,7 +159,7 @@ class CountViewModelTest {
         assertEquals(nota, fila.nota)  // en la base va tal cual; se codifica al armar el REC
         val rec = Rec(fila.seq, fila.tsOriginalMs, fila.idConteo, fila.sku, fila.cantidad, fila.operador, fila.nota)
         val cruda = rec.toRaw()
-        assertEquals("el REC debe tener 8 campos", 8, cruda.split("|").size)
+        assertEquals("el REC debe tener 9 campos (protocolo 5)", 9, cruda.split("|").size)
         assertTrue(cruda.contains("Ana%7CLuis"))
         assertTrue(cruda.contains("caja rota %7C 2 pzs%0Arevisar 100%25"))
         assertEquals(rec, Rec.fromMessage(Protocol.parse(rec.toFrame())))  // y llega idéntico
@@ -214,5 +217,48 @@ class CountViewModelTest {
         assertNull(vm.conteo.value)
         assertNull(nuevoVm().conteo.value)                   // y no vuelve al reabrir la app
         assertEquals(SaveResult.SinConteo, vm.guardar("A1", "5", ""))
+    }
+
+    // ------------------------------------------------------------------ Fase 4: dañados y foto
+    @get:org.junit.Rule val carpeta = org.junit.rules.TemporaryFolder()
+
+    private fun vmConFotos(): Pair<CountViewModel, FotoRepository> {
+        val repo = FotoRepository(db.fotos(), carpeta.newFolder())
+        return CountViewModel(db.outbox(), CatalogRepository(db.catalogo()), settings, repo) { ahora } to repo
+    }
+
+    @Test
+    fun danadosNoPuedenSuperarLaCantidad() {
+        listo()
+        assertEquals(SaveResult.DanadosInvalidos, vm.guardar("A1", "5", "", danados = "6"))
+        assertEquals(SaveResult.DanadosInvalidos, vm.guardar("A1", "5", "", danados = "1,5"))
+        assertTrue(vm.guardar("A1", "5", "", danados = "2") is SaveResult.Guardada)
+        assertEquals("2", db.outbox().todas().single().danados)
+    }
+
+    @Test
+    fun laFotoQuedaAdjuntaALaLectura() {
+        val (vm, repo) = vmConFotos()
+        vm.setOperador("Ana"); vm.elegirConteo("T-01")
+        val temporal = carpeta.newFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val seq = (vm.guardar("A1", "5", "caja rota", foto = temporal) as SaveResult.Guardada).seq
+        assertArrayEquals(byteArrayOf(1, 2, 3), repo.archivo(seq)!!.readBytes())
+        assertEquals(FotoEntity.PENDIENTE, db.fotos().porSeq(seq)!!.estado)
+        assertEquals(setOf(seq), repo.conFoto())
+    }
+
+    @Test
+    fun recontarEnSitioConFotoNuevaReemplazaLaFotoYLaNota() {
+        val (vm, repo) = vmConFotos()
+        vm.setOperador("Ana"); vm.elegirConteo("T-01")
+        val vieja = carpeta.newFile().apply { writeBytes(byteArrayOf(1)) }
+        val seq = (vm.guardar("A1", "5", "", foto = vieja) as SaveResult.Guardada).seq
+        val nueva = carpeta.newFile().apply { writeBytes(byteArrayOf(9, 9)) }
+        val r = vm.guardar("A1", "7", "golpeada", danados = "1", foto = nueva) as SaveResult.Guardada
+        assertTrue(r.reemplazo)
+        assertEquals(seq, r.seq)
+        assertArrayEquals(byteArrayOf(9, 9), repo.archivo(seq)!!.readBytes())
+        val l = db.outbox().todas().single()
+        assertEquals(listOf("7", "golpeada", "1"), listOf(l.cantidad, l.nota, l.danados))
     }
 }

@@ -8,13 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [LecturaEntity::class, TareaEntity::class, ItemTareaEntity::class, InicioEntity::class, ProductoEntity::class],
-    version = 3,
+    entities = [LecturaEntity::class, TareaEntity::class, ItemTareaEntity::class, InicioEntity::class, ProductoEntity::class,
+        FotoEntity::class],
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun outbox(): Outbox
     abstract fun catalogo(): CatalogDao
+    abstract fun fotos(): FotoDao
 
     companion object {
         @Volatile private var instancia: AppDatabase? = null
@@ -63,10 +65,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Versión 4 (Fase 4): dañados en cada lectura y la cola de fotos de evidencia. Nada se pierde. */
+        val MIGRACION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lecturas ADD COLUMN danados TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS fotos (seq INTEGER NOT NULL, archivo TEXT NOT NULL, " +
+                    "estado TEXT NOT NULL, PRIMARY KEY(seq))")
+            }
+        }
+
         /** La base del teléfono (una sola instancia por proceso). */
         fun abrir(context: Context): AppDatabase = instancia ?: synchronized(this) {
             instancia ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "inventario.db")
-                .addMigrations(MIGRACION_1_2, MIGRACION_2_3)
+                .addMigrations(MIGRACION_1_2, MIGRACION_2_3, MIGRACION_3_4)
                 .build()
                 .also { instancia = it }
         }

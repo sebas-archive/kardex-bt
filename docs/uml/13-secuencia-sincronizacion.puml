@@ -30,7 +30,7 @@ bluez -> bz : NewConnection(fd)
 bz -> ctrl : on_connection(conn)
 note over ctrl : estado CONECTADO
 ctrl -> ses : Session(conn, store).run()
-apk -> ses : HELLO|4|uuid|nombre
+apk -> ses : HELLO|5|uuid|nombre
 apk -> ses : ACCT|usuario|nombre
 note over ctrl : estado RECIBIENDO
 ses -> st : sincronizar_cuenta(usuario, nombre)
@@ -50,6 +50,13 @@ loop hasta 50 REC sin ACK
   opt cada 25 insertados
     ses -> st : commit()
     ses -> apk : ACK|n
+  end
+end
+opt fotos por enviar (protocolo 5)
+  loop una foto a la vez
+    apk -> ses : FOTO|seq|parte|total|crc32|base64 (x N)
+    ses -> st : commit() de lo pendiente · guardar_foto(uuid, seq, datos)
+    ses -> apk : FOTOOK|seq  (o FOTOERR|seq|motivo)
   end
 end
 apk -> ses : END|n

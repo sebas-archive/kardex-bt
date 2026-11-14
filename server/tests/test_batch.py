@@ -322,3 +322,26 @@ def test_scheduler_job_is_defined_every_60_seconds(db):
     assert "procesar_pendientes" in row[1].lower()
     cur.execute("SELECT COUNT(*) FROM user_scheduler_jobs WHERE job_name = 'JOB_PURGA_TRANSITO'")
     assert cur.fetchone()[0] == 1
+
+
+# ------------------------------------------------------------------ Fase 4: dañados
+def _danados(db, id_transito):
+    cur = db.cursor()
+    cur.execute("SELECT danados FROM registros_procesados WHERE id_transito = :i", i=id_transito)
+    fila = cur.fetchone()
+    return None if fila is None else fila[0]
+
+
+def test_danados_se_guardan(escenario, db):
+    i = staging(db, "tst-dan", 1, T0, C, "A1", "10", danados="2.5")
+    j = staging(db, "tst-dan", 2, T0 + 1, C, "A2", "4")
+    procesar(db)
+    assert estado(db, i)[0] == "PROCESADO" and float(_danados(db, i)) == 2.5
+    assert _danados(db, j) is None
+
+
+@pytest.mark.parametrize("danados", ["11", "abc", "-1"])
+def test_danados_invalidos_o_mayores_que_la_cantidad(escenario, db, danados):
+    i = staging(db, "tst-dan", 1, T0, C, "A1", "10", danados=danados)
+    procesar(db)
+    assert estado(db, i) == ("ERROR", "DANADOS_INVALIDO")

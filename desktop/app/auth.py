@@ -172,6 +172,11 @@ def _sesion(usuario: str, nombre: str, rol: str) -> Sesion:
     return Sesion(usuario, nombre, rol, permisos.de_rol(rol))
 
 
+def _auditar(cur, usuario: str, modulo: str, accion: str, detalle: str = "") -> None:
+    from . import auditoria   # aquí y no arriba: auditoria importa este módulo
+    auditoria.registrar(cur, usuario, modulo, accion, detalle)
+
+
 def iniciar_sesion(usuario: str, clave: str) -> Sesion:
     alias = _normalizar(usuario)
     with db._conexion() as conn:
@@ -181,20 +186,32 @@ def iniciar_sesion(usuario: str, clave: str) -> Sesion:
             f"CASE WHEN bloqueado_hasta > SYSTIMESTAMP THEN 1 ELSE 0 END, motivo, creado FROM {TABLA} WHERE usuario = :u", u=alias)
         fila = cur.fetchone()
         if fila is None:
+            _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "usuario inexistente")
+            conn.commit()
             raise ErrorDeAcceso("Usuario o contraseña incorrectos.")  # el mismo mensaje: no revela qué cuentas existen
         nombre, rol, guardado, estado, intentos, bloqueada, motivo, creado = fila
         if bloqueada:
+            _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "bloqueada por intentos")
+            conn.commit()
             raise ErrorDeAcceso(f"Demasiados intentos. Espera {BLOQUEO_S} segundos y vuelve a probar.")
         if not verificar_hash(clave, guardado):
             if intentos + 1 >= MAX_INTENTOS:
                 cur.execute(f"UPDATE {TABLA} SET intentos = 0, bloqueado_hasta = SYSTIMESTAMP + NUMTODSINTERVAL(:s, 'SECOND') "
                             "WHERE usuario = :u", s=BLOQUEO_S, u=alias)
+                _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "contraseña incorrecta; queda bloqueada")
                 conn.commit()
                 raise ErrorDeAcceso(f"Demasiados intentos. Espera {BLOQUEO_S} segundos y vuelve a probar.")
             cur.execute(f"UPDATE {TABLA} SET intentos = intentos + 1 WHERE usuario = :u", u=alias)
+            _auditar(cur, alias, "acceso", "Inicio de sesión fallido", "contraseña incorrecta")
             conn.commit()
             raise ErrorDeAcceso("Usuario o contraseña incorrectos.")
         cur.execute(f"UPDATE {TABLA} SET intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u", u=alias)
+        if estado != ACTIVO or rol is None:
+            _auditar(cur, alias, "acceso", "Inicio de sesión rechazado", f"cuenta {estado.lower()}")
+        elif rol == OPERADOR:
+            _auditar(cur, alias, "acceso", "Inicio de sesión rechazado", "operador: usa la app móvil")
+        else:
+            _auditar(cur, alias, "acceso", "Inicio de sesión")
         conn.commit()
     if estado != ACTIVO or rol is None:
         raise CuentaSinAcceso(alias, nombre, estado, motivo, creado)
@@ -292,6 +309,7 @@ def cambiar_rol(quien: Sesion, usuario: str, rol: str) -> None:
         if rol != ADMIN and _otros_admins_activos(cur, usuario) == 0:
             raise ErrorDeAcceso("Es el único administrador: nombra otro antes de cambiarle el rol.")
         _transicion(cur, usuario, ACTIVO, "rol = :r", r=rol)
+        _auditar(cur, quien.usuario, "usuarios", "Cambió rol", f"{usuario}: {NOMBRE_ROL[rol]}")
         conn.commit()
 
 
@@ -302,6 +320,7 @@ def aprobar(quien: Sesion, usuario: str, rol: str) -> None:
         _validar_rol_para(cur, usuario, rol)
         _transicion(cur, usuario, PENDIENTE, "estado = :e, rol = :r, motivo = NULL, resuelto_por = :q, resuelto = SYSTIMESTAMP",
                     e=ACTIVO, r=rol, q=quien.usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Aprobó cuenta", f"{usuario} como {NOMBRE_ROL[rol]}")
         conn.commit()
 
 
@@ -312,6 +331,7 @@ def rechazar(quien: Sesion, usuario: str, motivo: str) -> None:
         cur = conn.cursor()
         _transicion(cur, usuario, PENDIENTE, "estado = :e, motivo = :m, resuelto_por = :q, resuelto = SYSTIMESTAMP",
                     e=RECHAZADO, m=motivo, q=quien.usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Rechazó cuenta", f"{usuario} — «{motivo}»")
         conn.commit()
 
 
@@ -326,6 +346,7 @@ def suspender(quien: Sesion, usuario: str, motivo: str) -> None:
             raise ErrorDeAcceso("Es el único administrador: no se puede suspender.")
         _transicion(cur, usuario, ACTIVO, "estado = :e, motivo = :m, resuelto_por = :q, resuelto = SYSTIMESTAMP",
                     e=SUSPENDIDO, m=motivo, q=quien.usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Suspendió cuenta", f"{usuario} — «{motivo}»")
         conn.commit()
 
 
@@ -335,6 +356,7 @@ def reactivar(quien: Sesion, usuario: str) -> None:
         cur = conn.cursor()
         _transicion(cur, usuario, SUSPENDIDO, "estado = :e, motivo = NULL, resuelto_por = :q, resuelto = SYSTIMESTAMP",
                     e=ACTIVO, q=quien.usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Reactivó cuenta", usuario)
         conn.commit()
 
 
@@ -342,7 +364,9 @@ def desvincular_telefono(quien: Sesion, usuario: str) -> None:
     """Suelta la cuenta del celular de su teléfono (p. ej. lo cambió o reinstaló la app): el próximo que sincronice la toma."""
     _exigir(quien, "usuarios")
     with db._conexion() as conn:
-        conn.cursor().execute(f"UPDATE {TABLA} SET uuid_dispositivo = NULL WHERE usuario = :u AND origen = 'MOVIL'", u=usuario)
+        cur = conn.cursor()
+        cur.execute(f"UPDATE {TABLA} SET uuid_dispositivo = NULL WHERE usuario = :u AND origen = 'MOVIL'", u=usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Desvinculó teléfono", usuario)
         conn.commit()
 
 
@@ -360,9 +384,10 @@ def restablecer_clave(quien: Sesion, usuario: str, nueva: str) -> None:
     _exigir(quien, "usuarios")
     _validar_clave(nueva, nueva)
     with db._conexion() as conn:
-        conn.cursor().execute(
-            f"UPDATE {TABLA} SET clave_hash = :h, intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u",
-            h=crear_hash(nueva), u=usuario)
+        cur = conn.cursor()
+        cur.execute(f"UPDATE {TABLA} SET clave_hash = :h, intentos = 0, bloqueado_hasta = NULL WHERE usuario = :u",
+                    h=crear_hash(nueva), u=usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Restableció contraseña", usuario)
         conn.commit()
 
 
@@ -390,6 +415,7 @@ def resolver_clave(quien: Sesion, usuario: str, aprobar: bool) -> None:
                         "bloqueado_hasta = NULL WHERE usuario = :u AND clave_pendiente IS NOT NULL", u=usuario)
         else:
             cur.execute(f"UPDATE {TABLA} SET clave_pendiente = NULL WHERE usuario = :u", u=usuario)
+        _auditar(cur, quien.usuario, "usuarios", "Aprobó contraseña nueva" if aprobar else "Rechazó contraseña nueva", usuario)
         conn.commit()
 
 

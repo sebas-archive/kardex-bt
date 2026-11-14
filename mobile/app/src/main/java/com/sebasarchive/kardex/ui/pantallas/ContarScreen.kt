@@ -1,5 +1,12 @@
 package com.sebasarchive.kardex.ui.pantallas
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -93,6 +100,10 @@ data class ContarUi(
     val guardadas: Int = 0,
     val exito: Boolean = false,
     val error: String? = null,
+    /** Fase 4: cuántas de las contadas están dañadas ("" = no se indica). */
+    val danados: String = "",
+    /** Fase 4: ruta del JPG ya comprimido que se adjuntará al guardar (null = sin foto nueva). */
+    val foto: String? = null,
 )
 
 /** Contar: escanear o digitar el SKU, ver el producto, poner la cantidad y guardar. Sin red. */
@@ -106,6 +117,10 @@ fun ContarScreen(
     alEscanear: () -> Unit,
     alGuardar: () -> Unit,
     alVolver: () -> Unit,
+    alCambiarDanados: (String) -> Unit = {},
+    alCamara: () -> Unit = {},
+    alGaleria: () -> Unit = {},
+    alQuitarFoto: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize()) {
         Pantalla(
@@ -170,6 +185,14 @@ fun ContarScreen(
                 }
                 Cantidad(ui.cantidad, ui.producto?.unidad, alCambiarCantidad, alSumar)
                 OutlinedTextField(
+                    value = ui.danados, onValueChange = { if (it.length <= 13) alCambiarDanados(it.replace(',', '.')) },
+                    label = { Text("Dañados o defectuosos (opcional)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    supportingText = { Text("De las unidades contadas, cuántas están dañadas") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Evidencia(ui.foto, alCamara, alGaleria, alQuitarFoto)
+                OutlinedTextField(
                     value = ui.nota,
                     onValueChange = { if (it.codePointCount(0, it.length) <= CountViewModel.MAX_NOTA) alCambiarNota(it) },
                     label = { Text("Nota (opcional)") }, maxLines = 3,
@@ -202,6 +225,32 @@ fun ContarScreen(
                 }.clip(CircleShape).background(Marca.Confirmado))
                 Box(Modifier.size(136.dp).shadow(16.dp, CircleShape).clip(CircleShape).background(Marca.Confirmado), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Check, contentDescription = "Guardado", tint = Color.White, modifier = Modifier.size(76.dp))
+                }
+            }
+        }
+    }
+}
+
+/** Foto de evidencia: tomarla o elegirla, y su miniatura de confirmación. */
+@Composable
+private fun Evidencia(foto: String?, alCamara: () -> Unit, alGaleria: () -> Unit, alQuitar: () -> Unit) {
+    val miniatura = remember(foto) {
+        foto?.let { BitmapFactory.decodeFile(it, BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap() }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Foto de evidencia (opcional)", style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            FilledTonalButton(onClick = alCamara) { Text("📷  Cámara") }
+            OutlinedButton(onClick = alGaleria) { Text("Galería") }
+        }
+        if (miniatura != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Image(miniatura, contentDescription = "Foto adjunta", contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(84.dp).clip(RoundedCornerShape(12.dp)))
+                Column {
+                    Text("Se adjuntará al guardar", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = alQuitar) { Text("Quitar") }
                 }
             }
         }

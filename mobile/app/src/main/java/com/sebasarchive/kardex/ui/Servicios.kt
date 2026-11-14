@@ -8,6 +8,7 @@ import com.sebasarchive.kardex.auth.AuthRepository
 import com.sebasarchive.kardex.auth.CuentasDatabase
 import com.sebasarchive.kardex.data.AppDatabase
 import com.sebasarchive.kardex.data.CatalogRepository
+import com.sebasarchive.kardex.data.FotoRepository
 import com.sebasarchive.kardex.sync.PcConnector
 import com.sebasarchive.kardex.sync.SyncClient
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +31,8 @@ class Servicios private constructor(val contexto: Context) {
     val auth = AuthRepository(CuentasDatabase.abrir(contexto).usuarios(), settings)
 
     /** Compartido por todas las pantallas: el operador y el conteo son los mismos en todas. */
-    val contar = CountViewModel(db.outbox(), catalogo, settings)
+    val fotos = FotoRepository(db.fotos(), java.io.File(contexto.filesDir, "fotos"))
+    val contar = CountViewModel(db.outbox(), catalogo, settings, fotos)
 
     companion object {
         @Volatile private var instancia: Servicios? = null
@@ -57,7 +59,8 @@ class SyncViewModel(private val servicios: Servicios) : ViewModel() {
             // El PC responde el estado de la cuenta (ACCTST): se guarda para que la app sepa si puede trabajar.
             val cliente = SyncClient(servicios.db.outbox(), servicios.catalogo, uuid, Build.MODEL ?: "Android",
                 sesion.usuario, sesion.nombre,
-                alEstado = { servicios.auth.aplicarEstado(sesion.usuario, it.estado, it.rol, it.motivo) })
+                alEstado = { servicios.auth.aplicarEstado(sesion.usuario, it.estado, it.rol, it.motivo) },
+                fotos = servicios.fotos)
             val runner = SyncRunner(
                 conectar = { servicios.conector.conectar(direccion).also { socket = it } },
                 sincronizar = cliente::sync,

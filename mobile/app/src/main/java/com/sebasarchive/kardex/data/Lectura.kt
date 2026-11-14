@@ -1,5 +1,6 @@
 package com.sebasarchive.kardex.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Index
@@ -32,6 +33,8 @@ data class LecturaEntity(
     val operador: String,
     val nota: String,
     val estado: String = Estado.PENDIENTE,
+    /** Fase 4: cuántas de las unidades contadas están dañadas ("" si no se indicó). Viaja al final del REC. */
+    @ColumnInfo(defaultValue = "") val danados: String = "",
 )
 
 /** Bandeja de salida: todo se guarda aquí primero y de aquí sale hacia el PC. */
@@ -83,8 +86,9 @@ abstract class Outbox {
     )
     protected abstract fun pendienteDe(idConteo: String, sku: String): LecturaEntity?
 
-    @Query("UPDATE lecturas SET cantidad = :cantidad, tsOriginalMs = :tsOriginalMs WHERE seq = :seq AND estado = 'PENDIENTE'")
-    protected abstract fun actualizarPendiente(seq: Long, cantidad: String, tsOriginalMs: Long): Int
+    @Query("UPDATE lecturas SET cantidad = :cantidad, tsOriginalMs = :tsOriginalMs, nota = COALESCE(:nota, nota), " +
+        "danados = COALESCE(:danados, danados) WHERE seq = :seq AND estado = 'PENDIENTE'")
+    protected abstract fun actualizarPendiente(seq: Long, cantidad: String, tsOriginalMs: Long, nota: String?, danados: String?): Int
 
     /**
      * Lee la lectura [seq] y la marca ENVIADO en la misma transacción: lo que devuelve es
@@ -103,9 +107,10 @@ abstract class Outbox {
      * devuelve false: quien llama inserta una lectura nueva y el servidor se queda con la más reciente (D13).
      */
     @Transaction
-    open fun reemplazar(idConteo: String, sku: String, cantidad: String, tsOriginalMs: Long): Boolean {
+    open fun reemplazar(idConteo: String, sku: String, cantidad: String, tsOriginalMs: Long,
+                        nota: String? = null, danados: String? = null): Boolean {
         val pendiente = pendienteDe(idConteo, sku) ?: return false
-        return actualizarPendiente(pendiente.seq, cantidad, tsOriginalMs) == 1
+        return actualizarPendiente(pendiente.seq, cantidad, tsOriginalMs, nota, danados) == 1  // null: se conserva
     }
 
     /**
