@@ -72,11 +72,12 @@ class DetalleLecturas(QDialog):
 
     def __init__(self, sku: str, nombre: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._sku, self._nombre = sku, nombre
         self.setWindowTitle(t("Lecturas de {sku} — {nombre}", sku=sku, nombre=nombre))
         self.resize(760, 340)
         self._runner = QueryRunner(self)
         self.banner = StateBanner()
-        self.banner.retry.connect(lambda: self._cargar(sku))
+        self.banner.retry.connect(lambda: self._cargar(self._sku))
         self.tabla = QTableWidget(0, 6)
         self.tabla.setHorizontalHeaderLabels([t("Cantidad"), t("Operador"), t("Fecha (UTC)"), t("Vigente"),
                                               t("Nota"), t("Foto")])
@@ -117,7 +118,8 @@ class DetalleLecturas(QDialog):
                 boton = QPushButton(t("Ver foto"))
                 boton.setObjectName("enlace")
                 boton.clicked.connect(
-                    lambda _c=False, ruta=lectura.ruta_foto: ver_foto(self, ruta, f"{sku} · {nombre}"))
+                    lambda _c=False, ruta=lectura.ruta_foto: ver_foto(
+                        self, ruta, f"{self._sku} · {self._nombre}"))
                 self.tabla.setCellWidget(fila, 5, boton)
             else:
                 self.tabla.setItem(fila, 5, QTableWidgetItem(""))
