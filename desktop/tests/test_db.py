@@ -143,32 +143,32 @@ def test_fetch_estado_batch_counts_pendientes_and_errores(contado):
 # respondió a veces ORA-12516 (el listener no encuentra manejador libre).
 def test_connection_is_reused_in_the_same_thread(contado):
     dbq.fetch_conteos()
-    primera = dbq._local.conn
+    primera = dbq.conexion_del_hilo()
     dbq.fetch_resumen(C)
     dbq.fetch_dif_por_categoria(C)
-    assert dbq._local.conn is primera
+    assert dbq.conexion_del_hilo() is primera
     dbq.liberar_conexion()
-    assert getattr(dbq._local, "conn", None) is None
+    assert dbq.conexion_del_hilo() is None
 
 
 def test_a_dead_connection_is_replaced_transparently(contado):
     dbq.fetch_conteos()
-    muerta = dbq._local.conn
+    muerta = dbq.conexion_del_hilo()
     muerta.close()                                    # p. ej. Oracle la cortó por inactividad
     assert dbq.fetch_resumen(C) is not None           # el ping falla y se reconecta sola
-    assert dbq._local.conn is not muerta
+    assert dbq.conexion_del_hilo() is not muerta
 
 
 def test_a_failure_discards_the_connection_and_changing_the_dsn_never_reuses_it(contado, monkeypatch):
     dbq.fetch_conteos()
-    vieja = dbq._local.conn
+    vieja = dbq.conexion_del_hilo()
     monkeypatch.setenv("DB_DSN", "127.0.0.1:1/XE")    # otro destino: nunca se reutiliza la conexión vieja
     with pytest.raises(oracledb.DatabaseError):
         dbq.fetch_conteos()
-    assert getattr(dbq._local, "conn", None) is None
+    assert dbq.conexion_del_hilo() is None
     monkeypatch.undo()
     assert dbq.fetch_resumen(C) is not None
-    assert dbq._local.conn is not vieja
+    assert dbq.conexion_del_hilo() is not vieja
 
 
 def test_many_threads_share_one_connection_each(contado, monkeypatch):

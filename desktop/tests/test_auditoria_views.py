@@ -5,9 +5,8 @@ from datetime import date, timedelta
 from app import db as dbq
 from app.auth import ADMIN, INVENTARIO, Sesion
 from app.main import build_window
-from app.sync_bridge import SyncBridge
 from app.views.auditoria import AuditoriaView
-from fakes import FakeStore, FakeTransport
+from fakes import FakeRemoto
 
 import pytest
 
@@ -66,7 +65,7 @@ def test_inventario_solo_ve_la_operacion(qtbot, cuentas, maestros_db):
 
 
 def test_seccion_auditoria_segun_permisos(qtbot):
-    ventana = build_window(SyncBridge(FakeTransport(), FakeStore()), auto_refresh_ms=0)
+    ventana = build_window(FakeRemoto(), auto_refresh_ms=0)
     qtbot.addWidget(ventana)
     ventana.iniciar(Sesion("ana", "Ana", ADMIN))
     assert "Auditoría" in ventana.secciones()

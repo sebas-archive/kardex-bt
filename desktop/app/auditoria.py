@@ -18,6 +18,7 @@ OPERACION = ("tareas", "diferencias", "movimientos", "ajustes", "categorias")
 NOMBRE_MODULO = {
     "acceso": "Acceso", "usuarios": "Usuarios", "permisos": "Permisos", "categorias": "Categorías y almacenes",
     "tareas": "Tareas", "diferencias": "Diferencias", "movimientos": "Movimientos", "ajustes": "Ajustes",
+    "configuracion": "Configuración", "respaldos": "Respaldos", "bluetooth": "Bluetooth",
 }
 
 

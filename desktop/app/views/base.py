@@ -170,6 +170,9 @@ class _Entrega(QObject):
         self.runner._terminar(self, self.on_error, mensaje)
 
 
+MAX_HILOS = 8
+
+
 class QueryRunner(QObject):
     """Ejecuta funciones (consultas a Oracle) en el pool de hilos y entrega el resultado en la UI.
 
@@ -180,6 +183,11 @@ class QueryRunner(QObject):
     def __init__(self, parent: QObject | None = None, pool: QThreadPool | None = None) -> None:
         super().__init__(parent)
         self._pool = pool or QThreadPool.globalInstance()
+        if pool is None:
+            # Cada hilo guarda su conexión a Oracle (db._obtener): hilos fijos y pocos, para que no se abran y cierren
+            # conexiones sin parar (la XE 11g responde ORA-12516 si se abren muy seguido).
+            self._pool.setExpiryTimeout(-1)
+            self._pool.setMaxThreadCount(min(self._pool.maxThreadCount(), MAX_HILOS))
         self._activos: dict[int, tuple[QueryWorker, _Entrega]] = {}
         self._ultimo: dict[str, int] = {}
         self._token = 0

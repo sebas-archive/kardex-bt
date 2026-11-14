@@ -184,3 +184,141 @@ def auditoria_db(monkeypatch, _tabla_auditoria_tst):
         conn.cursor().execute("DELETE FROM auditoria_tst")
         conn.commit()
     return auditoria
+
+
+@pytest.fixture(scope="session")
+def _tabla_config_tst():
+    from app import db
+    from btsync import config
+
+    original = config.TABLA
+    config.TABLA = "configuracion_tst"
+    try:
+        with db._conexion() as conn:
+            config.migrar(conn)
+    finally:
+        config.TABLA = original
+
+
+@pytest.fixture(autouse=True)
+def config_tst(monkeypatch, _tabla_config_tst):
+    """Toda prueba lee y escribe la configuración en ``configuracion_tst``, vacía (valen los iniciales)."""
+    from app import db
+    from btsync import config
+
+    monkeypatch.setattr(config, "TABLA", "configuracion_tst")
+    with db._conexion() as conn:
+        conn.cursor().execute("DELETE FROM configuracion_tst")
+        conn.commit()
+
+
+def _jobs_tst(*jobs: tuple[str, str]) -> None:
+    """(Re)crea jobs ``_TST`` deshabilitados. Su acción es inofensiva: aunque alguien los habilite, no tocan datos."""
+    from app import db
+
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        for job, intervalo in jobs:
+            _borrar_job(cur, job)
+            cur.execute("BEGIN DBMS_SCHEDULER.CREATE_JOB(job_name => :j, job_type => 'PLSQL_BLOCK', "
+                        "job_action => 'BEGIN NULL; END;', repeat_interval => :i, enabled => FALSE); END;",
+                        j=job, i=intervalo)
+        conn.commit()
+
+
+def _borrar_job(cur, job: str) -> None:
+    cur.execute("SELECT COUNT(*) FROM user_scheduler_jobs WHERE job_name = :j", j=job)
+    if cur.fetchone()[0]:
+        cur.execute("BEGIN DBMS_SCHEDULER.DROP_JOB(:j, force => TRUE); END;", j=job)
+
+
+@pytest.fixture
+def config_db(monkeypatch, config_tst):
+    """La configuración de prueba y dos jobs ``_TST`` deshabilitados en lugar de los reales (las pruebas nunca
+    cambian el lote de verdad). Se borran al terminar."""
+    from app import configuracion, db
+
+    monkeypatch.setattr(configuracion, "JOB_LOTE", "JOB_PROCESAR_TST")
+    monkeypatch.setattr(configuracion, "JOB_PURGA", "JOB_PURGA_TST")
+    _jobs_tst(("JOB_PROCESAR_TST", "FREQ=SECONDLY;INTERVAL=60"), ("JOB_PURGA_TST", "FREQ=DAILY"))
+    yield configuracion
+    with db._conexion() as conn:
+        conn.rollback()
+        for job in ("JOB_PROCESAR_TST", "JOB_PURGA_TST"):
+            _borrar_job(conn.cursor(), job)
+
+
+@pytest.fixture
+def servicio_db(monkeypatch):
+    """El estado del servicio Bluetooth en ``servicio_bt_tst`` (vacía al empezar)."""
+    from app import db
+    from btsync import servicio as bt
+
+    monkeypatch.setattr(bt, "TABLA", "servicio_bt_tst")
+    with db._conexion() as conn:
+        bt.migrar(conn)
+        conn.cursor().execute("DELETE FROM servicio_bt_tst")
+        conn.commit()
+
+    def poner(hace_s=0, **valores):
+        """Escribe la fila como lo haría el servicio, con un latido de hace ``hace_s`` segundos."""
+        fila = {"estado": "ESPERANDO_EMPAREJAMIENTO", "pausado": "N", **valores}
+        with db._conexion() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM servicio_bt_tst")
+            columnas = ", ".join(fila)
+            marcas = ", ".join(f":{k}" for k in fila)
+            cur.execute(f"INSERT INTO servicio_bt_tst (id, {columnas}, latido) "
+                        f"VALUES (1, {marcas}, SYSTIMESTAMP - NUMTODSINTERVAL(:hace, 'SECOND'))", {**fila, "hace": hace_s})
+            conn.commit()
+
+    def leer(columna):
+        with db._conexion() as conn:
+            cur = conn.cursor()
+            cur.execute(f"SELECT {columna} FROM servicio_bt_tst WHERE id = 1")
+            return cur.fetchone()[0]
+
+    return poner, leer
+
+
+@pytest.fixture(scope="session")
+def _tablas_respaldo_tst():
+    """Dos tablas ``RESP_*_TST`` (padre e hija), creadas una vez: los respaldos de prueba solo ven estas."""
+    from app import db
+
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        for t in ("RESP_HIJA_TST", "RESP_PADRE_TST"):
+            cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = :t", t=t)
+            if cur.fetchone()[0]:
+                cur.execute(f"DROP TABLE {t}")
+        cur.execute("CREATE TABLE resp_padre_tst (id NUMBER PRIMARY KEY, nombre VARCHAR2(80 CHAR))")
+        cur.execute("CREATE TABLE resp_hija_tst (id NUMBER PRIMARY KEY, padre_id NUMBER REFERENCES resp_padre_tst (id))")
+        conn.commit()
+
+
+@pytest.fixture
+def respaldos_db(monkeypatch, tmp_path, _tablas_respaldo_tst, servicio_db, config_tst):
+    """Respaldos en ``tmp_path`` sobre las tablas de prueba, con jobs ``_TST`` inofensivos y el servicio de prueba."""
+    from app import db, respaldos
+    from btsync import respaldo
+
+    monkeypatch.setenv("RESPALDOS_DIR", str(tmp_path / "respaldos"))
+    monkeypatch.setenv("FOTOS_DIR", str(tmp_path / "fotos"))
+    monkeypatch.setattr(respaldo, "tablas_de_la_app", lambda cur: ["RESP_PADRE_TST", "RESP_HIJA_TST"])
+    monkeypatch.setattr(respaldos, "JOBS", ("JOB_RESP_A_TST", "JOB_RESP_B_TST"))
+    _jobs_tst(("JOB_RESP_A_TST", "FREQ=DAILY"), ("JOB_RESP_B_TST", "FREQ=DAILY"))
+    with db._conexion() as conn:   # habilitados (su acción no hace nada): restaurar debe dejarlos así
+        for job in ("JOB_RESP_A_TST", "JOB_RESP_B_TST"):
+            conn.cursor().callproc("DBMS_SCHEDULER.ENABLE", [job])
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM resp_hija_tst")
+        cur.execute("DELETE FROM resp_padre_tst")
+        cur.execute("INSERT INTO resp_padre_tst VALUES (1, 'original')")
+        conn.commit()
+    yield respaldos
+    with db._conexion() as conn:
+        conn.rollback()
+        for job in ("JOB_RESP_A_TST", "JOB_RESP_B_TST"):
+            _borrar_job(conn.cursor(), job)

@@ -19,6 +19,8 @@ from datetime import date, datetime
 
 import oracledb
 
+from btsync import config
+
 from . import auditoria, auth, db, maestros, permisos
 from .auth import ErrorDeAcceso, Sesion
 
@@ -28,8 +30,7 @@ APLICADO, PENDIENTE, RECHAZADO = "APLICADO", "PENDIENTE", "RECHAZADO"
 NOMBRE_TIPO = {ENTRADA: "Entrada", SALIDA: "Salida", AJUSTE: "Ajuste"}
 NOMBRE_ESTADO = {APLICADO: "Aplicado", PENDIENTE: "Pendiente de aprobación", RECHAZADO: "Rechazado"}
 MOTIVOS_SALIDA = ("Venta", "Consumo interno", "Daño", "Vencimiento", "Otro")
-UMBRAL_PCT = 10            # % de la existencia anterior
-UMBRAL_VALOR = 200_000     # pesos (|Δ| × costo unitario)
+UMBRALES = (10.0, 200_000.0)   # iniciales: % de la existencia anterior y pesos (|Δ| × costo); valen los de Configuración
 _MAXIMO = 999_999_999.999
 
 
@@ -61,13 +62,23 @@ def fmt(valor: float) -> str:
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def es_critico(antes: float, despues: float, costo_unit: float) -> bool:
+def es_critico(antes: float, despues: float, costo_unit: float, umbrales: tuple[float, float] = UMBRALES) -> bool:
     delta = abs(despues - antes)
     if delta == 0:
         return False
     if antes == 0:
         return True
-    return round(delta / antes * 100, 6) >= UMBRAL_PCT or round(delta * costo_unit, 2) >= UMBRAL_VALOR
+    pct, valor = umbrales
+    return round(delta / antes * 100, 6) >= pct or round(delta * costo_unit, 2) >= valor
+
+
+def umbrales(cur=None) -> tuple[float, float]:
+    """Los umbrales de ajuste crítico de la configuración (Fase 5)."""
+    if cur is None:
+        with db._conexion() as conn:
+            return umbrales(conn.cursor())
+    v = config.leer(cur)
+    return float(v["ajustes.umbral_pct"]), float(v["ajustes.umbral_valor"])
 
 
 # ------------------------------------------------------------------ consultas
@@ -97,9 +108,9 @@ def existencia(sku: str, almacen: str) -> float:
         return float(fila[0]) if fila else 0.0
 
 
-def existencia_y_costo(sku: str, almacen: str) -> tuple[float, float]:
-    """Lo que el diálogo de ajuste muestra: la existencia de hoy y el costo (para avisar si será crítico)."""
-    return existencia(sku, almacen), costo_unitario(sku)
+def existencia_y_costo(sku: str, almacen: str) -> tuple[float, float, tuple[float, float]]:
+    """Lo que el diálogo de ajuste muestra: la existencia de hoy, el costo y los umbrales (para avisar si será crítico)."""
+    return existencia(sku, almacen), costo_unitario(sku), umbrales()
 
 
 def costo_unitario(sku: str) -> float:
@@ -284,7 +295,7 @@ def solicitar_ajuste(quien: Sesion, sku: str, almacen: str, nueva: float, motivo
                     raise ErrorDeAcceso("Esa diferencia ya tiene un ajuste. Actualiza la lista.")
             if nueva == antes:
                 raise ErrorDeAcceso("La cantidad nueva es igual a la actual: el ajuste no cambia nada.")
-            estado = PENDIENTE if es_critico(antes, nueva, costo) else APLICADO
+            estado = PENDIENTE if es_critico(antes, nueva, costo, umbrales(cur)) else APLICADO
             if estado == APLICADO:   # un pendiente no crea la fila: el producto no aparece «Agotado» donde nunca estuvo
                 if bloqueada is None:
                     _bloquear_o_crear(cur, sku, almacen)

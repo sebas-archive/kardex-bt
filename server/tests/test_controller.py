@@ -33,6 +33,11 @@ STATUS_KEYS = {"estado", "codigo", "recibidos", "restante_s", "ultimo_error"}
 class FakeStore:
     """Store en memoria: lo justo para que una Session real funcione, y espía de run_batch."""
 
+    def config(self):
+        from btsync.config import DEFAULTS
+
+        return dict(DEFAULTS)
+
     def __init__(self, batch_error=None):
         self.rows, self.batch_calls, self.batch_error = [], [], batch_error
 

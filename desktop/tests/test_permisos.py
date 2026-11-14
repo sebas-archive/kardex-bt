@@ -97,7 +97,7 @@ def test_exigir_con_cuenta_inexistente_niega(permisos_db, cuentas):
 def test_modulos_en_uso(permisos_db):
     assert {"usuarios", "solicitudes", "permisos", "roles", "dashboard", "existencias", "bluetooth", "reportes",
             "perfil", "categorias", "conteos", "tareas", "diferencias",
-            "entradas_salidas", "movimientos", "ajustes", "historial"} == set(permisos_db.EN_USO)
+            "entradas_salidas", "movimientos", "ajustes", "historial", "configuracion", "respaldos"} == set(permisos_db.EN_USO)
 
 
 def test_permisos_migrar_aguanta_otro_escritorio(permisos_db, monkeypatch):

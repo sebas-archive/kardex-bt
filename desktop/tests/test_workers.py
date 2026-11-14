@@ -44,3 +44,24 @@ def test_worker_runs_the_function_off_the_ui_thread(qtbot, qapp):
     assert blocker.args == [42]
     assert seen["thread"] is not threading.main_thread()
     assert seen["qt_thread"] != qapp.thread()
+
+
+def test_las_consultas_reutilizan_la_conexion_de_su_hilo(qtbot, monkeypatch):
+    """PyQt crea y destruye el estado de Python de un hilo del pool en cada tarea, así que ``threading.local``
+    se pierde entre consultas: cada una abría otra conexión (cientos por minuto) y la XE terminaba respondiendo
+    ORA-12516. La conexión debe sobrevivir entre tareas del mismo hilo."""
+    from PyQt6.QtCore import QThreadPool
+
+    from app import db
+    from app.views.base import QueryRunner
+
+    abiertas = []
+    original = db.connect_oracle
+    monkeypatch.setattr(db, "connect_oracle", lambda *a: (abiertas.append(1), original(*a))[1])
+    runner = QueryRunner()
+    hechas = []
+    for _ in range(10):
+        runner.run(lambda: db.fetch_conteos(), lambda r: hechas.append(r))
+        qtbot.waitUntil(lambda n=len(hechas): len(hechas) == n + 1, timeout=10000)
+    assert len(abiertas) <= 2                  # consultas una tras otra: uno o dos hilos del pool, no diez conexiones
+    assert QThreadPool.globalInstance().maxThreadCount() <= 8

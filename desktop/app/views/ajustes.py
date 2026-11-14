@@ -37,10 +37,10 @@ def resultado(estado: str) -> str:
 def pedir_ajuste(padre: QWidget, almacenes: list[tuple[str, str]], productos: list[tuple[str, str, str]],
                  inicial: tuple | None = None, error: str = "", actual: float | None = None,
                  critico: Callable[[float], bool] | None = None,
-                 consultar: Callable[[str, str], tuple[float, float]] | None = None) -> tuple[str, str, float, str] | None:
+                 consultar: Callable[[str, str], tuple] | None = None) -> tuple[str, str, float, str] | None:
     """(sku, almacén, cantidad nueva, motivo). Con ``inicial`` (desde una diferencia) el producto y el almacén quedan
     fijos y se muestra la existencia ``actual``; ``critico(nueva)`` avisa si necesitará aprobación. En un ajuste a mano,
-    ``consultar(sku, almacén) -> (existencia, costo)`` se llama fuera del hilo de la interfaz al cambiar la elección."""
+    ``consultar(sku, almacén) -> (existencia, costo, umbrales)`` se llama fuera del hilo de la interfaz al cambiar la elección."""
     dialogo = QDialog(padre)
     dialogo.setWindowTitle("Ajustar existencia")
     dialogo.resize(520, 0)
@@ -87,9 +87,9 @@ def pedir_ajuste(padre: QWidget, almacenes: list[tuple[str, str]], productos: li
         runner = QueryRunner(dialogo)
 
         def recibir(valores):
-            hoy, costo = valores
+            hoy, costo, umbrales = valores
             estado["actual"] = hoy
-            estado["critico"] = lambda n: movimientos.es_critico(hoy, n, costo)
+            estado["critico"] = lambda n: movimientos.es_critico(hoy, n, costo, umbrales)
             avisar_critico()
 
         def recargar():

@@ -14,10 +14,13 @@ contenedor en [`spikes/bluez.md`](spikes/bluez.md).
 
 ```
  ┌────────────┐  Bluetooth   ┌──────────────────────────────────────────────┐   SQL*Net   ┌─────────────────────┐
- │ APK Android│ ───RFCOMM──▶ │ App de escritorio (un proceso, en Docker)    │ ──────────▶ │ Oracle XE 11g       │
- │  Outbox    │  líneas+CRC  │  btsync: Transport → Session → Store         │             │  CAPTURA_TRANSITO   │
+ │ APK Android│ ───RFCOMM──▶ │ Servicio Bluetooth (btsync.servicio, Docker) │ ──────────▶ │ Oracle XE 11g       │
+ │  Outbox    │  líneas+CRC  │  Transport → Session → Store                 │             │  CAPTURA_TRANSITO   │
  │  (Room)    │ ◀──ACK/NAK── │  SyncController (dispara el batch, D9)       │             │  PKG_BATCH (batch)  │
- └────────────┘              │  Vistas PyQt6 + pyqtgraph (lee V_* de Oracle)│ ◀────────── │  CONCILIACION, V_*  │
+ └────────────┘              └──────────────────────────────────────────────┘             │  CONCILIACION, V_*  │
+                             ┌──────────────────────────────────────────────┐   SQL*Net   │  SERVICIO_BT,       │
+                             │ App de escritorio (PyQt6 + pyqtgraph)        │ ◀─────────▶ │  CONFIGURACION      │
+                             │  lee V_*, ve y pausa el servicio (D31)       │             │                     │
                              └──────────────────────────────────────────────┘             └─────────────────────┘
 ```
 
@@ -26,11 +29,12 @@ contenedor en [`spikes/bluez.md`](spikes/bluez.md).
 | 1. Captura móvil | `mobile/` | Cuenta sin red. Guarda **siempre primero** en la `Outbox` (Room/SQLite); nada depende de la conexión. |
 | 2. Recepción Bluetooth | `server/btsync` (`transports`, `session`) | Acepta una conexión RFCOMM, valida cada línea (CRC, formato, secuencia), hace COMMIT cada 25 y responde `ACK`/`NAK`. |
 | 3. Staging y batch | Oracle (`CAPTURA_TRANSITO`, `PKG_BATCH`, `DBMS_SCHEDULER`) | Valida y mueve lo recibido a `REGISTROS_PROCESADOS`, decide la lectura vigente y calcula `CONCILIACION`. |
-| 4. Presentación | `desktop/app` | Lee las vistas `V_*`, muestra tarjetas, tablas y cinco gráficas, y es el botón que abre la sincronización. |
+| 4. Presentación | `desktop/app` | Lee las vistas `V_*`, muestra tarjetas, tablas y gráficas, y ve (y pausa) el servicio Bluetooth. |
 
-Las capas 2 y 4 son **un solo proceso** (D11): el botón «Iniciar sincronización» activa el servidor Bluetooth interno
-(`SyncController`), la ventana muestra el estado y, cuando la sesión termina, el **controlador** (no la sesión)
-ejecuta el batch y la ventana refresca. No hay API HTTP.
+Desde la Fase 5 (D31) las capas 2 y 4 son **dos procesos**: el servicio `bluetooth` (`python -m btsync.servicio`)
+mantiene siempre abierta la recepción y, cuando una sesión termina, el **controlador** (no la sesión) ejecuta el batch.
+El escritorio lee el estado del servicio en `SERVICIO_BT` cada 2 s y refresca cuando llega una sincronización. Se
+comunican solo por Oracle; no hay API HTTP.
 
 ### Cómo viaja un dato
 
@@ -46,8 +50,8 @@ ejecuta el batch y la ventana refresca. No hay API HTTP.
 ## 2. Patrones
 
 **Escritorio: MVC con trabajadores.** *Modelo*: dataclasses de `models.py` más Oracle (las consultas salen de las
-vistas `V_*`, funciones `fetch_*` de `db.py`). *Vista*: las pantallas de `views/` (Dashboard, Inventario, Sincronización, Gráficas, Perfil y, para el administrador, Usuarios), más el acceso. *Controlador*: `SyncBridge`
-(traduce los cambios de estado del `SyncController`, que vive en hilos propios, a señales Qt) y `QueryRunner`
+vistas `V_*`, funciones `fetch_*` de `db.py`). *Vista*: las pantallas de `views/` (Dashboard, Inventario, Sincronización, Gráficas, Perfil y, para el administrador, Usuarios), más el acceso. *Controlador*: `ServicioRemoto`
+(lee el estado del servicio Bluetooth, que corre en otro proceso, y lo convierte en señales Qt) y `QueryRunner`
 (corre cada consulta en un `QueryWorker` y entrega el resultado al hilo de la interfaz). **Ninguna consulta corre en el
 hilo de la UI**; cada hilo de trabajo usa su propia conexión Oracle y toda conexión pasa por `connect_oracle`, que las
 serializa (abrir conexiones en paralelo con el cliente «thick» de Oracle abortaba el proceso).
@@ -91,6 +95,7 @@ está en clases sin dependencia de pantallas, así que se prueba en la JVM.
 | D22 | **Sin emparejamiento ni claves**: socket RFCOMM inseguro, agente silencioso, el teléfono recuerda al PC y conecta directo. | Quita pasos al operario. Costo de seguridad abajo. |
 | D23 | **Acceso con cuentas locales** en la APK: crear cuenta, iniciar sesión, recuperar la contraseña con una pregunta de seguridad, cambiarla y cerrar sesión. Rol por defecto **Clasificador**; el **Supervisor** además puede cambiar el PC con el que sincroniza el teléfono. Contraseñas con PBKDF2 y sal; 5 fallos bloquean 30 s. | A pedido del usuario. La app trabaja sin red: no hay servidor que valide ni correo para recuperar. Las cuentas van en su propia base (`cuentas.db`) para no migrar la de las lecturas. |
 | D24 | **Sin ubicaciones** (a pedido del usuario): se quitaron del `REC` (protocolo versión 2), del catálogo, de Oracle (tabla, columna y vistas) y de las dos aplicaciones. Una lectura vigente por `(conteo, SKU)`. | Se cuenta una vez por producto; recontar reemplaza. La APK conserva las lecturas guardadas al actualizarse (migración de Room 1 → 2). |
+| D31 | **Fase 5: configuración, respaldos y servicio Bluetooth independiente** (a pedido del usuario; reemplaza el «un solo proceso» de D11). **Servicio**: `python -m btsync.servicio` (servicio `bluetooth` de Docker Compose, `restart: unless-stopped`) reutiliza `SyncController`; cada segundo reabre la ventana de visibilidad si quedó en reposo (tras un `ERROR`, a los 10 s), escribe estado y latido en `SERVICIO_BT` y lee lo que deja el escritorio: `pausado` (una sincronización en curso termina antes: `PAUSANDO` → `PAUSADO`) y `respuesta` al código. El escritorio ve `DETENIDO` si el latido tiene más de 10 s; el contador `listos` le avisa de cada sincronización terminada. **Configuración** (`CONFIGURACION`, clave → valor; sin fila vale el inicial): umbrales de ajuste crítico, intervalo del lote y días de purga (aplicados a los jobs con `DBMS_SCHEDULER.SET_ATTRIBUTE`), tamaño máximo de foto y respaldo automático; cada cambio se audita. **Respaldo**: un zip con `manifest.json`, una tabla por `.jsonl` (NUMBER exacto, TIMESTAMP en ISO) y las fotos, leído en una transacción `READ ONLY`; se escribe a `.parcial` y luego se renombra. **Restaurar todo**: pausa el servicio, guarda un respaldo «previo», deshabilita los jobs, borra e inserta todas las tablas en una transacción (orden por las FK), adelanta las secuencias, cambia la carpeta de fotos tras el COMMIT y cierra la sesión del escritorio. El automático lo hace el servicio una vez al día. | La especificación pide configuración general y respaldos para el Administrador, y que la recepción no dependa de tener abierta la ventana. Comunicar los dos procesos por Oracle evita otra API y deja el estado a la vista de cualquier escritorio. Un zip propio (y no `expdp`) se restaura desde la pantalla, funciona igual en Docker y lleva también las fotos. |
 | D30 | **Fase 4: fotos de evidencia, dañados y auditoría** (a pedido del usuario). **Protocolo 5**: el `REC` lleva al final los dañados (≤ cantidad; el job los guarda en `registros_procesados.danados` o marca `DANADOS_INVALIDO`), y las fotos viajan como `FOTO|seq|parte|total|crc32|base64` después de las lecturas y antes del `END`, una a la vez, con `FOTOOK`/`FOTOERR`. El móvil comprime a JPG de 1280 px (calidad 70) y las encola en Room (`fotos`: PENDIENTE, ENVIADA, RECHAZADA). El PC confirma las lecturas pendientes al empezar cada foto, la arma en memoria, comprueba el CRC, la escribe en `FOTOS_DIR/<uuid>/<seq>.jpg` y guarda la ruta relativa en `FOTOS`; la purga del staging conserva las filas con foto (enlazan la evidencia con su registro). `btsync/esquema.py` lleva bases anteriores al día (columna, tabla y recompilación de `pkg_batch`). En el PC, Diferencias y el avance de la tarea muestran dañados y 📷 (clic: visor). **Auditoría**: tabla `AUDITORIA` escrita en la misma transacción que cada cambio (cuentas, permisos, categorías y almacenes, tareas, diferencias, movimientos, ajustes) y en cada inicio de sesión; pantalla «Auditoría» (módulo `historial`): el Administrador ve todo, Inventario la operación. | La especificación pide evidencia fotográfica sin bloquear el texto (cola aparte, < 50 ms por registro) y una auditoría con fechas y responsables. Auditar en la misma transacción garantiza que no haya cambios sin rastro ni rastros de cambios que fallaron. |
 | D29 | **Fase 3b: movimientos y ajustes** (a pedido del usuario). Una sola tabla `MOVIMIENTOS` (secuencia `SEQ_MOVIMIENTOS`) guarda entradas, salidas y ajustes con su delta, la existencia antes y después, fecha, motivo, observaciones, responsable y estado (`APLICADO`, `PENDIENTE`, `RECHAZADO`). Entradas y salidas cambian `EXISTENCIAS` en la misma transacción, con la fila bloqueada (`SELECT … FOR UPDATE`); una salida nunca deja la existencia por debajo de 0. Un ajuste es **crítico** si cambia 10 % o más de la existencia (desde 0, cualquier cambio) o si `|Δ| × costo` llega a $200.000; queda `PENDIENTE` sin tocar nada hasta que el Administrador lo aprueba (se aplica el **delta** sobre la existencia de ese momento) o lo rechaza con motivo. Inventario solicita; el Administrador nunca solicita, solo aprueba (rol comprobado en vivo). Desde «Diferencias», «Ajustar existencia…» propone la existencia actual más la diferencia del conteo, y la diferencia queda «Ajustada» o «Ajuste pendiente». Pantallas: **Movimientos** (entradas, salidas e historial juntos) y **Ajustes**. | La especificación pide que los críticos los apruebe el Administrador y que este no edite la operación diaria. Aplicar el delta evita pisar lo que se movió entre la solicitud y la aprobación. Los umbrales son fijos hasta la Fase 5 (Configuración). |
 | D28 | **Fase 3: tareas de conteo asignables y diferencias** (a pedido del usuario). Una tarea **es un conteo** con columnas nuevas (`almacen`, `operador`, `instrucciones`, `iniciada`, `creada_por`, `creada`); sus productos son sus filas de `STOCK_SISTEMA`, con la cantidad de `EXISTENCIAS` del almacén al crearla (0 si no hay fila). Ids `T-001` (secuencia `SEQ_TAREAS`). El **estado se calcula al consultar** (`server/btsync/tareas.py`) y gana la primera regla: `CERRADA` (conteo cerrado), `CON_ERROR` (registros en `ERROR` en el staging), todos los productos contados → `CON_DIFERENCIAS` o `SINCRONIZADA`, alguna lectura → `ENVIADA_PARCIALMENTE`, el móvil avisó → `EN_PROGRESO`, si no `ASIGNADA`. **Diferencias**: las filas FALTANTE/SOBRANTE de la conciliación; Inventario las marca revisadas o pide recuento (`REVISIONES`, una fila por producto y conteo); la acción vale hasta que llega una lectura nueva. **Protocolo 4**: `CATTAREA` + `CATITEM` (las tareas del operador, sin cantidades: conteo ciego D12) e `INICIO` (el operador empezó una tarea). En el móvil, «Mis tareas» reemplaza a «Elegir conteo». Crear, reasignar (solo `ASIGNADA`) y cerrar exigen `GESTION` en `tareas`; revisar, `GESTION` en `diferencias`. | Calcular el estado no toca el paquete PL/SQL ni puede quedar desfasado del job. Reusar los conteos mantiene igual el job, la conciliación y la pantalla Inventario. Los conteos sin operador (los de antes) siguen llegando a todos los teléfonos como «conteo general». Los ajustes de existencias, entradas, salidas y movimientos van en la fase siguiente. |
@@ -124,8 +129,8 @@ está en clases sin dependencia de pantallas, así que se prueba en la JVM.
 transporte y el repositorio Oracle.
 ![01 · Clases del servidor](img/uml/01-clases-servidor.svg)
 
-**02 · Clases de la app de escritorio.** Seis vistas que consultan por `QueryRunner` y una puerta (`SyncBridge`) hacia el
-controlador.
+**02 · Clases de la app de escritorio.** Las vistas consultan por `QueryRunner`; `ServicioRemoto` es la puerta hacia el
+servicio Bluetooth (otro proceso), por Oracle.
 ![02 · Clases de escritorio](img/uml/02-clases-escritorio.svg)
 
 **03 · Clases de la APK.** MVVM: pantallas, `CountViewModel`, `SyncRunner`, `SyncClient`, `Protocol` y la `Outbox`.
@@ -184,7 +189,7 @@ refresco.
 **15 · Secuencia: errores y cierre.** Fila en `ERROR`, alta del producto, reproceso y cierre del conteo.
 ![15 · Errores y cierre](img/uml/15-secuencia-errores-y-cierre.svg)
 
-**20 · Comunicación.** La colaboración numerada entre `Session`, `Store`, `SyncController`, `PKG_BATCH` y `SyncBridge`.
+**20 · Comunicación.** La colaboración numerada entre `Session`, `Store`, `SyncController`, `PKG_BATCH` y el servicio.
 ![20 · Comunicación](img/uml/20-comunicacion.svg)
 
 **21 · Visión general de interacción.** El flujo de alto nivel que enlaza 13, 14 y 15.

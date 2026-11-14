@@ -34,14 +34,18 @@ La primera vez descarga la imagen y crea la base con el esquema, la semilla (con
 paquete `PKG_BATCH`, los jobs del Scheduler y las vistas: puede tardar varios minutos.
 
 ```bash
-docker compose up -d app
+docker compose up -d bluetooth app
 ```
+
+`bluetooth` es el **servicio de recepción**: corre aparte, recibe a los teléfonos aunque la ventana del escritorio esté
+cerrada y vuelve a arrancar solo tras reiniciar el PC (si Docker arranca con el sistema). La pantalla
+**Sincronización** muestra su estado y lo pausa o reanuda.
 
 La aplicación de escritorio se abre **en tu pantalla** por X11 y muestra el acceso: crea tu cuenta (la primera queda como administrador) e inicia sesión. Con `up -d` no ves
 sus mensajes; para verlos usa `docker compose logs -f app`. Para no usar Bluetooth (pruebas y plan B de la demo):
 
 ```bash
-BT_TRANSPORT=tcp docker compose up -d app
+BT_TRANSPORT=tcp docker compose up -d bluetooth app
 ```
 
 ### Compilar e instalar la APK
@@ -87,9 +91,17 @@ adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 
 ### Uso en una frase
 
-En el celular: crear cuenta (queda pendiente: sincroniza una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → **Mis tareas** → iniciar una → escanear el código de barras o el QR, o digitar → guardar (sin red). En el PC: **Iniciar
-sincronización** (el PC se anuncia como `gestion_inventario` durante 120 s). En el celular: **Sincronizar**; la primera
+En el celular: crear cuenta (queda pendiente: sincroniza una vez y apruébala en **Solicitudes** del PC) o iniciar sesión → **Mis tareas** → iniciar una → escanear el código de barras o el QR, o digitar → guardar (sin red). El PC se anuncia
+siempre como `gestion_inventario` mientras el servicio `bluetooth` esté activo. En el celular: **Sincronizar**; la primera
 vez se busca y se elige `gestion_inventario`, y desde entonces conecta directo, sin claves ni códigos (D22).
+
+### Configuración y respaldos
+
+En **Configuración** (Administrador) se cambian los umbrales de ajuste crítico, el intervalo del lote, los días que se
+conservan las lecturas recibidas y el tamaño máximo de foto. En **Respaldos** se crea un respaldo (`.zip` con todos los
+datos y las fotos, en `respaldos/`, o `RESPALDOS_DIR`), se programa el automático diario y se **restaura**: escribe
+`RESTAURAR` para confirmar; antes se pausa el servicio Bluetooth y se guarda un respaldo del estado actual («Antes de
+restaurar»). Al terminar se cierra la sesión; reanuda el servicio en **Sincronización**.
 
 ## Pruebas
 
@@ -114,8 +126,9 @@ Las suites del servidor y del escritorio borran por diseño el staging de los di
 | Síntoma | Qué hacer |
 |---|---|
 | «Bluetooth no disponible» / `NotReady` en la ventana de sincronización | El adaptador está bloqueado o apagado: `rfkill list`; si dice `Soft blocked: yes`, `rfkill unblock bluetooth`, y luego `bluetoothctl power on`. Comprueba `systemctl status bluetooth`. |
-| El celular no encuentra `gestion_inventario` | La ventana de sincronización debe estar abierta en el PC (120 s). En Android 10 o anterior la **ubicación** del teléfono debe estar encendida para buscar dispositivos Bluetooth. |
-| El celular dice «No se pudo conectar con el PC» | El PC está apagado, lejos, o la sincronización no está iniciada. La app reintenta 3 veces; vuelve a pulsar **Sincronizar** tras iniciarla en el PC. |
+| «El servicio Bluetooth no está corriendo» | Arráncalo: `docker compose up -d bluetooth`; sus mensajes: `docker compose logs -f bluetooth`. |
+| El celular no encuentra `gestion_inventario` | El servicio `bluetooth` debe estar activo y sin pausa (pantalla **Sincronización**). En Android 10 o anterior la **ubicación** del teléfono debe estar encendida para buscar dispositivos Bluetooth. |
+| El celular dice «No se pudo conectar con el PC» | El PC está apagado, lejos, o el servicio está detenido o en pausa. La app reintenta 3 veces; vuelve a pulsar **Sincronizar** tras reanudarlo. |
 | «El PC está atendiendo a otro teléfono» | Hay otra sincronización en curso (D19). Espera a que termine. |
 | `could not connect to display` / la ventana no aparece | Compose monta el socket X11 y la cookie de `$XAUTHORITY`: comprueba `echo $DISPLAY $XAUTHORITY` en la terminal desde la que lanzas `docker compose`. Como último recurso, `xhost +local:` da acceso X a los usuarios locales (revierte con `xhost -local:`). |
 | `ORA-12541`, `ORA-12514` o «connection refused» al abrir la app | Oracle aún no está listo: `docker compose ps` debe mostrar `oracle` como `healthy`; si no, `docker compose logs oracle`. |

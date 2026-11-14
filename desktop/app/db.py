@@ -31,7 +31,11 @@ from .models import (
 )
 
 
-_local = threading.local()  # .conn y .clave de ESTE hilo
+# Conexión de cada hilo, por su identificador. No se usa ``threading.local``: PyQt crea y destruye el estado de Python
+# de un hilo del pool en cada tarea, y lo guardado ahí se perdía entre consultas (cada una abría otra conexión).
+# Los hilos del pool no caducan (``QueryRunner``), así que hay a lo sumo una conexión por hilo vivo.
+_conexiones: dict[int, tuple[object, tuple[str, str, str]]] = {}
+_candado = threading.Lock()
 
 
 def _cerrar(conn) -> None:
@@ -41,20 +45,30 @@ def _cerrar(conn) -> None:
         pass
 
 
+def conexion_del_hilo():
+    """La conexión guardada para este hilo, o ``None``."""
+    with _candado:
+        entrada = _conexiones.get(threading.get_ident())
+    return None if entrada is None else entrada[0]
+
+
 def liberar_conexion() -> None:
     """Cierra la conexión de este hilo (la próxima consulta abrirá otra)."""
-    conn = getattr(_local, "conn", None)
-    _local.conn = None
-    if conn is not None:
-        _cerrar(conn)
+    with _candado:
+        entrada = _conexiones.pop(threading.get_ident(), None)
+    if entrada is not None:
+        _cerrar(entrada[0])
 
 
 def _obtener():
     clave = (os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
-    conn = getattr(_local, "conn", None)
-    if conn is not None:
+    with _candado:
+        entrada = _conexiones.get(threading.get_ident())
+    conn = None
+    if entrada is not None:
+        conn, clave_guardada = entrada
         try:
-            if getattr(_local, "clave", None) != clave:
+            if clave_guardada != clave:
                 raise ValueError("otro destino")
             conn.ping()
         except Exception:
@@ -62,7 +76,8 @@ def _obtener():
             conn = None
     if conn is None:
         conn = connect_oracle(*clave)
-        _local.conn, _local.clave = conn, clave
+        with _candado:
+            _conexiones[threading.get_ident()] = (conn, clave)
     return conn
 
 

@@ -52,7 +52,7 @@ def test_roles_sin_permiso_no_consulta(qtbot, permisos_db):
 
 def test_roles_modulos_aun_no_disponibles_deshabilitados(qtbot, cuentas, permisos_db):
     vista = _vista(qtbot, permisos_db)
-    fila = [clave for clave, _ in permisos_db.MODULOS].index("respaldos")
+    fila = [clave for clave, _ in permisos_db.MODULOS].index("productos")
     assert "próximamente" in vista.tabla.item(fila, 0).text()
-    assert not vista.combo(INVENTARIO, "respaldos").isEnabled()
+    assert not vista.combo(INVENTARIO, "productos").isEnabled()
     assert vista.combo(INVENTARIO, "dashboard").isEnabled()

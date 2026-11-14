@@ -9,15 +9,20 @@ component "APK Android" as apk {
   component "Outbox + catálogo (Room/SQLite)" as room
 }
 
-component "Aplicación de escritorio (un proceso, en Docker)" as desk {
-  component "Pantallas PyQt6 + pyqtgraph\n(Acceso, Dashboard, Inventario,\nSincronización, Gráficas, Perfil)" as vistas
-  component "SyncBridge" as bridge
+component "Aplicación de escritorio (en Docker)" as desk {
+  component "Pantallas PyQt6 + pyqtgraph\n(Dashboard, Inventario, Sincronización,\nConfiguración, Respaldos, …)" as vistas
+  component "ServicioRemoto\n(lee SERVICIO_BT cada 2 s)" as remoto
+}
+
+component "Servicio Bluetooth (otro proceso: btsync.servicio)" as svc {
+  component "Servicio\n(tick de 1 s: latido, pausa,\nrespaldo automático)" as tick
   component "Librería btsync" as btsync {
     component "SyncController" as ctrl
     component "Session" as ses
     component "BluezTransport" as bz
     component "TcpTransport\n(pruebas / plan B)" as tcp
     component "Store" as store
+    component "respaldo\n(zip: tablas + fotos)" as resp
   }
 }
 
@@ -44,8 +49,12 @@ ctrl -( itransport
 ctrl --> ses : crea
 ses --> store
 ctrl --> store
-vistas --> bridge
-bridge --> ctrl : start / confirm / cancel / status
+vistas --> remoto
+remoto -( sqlnet : SERVICIO_BT (estado, pausado, respuesta)
+tick --> ctrl : start / confirm / cancel / status
+tick -( sqlnet : latido y estado
+tick --> resp : automático diario
+vistas --> resp : crear / restaurar
 store -( sqlnet
 vistas -( sqlnet : consultas (V_*)
 ora -- sqlnet

@@ -25,12 +25,10 @@ from PyQt6.QtWidgets import (
 
 from btsync import esquema
 from btsync import tareas as tareas_bt
-from btsync.store import Store
-from btsync.transports.tcp import TcpTransport
 
-from . import auditoria, auth, db, maestros, movimientos, permisos
+from . import auditoria, auth, configuracion, db, maestros, movimientos, permisos
 from .models import Conteo
-from .sync_bridge import SyncBridge
+from .servicio_remoto import ServicioRemoto
 from .views.acceso import AccesoView
 from .views.base import QueryRunner, StateBanner, estilo
 from .views.charts import ChartsView
@@ -38,6 +36,8 @@ from .views.dashboard import DashboardView
 from .views.estado_cuenta import EstadoCuentaView
 from .views.ajustes import AjustesView
 from .views.auditoria import AuditoriaView
+from .views.configuracion import ConfiguracionView
+from .views.respaldos import RespaldosView
 from .views.diferencias import DiferenciasView
 from .views.existencias import ExistenciasView
 from .views.movimientos import MovimientosView
@@ -54,7 +54,7 @@ from .views.widgets import Aviso, Transicion
 
 # Texto y color del indicador de Bluetooth, según el estado del controlador.
 ESTADO_BLUETOOTH = {
-    "IDLE": ("apagado", ""),
+    "IDLE": ("escuchando", "activo"),
     "ESPERANDO_EMPAREJAMIENTO": ("escuchando", "activo"),
     "CONFIRMAR_CODIGO": ("esperando el código", "activo"),
     "CONECTADO": ("celular conectado", "activo"),
@@ -62,6 +62,9 @@ ESTADO_BLUETOOTH = {
     "PROCESANDO": ("procesando", "activo"),
     "LISTO": ("listo", "ok"),
     "ERROR": ("error", "error"),
+    "PAUSANDO": ("pausando", "activo"),
+    "PAUSADO": ("en pausa", ""),
+    "DETENIDO": ("servicio detenido", "error"),
 }
 
 
@@ -387,11 +390,15 @@ class MainWindow(QMainWindow):
     def conteo_actual(self) -> str | None:
         return self._conteo_actual
 
-    def conectar_puente(self, bridge: SyncBridge) -> None:
-        """Refleja el estado del Bluetooth en el encabezado y avisa cuando termina una sincronización."""
-        bridge.status_changed.connect(self._estado_bluetooth)
-        bridge.listo.connect(lambda: self.avisar(self._texto_listo(bridge.status()["recibidos"])))
-        self._estado_bluetooth(bridge.status())
+    def conectar_servicio(self, remoto: ServicioRemoto) -> None:
+        """Refleja el estado del servicio Bluetooth en el encabezado y avisa cuando termina una sincronización."""
+        remoto.status_changed.connect(self._estado_bluetooth)
+        remoto.listo.connect(lambda: self.avisar(self._texto_listo(remoto.status())))
+        self._estado_bluetooth(remoto.status())
+
+    def tras_restaurar(self) -> None:
+        self.cerrar_sesion()
+        self.avisar("Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras.", "info")
 
     def avisar(self, texto: str, tipo: str = "ok") -> None:
         """Muestra un aviso flotante que sube desde la esquina inferior derecha y se va solo."""
@@ -413,7 +420,8 @@ class MainWindow(QMainWindow):
             return False
 
     @staticmethod
-    def _texto_listo(recibidos: int) -> str:
+    def _texto_listo(status: dict) -> str:
+        recibidos = status["ultima"].recibidos if status.get("ultima") is not None else 0
         return f"Sincronización lista: {recibidos} {'lectura recibida' if recibidos == 1 else 'lecturas recibidas'}"
 
     def _poner_chip(self, chip: QLabel, texto: str, estado: str) -> None:
@@ -476,10 +484,10 @@ class MainWindow(QMainWindow):
         super().closeEvent(evento)
 
 
-def build_window(bridge: SyncBridge, auto_refresh_ms: int = 5000, sesion: auth.Sesion | None = None) -> MainWindow:
+def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: auth.Sesion | None = None) -> MainWindow:
     """La ventana completa; cada sección se ve según la matriz de permisos del rol (entre paréntesis, su módulo)."""
     ventana = MainWindow(auto_refresh_ms=auto_refresh_ms)
-    dashboard, sync, perfil = DashboardView(), SyncView(bridge), PerfilView()
+    dashboard, sync, perfil = DashboardView(), SyncView(remoto), PerfilView()
     ventana.add_view(dashboard, "Dashboard", "dashboard")
     ventana.add_view(InventarioView(), "Inventario", "conteos")          # conciliación de los conteos
     ventana.add_view(TareasView(), "Tareas de conteo", "tareas")
@@ -487,6 +495,9 @@ def build_window(bridge: SyncBridge, auto_refresh_ms: int = 5000, sesion: auth.S
     ventana.add_view(MovimientosView(), "Movimientos", "movimientos")
     ventana.add_view(AjustesView(), "Ajustes", "ajustes")
     ventana.add_view(AuditoriaView(), "Auditoría", "historial")
+    ventana.add_view(ConfiguracionView(), "Configuración", "configuracion")
+    vista_respaldos = RespaldosView()
+    ventana.add_view(vista_respaldos, "Respaldos", "respaldos")
     ventana.add_view(ExistenciasView(), "Existencias", "existencias")
     ventana.add_view(CategoriasView(), "Categorías", "categorias")
     ventana.add_view(AlmacenesView(), "Almacenes", "categorias")
@@ -498,34 +509,20 @@ def build_window(bridge: SyncBridge, auto_refresh_ms: int = 5000, sesion: auth.S
     ventana.add_view(UsuariosView(), "Empleados", "usuarios")
     ventana.add_view(RolesView(), "Roles y permisos", "permisos")
     ventana.add_view(perfil, "Perfil", "perfil", en_barra=False)
-    ventana.conectar_puente(bridge)
-    bridge.listo.connect(ventana.refresh_requested)                       # llegaron datos nuevos
+    ventana.conectar_servicio(remoto)
+    remoto.listo.connect(ventana.refresh_requested)                       # llegaron datos nuevos
     dashboard.conteo_cerrado.connect(lambda _: ventana.refresh_requested.emit())
     dashboard.conteo_cerrado.connect(lambda id_conteo: ventana.avisar(f"Conteo {id_conteo} cerrado", "info"))
     sync.datos_cambiados.connect(ventana.refresh_requested)
     perfil.cerrar_sesion.connect(ventana.cerrar_sesion)
-    ventana.sesion_cambiada.connect(lambda s: bridge.cancel() if s is None else None)  # al salir se cierra la recepción
-    ventana.cerrando.connect(bridge.cancel)
+    vista_respaldos.restaurado.connect(ventana.tras_restaurar)   # las cuentas pudieron cambiar: de vuelta al login
     if sesion is not None:
         ventana.iniciar(sesion)
     return ventana
 
 
-def crear_transporte():
-    """``BT_TRANSPORT=bluez`` (por defecto: Bluetooth real) o ``tcp`` (pruebas y demo de respaldo)."""
-    modo = os.environ.get("BT_TRANSPORT", "bluez").lower()
-    if modo == "tcp":
-        return TcpTransport(os.environ.get("BT_TCP_HOST", "127.0.0.1"), int(os.environ.get("BT_TCP_PORT", "9000")))
-    if modo == "bluez":
-        from btsync.transports.bluez import BluezTransport
-
-        return BluezTransport(require_pairing=os.environ.get("BT_CON_CLAVE") == "1")
-    raise SystemExit(f"BT_TRANSPORT inválido: {modo!r} (usa «bluez» o «tcp»)")
-
-
 def main() -> int:
     app = QApplication(sys.argv)
-    store = Store(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
     auth.migrar()      # estados de cuenta y rol OPERADOR en bases creadas antes de existir
     permisos.migrar()  # tabla de la matriz y sus valores iniciales
     maestros.migrar()  # categorías, almacenes y existencias (Fase 2)
@@ -534,9 +531,8 @@ def main() -> int:
         tareas_bt.migrar(conn)   # columnas de tarea en conteos y la tabla revisiones (Fase 3)
     movimientos.migrar()         # entradas, salidas y ajustes (Fase 3b)
     auditoria.migrar()           # quién hizo qué y cuándo (Fase 4)
-    puente = SyncBridge(crear_transporte(), store)
-    ventana = build_window(puente)
-    app.aboutToQuit.connect(puente.cancel)
+    configuracion.aplicar_jobs()  # intervalo del lote y días de purga de la Configuración (Fase 5)
+    ventana = build_window(ServicioRemoto())   # la recepción es del servicio «bluetooth»: cerrar aquí no la detiene
     ventana.show()
     return app.exec()
 

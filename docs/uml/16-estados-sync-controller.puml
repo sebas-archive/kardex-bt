@@ -37,6 +37,14 @@ CICLO_EN_MARCHA --> IDLE : cancel()
 VISIBLE_Y_ESPERANDO --> IDLE : tiempo agotado (120 s)\n/ TIEMPO_AGOTADO
 CONFIRMAR_CODIGO --> IDLE : confirm(False)
 
+note left of IDLE
+  Fase 5: el servicio (btsync.servicio) llama a start()
+  cada vez que el controlador vuelve a IDLE o LISTO, así
+  que el PC queda siempre visible. Con pausa, el servicio
+  muestra PAUSANDO mientras haya CONECTADO, RECIBIENDO
+  o PROCESANDO, y luego cancel() → IDLE (se ve PAUSADO).
+end note
+
 note right of RECIBIENDO
   Un segundo teléfono que se conecte
   recibe NAK|0|OCUPADO y se cierra
