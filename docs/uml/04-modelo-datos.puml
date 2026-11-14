@@ -34,6 +34,23 @@ class movimientos <<table>> {
   resuelto_por / resuelto / motivo_rechazo
   id_conteo : ajuste desde una diferencia
 }
+class fotos <<table>> {
+  * uuid_dispositivo <<PK>>
+  * seq <<PK>>
+  --
+  ruta : relativa a FOTOS_DIR
+  bytes
+  recibida
+}
+class auditoria <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  fecha
+  usuario
+  modulo
+  accion
+  detalle
+}
 class revisiones <<table>> {
   * id_conteo <<PK>>
   * sku <<PK>>
@@ -122,6 +139,7 @@ class registros_procesados <<table>> {
   fecha_captura : TIMESTAMP (UTC)
   vigente : S | N
   fecha_procesado
+  danados : NUMBER(12,3)
 }
 class conciliacion <<table>> {
   * id_conteo <<PK, FK>>
@@ -167,6 +185,7 @@ productos "1" -- "0..*" existencias
 almacenes "1" -- "0..*" existencias
 categorias "1" .. "0..*" productos : nombre = categoria
 conteos "1" -- "0..*" revisiones
+captura_transito "1" .. "0..1" fotos : (uuid, seq) (sin FK)
 productos "1" .. "0..*" movimientos : sku (sin FK)
 almacenes "1" .. "0..*" movimientos : almacen (sin FK)
 conteos "0..1" .. "0..*" movimientos : id_conteo (ajuste)

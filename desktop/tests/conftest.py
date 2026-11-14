@@ -111,6 +111,7 @@ def maestros_db(monkeypatch, cuentas):
 def _limpiar_tareas_tst(cur) -> None:
     for tabla in ("revisiones", "conciliacion", "registros_procesados", "stock_sistema"):
         cur.execute(f"DELETE FROM {tabla} WHERE id_conteo LIKE 'TT-%'")
+    cur.execute("DELETE FROM fotos WHERE uuid_dispositivo = 'tst-tareas-esc'")
     cur.execute("DELETE FROM captura_transito WHERE uuid_dispositivo = 'tst-tareas-esc'")
     cur.execute("DELETE FROM conteos WHERE id_conteo LIKE 'TT-%'")
 
@@ -125,8 +126,11 @@ def tareas_db(monkeypatch, maestros_db):
     from app import movimientos
 
     monkeypatch.setattr(tareas, "PREFIJO", "TT-")
+    from btsync import esquema
+
     movimientos.migrar()   # Diferencias mira si hay ajustes (tabla real «movimientos», sin filas de prueba)
     with db._conexion() as conn:
+        esquema.migrar(conn)   # danados y fotos (Fase 4)
         bt.migrar(conn)
         _limpiar_tareas_tst(conn.cursor())
         conn.commit()
@@ -153,3 +157,30 @@ def movimientos_db(monkeypatch, tareas_db):
     movimientos.migrar()
     return movimientos
 
+
+
+@pytest.fixture(scope="session")
+def _tabla_auditoria_tst():
+    """Crea ``auditoria_tst`` una vez por corrida (las pruebas nunca escriben en la auditoría real)."""
+    from app import auditoria, db
+
+    original = auditoria.TABLA
+    auditoria.TABLA = "auditoria_tst"
+    try:
+        auditoria.migrar()
+    finally:
+        auditoria.TABLA = original
+    with db._conexion() as conn:
+        conn.commit()
+
+
+@pytest.fixture(autouse=True)
+def auditoria_db(monkeypatch, _tabla_auditoria_tst):
+    """Toda prueba audita en ``auditoria_tst``, vacía al empezar."""
+    from app import auditoria, db
+
+    monkeypatch.setattr(auditoria, "TABLA", "auditoria_tst")
+    with db._conexion() as conn:
+        conn.cursor().execute("DELETE FROM auditoria_tst")
+        conn.commit()
+    return auditoria

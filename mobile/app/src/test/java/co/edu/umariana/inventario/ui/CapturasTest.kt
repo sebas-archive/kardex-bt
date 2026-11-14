@@ -113,6 +113,20 @@ class CapturasTest {
             {}, {}, {}, {}, {}, {}, {})
     }
 
+    @Test fun contar_con_foto() {
+        val foto = File("build/capturas/evidencia.jpg").apply { parentFile?.mkdirs() }
+        val bmp = android.graphics.Bitmap.createBitmap(400, 300, android.graphics.Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(bmp).apply {
+            drawColor(android.graphics.Color.rgb(176, 124, 72))
+            drawRect(60f, 60f, 340f, 240f, android.graphics.Paint().apply { color = android.graphics.Color.rgb(120, 80, 40) })
+        }
+        foto.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, it) }
+        capturar("09b-contar-con-foto") {
+            ContarScreen(ContarUi("T-014", sku = cafe.sku, cantidad = "24", producto = cafe, nota = "Caja rota en la estantería A",
+                danados = "2", foto = foto.path), {}, {}, {}, {}, {}, {}, {})
+        }
+    }
+
     @Test fun contar_sku_desconocido() = capturar("10-contar-sku-desconocido") {
         ContarScreen(ContarUi("CONT-2026-11", sku = "7709990001234", cantidad = "3", skuDesconocido = true,
             nota = "Sin etiqueta de precio", guardadas = 7), {}, {}, {}, {}, {}, {}, {})

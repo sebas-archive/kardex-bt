@@ -12,16 +12,17 @@ con la app Android están en `protocol-vectors.json`.
 - En campos de texto libre se codifican `%` → `%25`, `|` → `%7C`, `\r` → `%0D` y `\n` → `%0A`
   (el `%` se codifica primero y se decodifica en una sola pasada).
 
-Ejemplo: `HELLO|4|dev-0001|Bodega Norte*E3FC18A3`.
+Ejemplo: `HELLO|5|dev-0001|Bodega Norte*788FF277`.
 
 ## Móvil → PC
 
 | Mensaje | Campos |
 |---|---|
-| `HELLO` | `4` (versión del protocolo), `<uuid_dispositivo>`, `<nombre>` |
+| `HELLO` | `5` (versión del protocolo), `<uuid_dispositivo>`, `<nombre>` |
 | `ACCT` | `<usuario>`, `<nombre>` — la cuenta del operador; va justo después de `HELLO` |
 | `INICIO` | `<id_tarea>` — el operador empezó esa tarea en el teléfono; se envía tras el catálogo, solo si el PC la ve `ASIGNADA`. Sin respuesta: si la tarea es ajena, está cerrada o la cuenta no está activa, el PC la ignora |
-| `REC` | `<seq>`, `<epoch_ms>`, `<id_conteo>`, `<sku>`, `<cantidad>`, `<operador>`, `<nota>` |
+| `REC` | `<seq>`, `<epoch_ms>`, `<id_conteo>`, `<sku>`, `<cantidad>`, `<operador>`, `<nota>`, `<danados>` (vacío si no se indicó; nunca mayor que la cantidad) |
+| `FOTO` | `<seq>`, `<parte>`, `<total>`, `<crc32>`, `<base64>` — una parte de la foto de la lectura `seq` (hasta 2700 caracteres de base64 por línea); `crc32` es el del archivo JPG completo |
 | `END` | `<n_registros>` |
 
 `cantidad` es decimal con punto, `^\d{1,9}(\.\d{1,3})?$`. `seq` empieza en 1 y es contiguo por
@@ -40,6 +41,8 @@ dispositivo.
 | `ACK` | `<seq>` — acumulativo: todo `seq ≤ n` está persistido con COMMIT |
 | `NAK` | `<seq_esperado>`, `<motivo>` |
 | `BYE` | `<aceptados>`, `<rechazados>` |
+| `FOTOOK` | `<seq>` — la foto llegó completa y quedó guardada |
+| `FOTOERR` | `<seq>`, `<motivo>` — `CRC`, `FORMAT` (parte fuera de orden), `GRANDE` (más de 2 MB) o `SIN_LECTURA` |
 
 Solo se envían conteos en estado `ABIERTO`, y **nunca** el stock del sistema (conteo ciego).
 
@@ -115,3 +118,18 @@ Una cuenta que no está activa solo recibe los conteos generales. El móvil avis
 empezó una tarea; así el PC la pasa a `EN_PROGRESO` antes de que llegue la primera lectura. Un teléfono con la
 versión 3 recibe `NAK|0|FORMAT`. Hay 4 vectores nuevos (`cattarea`, `cattarea_general`, `catitem` e `inicio`), y
 `hello` se regeneró para la versión 4.
+
+## Versión 5 (dañados y fotos)
+
+- **El `REC` gana un campo final, `danados`:** cuántas de las unidades contadas están dañadas. Un `REC` de la versión 4 (8 partes) no se acepta. El job lo guarda en `registros_procesados.danados`; si es mayor que la cantidad, la lectura queda en `ERROR` con `DANADOS_INVALIDO`.
+- **Cuándo viajan las fotos:** después de que el PC confirmó todas las lecturas de la sesión y antes de `END`, una foto a la vez. El móvil espera `FOTOOK` o `FOTOERR` antes de mandar la siguiente.
+- **Qué hace el PC con una foto:**
+  - junta las partes en memoria;
+  - comprueba el CRC;
+  - escribe `<FOTOS_DIR>/<uuid>/<seq>.jpg` (primero a un temporal);
+  - registra la ruta relativa en la tabla `fotos`.
+- **Si algo sale mal:**
+  - un corte a mitad no deja nada; la foto se reenvía entera la próxima vez;
+  - una foto repetida reemplaza la anterior;
+  - con `GRANDE` el móvil no la reintenta; con `CRC` o `FORMAT`, sí.
+- **Vectores:** 3 nuevos (`rec_danados`, `foto` y `fotoerr`). `hello` y los `REC` se regeneraron para la versión 5.

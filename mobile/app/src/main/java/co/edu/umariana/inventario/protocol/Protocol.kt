@@ -30,10 +30,12 @@ data class Rec(
     val cantidad: String,
     val operador: String,
     val nota: String,
+    /** Protocolo 5: unidades dañadas de las contadas ("" si no se indicó). */
+    val danados: String = "",
 ) {
     private fun wireFields(): List<String> =
         listOf("REC", seq.toString(), tsMs.toString()) +
-            listOf(idConteo, sku, cantidad, operador, nota).map(Protocol::encodeText)
+            listOf(idConteo, sku, cantidad, operador, nota, danados).map(Protocol::encodeText)
 
     /** La línea `REC` como va por el cable, sin el CRC. */
     fun toRaw(): String = wireFields().joinToString("|")
@@ -43,10 +45,10 @@ data class Rec(
 
     companion object {
         fun fromMessage(m: Message): Rec {
-            if (m.kind != "REC" || m.fields.size != 7) throw FrameError("FORMAT", "REC exige exactamente 7 campos")
+            if (m.kind != "REC" || m.fields.size != 8) throw FrameError("FORMAT", "REC exige exactamente 8 campos")
             val seq = m.fields[0].toLongOrNull() ?: throw FrameError("FORMAT", "seq debe ser entero")
             val ts = m.fields[1].toLongOrNull() ?: throw FrameError("FORMAT", "epoch_ms debe ser entero")
-            return Rec(seq, ts, m.fields[2], m.fields[3], m.fields[4], m.fields[5], m.fields[6])
+            return Rec(seq, ts, m.fields[2], m.fields[3], m.fields[4], m.fields[5], m.fields[6], m.fields[7])
         }
     }
 }
@@ -67,13 +69,17 @@ object Protocol {
     /**
      * Versión del protocolo que viaja en `HELLO`. La 2 quitó la ubicación del `REC` y el mensaje `CATUBIC`; la 3
      * añadió `ACCT`/`ACCTST` (la cuenta del operador y su estado); la 4 cambió `CATCONTEO` por `CATTAREA` + `CATITEM`
-     * (las tareas del operador) y añadió `INICIO` (el operador empezó una tarea).
+     * (las tareas del operador) y añadió `INICIO` (el operador empezó una tarea); la 5, los dañados al final del `REC`
+     * y las fotos (`FOTO` / `FOTOOK` / `FOTOERR`), que van después de las lecturas.
      */
-    const val VERSION = "4"
+    const val VERSION = "5"
+
+    /** Caracteres de base64 por línea FOTO: con la cabecera queda lejos de los 4000 bytes. */
+    const val FOTO_PARTE = 2700
 
     // Cantidad mínima de partes (incluido el tipo) de cada mensaje.
     private val MIN_PARTS = mapOf(
-        "HELLO" to 4, "ACCT" to 3, "ACCTST" to 5, "REC" to 8, "END" to 2,
+        "HELLO" to 4, "ACCT" to 3, "ACCTST" to 5, "REC" to 9, "FOTO" to 6, "FOTOOK" to 2, "FOTOERR" to 3, "END" to 2,
         "READY" to 3, "CATTAREA" to 8, "CATITEM" to 4, "INICIO" to 2, "CATPROD" to 5, "CAT_END" to 1,
         "ACK" to 2, "NAK" to 3, "BYE" to 3,
     )
@@ -97,6 +103,14 @@ object Protocol {
     }
 
     /** Arma la línea. `fields[0]` es el tipo; el resto ya viene codificado. */
+    /** Las líneas FOTO de una foto: `FOTO|seq|parte|total|crc32 del archivo|base64` (sin el CRC de línea). */
+    fun fotoLineas(seq: Long, datos: ByteArray, tam: Int = FOTO_PARTE): List<List<String>> {
+        val b64 = java.util.Base64.getEncoder().encodeToString(datos)
+        val trozos = b64.chunked(tam).ifEmpty { listOf("") }
+        val crc = String.format(Locale.ROOT, "%08X", CRC32().apply { update(datos) }.value)
+        return trozos.mapIndexed { i, t -> listOf("FOTO", seq.toString(), (i + 1).toString(), trozos.size.toString(), crc, t) }
+    }
+
     fun frame(fields: List<String>): ByteArray {
         val body = fields.joinToString("|").toByteArray(Charsets.UTF_8)
         val crc = CRC32().apply { update(body) }.value

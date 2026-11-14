@@ -2,6 +2,7 @@ package co.edu.umariana.inventario.ui
 
 import androidx.lifecycle.ViewModel
 import co.edu.umariana.inventario.data.CatalogRepository
+import co.edu.umariana.inventario.data.FotoRepository
 import co.edu.umariana.inventario.data.ItemTareaEntity
 import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.LecturaEntity
@@ -10,6 +11,7 @@ import co.edu.umariana.inventario.data.ProductoEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 
 /** Resultado de [CountViewModel.guardar]: lo guardado o la primera regla que no se cumple. */
 sealed class SaveResult {
@@ -20,6 +22,7 @@ sealed class SaveResult {
     data object SkuFaltante : SaveResult()
     data object CantidadInvalida : SaveResult()
     data object NotaLarga : SaveResult()
+    data object DanadosInvalidos : SaveResult()
 }
 
 /**
@@ -30,6 +33,7 @@ class CountViewModel(
     private val outbox: Outbox,
     private val catalogo: CatalogRepository,
     private val settings: SettingsStore,
+    private val fotos: FotoRepository? = null,
     private val ahoraMs: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
     private val _operador = MutableStateFlow(settings.operador)
@@ -50,7 +54,11 @@ class CountViewModel(
         _conteo.value = id
     }
 
-    fun guardar(sku: String, cantidad: String, nota: String): SaveResult {
+    /**
+     * Guarda la lectura. [danados]: cuántas de las contadas están dañadas ("" = no se indicó; nunca más que la
+     * cantidad). [foto]: un JPG ya comprimido que pasa a ser la evidencia de esta lectura (reemplaza la anterior).
+     */
+    fun guardar(sku: String, cantidad: String, nota: String, danados: String = "", foto: File? = null): SaveResult {
         val operador = _operador.value
         if (operador.isEmpty()) return SaveResult.OperadorFaltante
         val idConteo = _conteo.value ?: return SaveResult.SinConteo
@@ -58,19 +66,24 @@ class CountViewModel(
         if (codigo.isEmpty()) return SaveResult.SkuFaltante
         if (!CANTIDAD.matches(cantidad)) return SaveResult.CantidadInvalida
         if (largo(nota) > MAX_NOTA) return SaveResult.NotaLarga
+        if (danados.isNotEmpty() && (!CANTIDAD.matches(danados) || danados.toBigDecimal() > cantidad.toBigDecimal())) {
+            return SaveResult.DanadosInvalidos
+        }
 
         val ahora = ahoraMs()
         val desconocido = catalogo.producto(codigo) == null
         // Recontar: si la lectura de ese SKU aún no salió, se corrige en sitio; si ya salió, va una nueva
         // y el PC se queda con la más reciente (D13).
-        if (outbox.reemplazar(idConteo, codigo, cantidad, ahora)) {
+        if (outbox.reemplazar(idConteo, codigo, cantidad, ahora, nota, danados)) {
             val seq = outbox.ultimaDe(idConteo, codigo)!!.seq
+            if (foto != null) fotos?.adjuntar(seq, foto)
             return SaveResult.Guardada(seq, reemplazo = true, skuDesconocido = desconocido)
         }
         val seq = outbox.insertar(
             LecturaEntity(tsOriginalMs = ahora, idConteo = idConteo, sku = codigo,
-                cantidad = cantidad, operador = operador, nota = nota)
+                cantidad = cantidad, operador = operador, nota = nota, danados = danados)
         )
+        if (foto != null) fotos?.adjuntar(seq, foto)
         return SaveResult.Guardada(seq, reemplazo = false, skuDesconocido = desconocido)
     }
 
@@ -82,6 +95,9 @@ class CountViewModel(
 
     fun todasLasLecturas(): List<LecturaEntity> = outbox.todas()
     fun contarPendientes(): Int = outbox.contarPendientes()
+    fun fotosPendientes(): Int = fotos?.contarPendientes() ?: 0
+    fun conFoto(): Set<Long> = fotos?.conFoto() ?: emptySet()
+    fun foto(seq: Long): File? = fotos?.archivo(seq)
     fun tareas(): List<TareaEntity> = catalogo.tareas()
     fun items(idTarea: String): List<ItemTareaEntity> = catalogo.items(idTarea)
     fun iniciadas(): Set<String> = catalogo.iniciadas()

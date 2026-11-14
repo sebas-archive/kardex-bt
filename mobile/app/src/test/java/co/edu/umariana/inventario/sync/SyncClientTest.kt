@@ -3,6 +3,8 @@ package co.edu.umariana.inventario.sync
 import co.edu.umariana.inventario.data.AppDatabase
 import co.edu.umariana.inventario.data.Catalog
 import co.edu.umariana.inventario.data.CatalogRepository
+import co.edu.umariana.inventario.data.FotoEntity
+import co.edu.umariana.inventario.data.FotoRepository
 import co.edu.umariana.inventario.data.ItemTareaEntity
 import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.Estado
@@ -15,6 +17,7 @@ import co.edu.umariana.inventario.protocol.Message
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -31,6 +34,8 @@ class SyncClientTest {
     private lateinit var db: AppDatabase
     private lateinit var outbox: Outbox
     private lateinit var catalog: CatalogRepository
+    private lateinit var fotos: FotoRepository
+    @get:org.junit.Rule val carpeta = org.junit.rules.TemporaryFolder()
     private var phoneNow = S
     private val estadosCuenta = ArrayList<EstadoCuentaPc>()
 
@@ -39,6 +44,7 @@ class SyncClientTest {
         db = TestDb.abrir()
         outbox = db.outbox()
         catalog = CatalogRepository(db.catalogo())
+        fotos = FotoRepository(db.fotos(), carpeta.newFolder("fotos"))
     }
 
     @After
@@ -52,7 +58,7 @@ class SyncClientTest {
 
     private fun sync(pc: FakePc): List<SyncProgress> {
         val client = SyncClient(outbox, catalog, "dev-test-1", "Teléfono de prueba", "ana.gomez", "Ana Gómez",
-            alEstado = { estadosCuenta += it }) { phoneNow }
+            alEstado = { estadosCuenta += it }, fotos = fotos) { phoneNow }
         val eventos = runBlocking { client.sync(pc.connect()).toList() }
         pc.join()
         return eventos
@@ -69,7 +75,7 @@ class SyncClientTest {
         assertEquals(listOf(50, 50, 20), pc.bursts.toList())  // nunca más de 50 sin confirmar
         assertEquals((1L..120L).toList(), pc.accepted.map { it.seq })
         assertEquals((1..120).map { it.toString() }, pc.accepted.map { it.cantidad })
-        assertEquals(Message("HELLO", listOf("4", "dev-test-1", "Teléfono de prueba")), pc.hello)
+        assertEquals(Message("HELLO", listOf("5", "dev-test-1", "Teléfono de prueba")), pc.hello)
         assertEquals(Message("ACCT", listOf("ana.gomez", "Ana Gómez")), pc.acct)
         assertEquals(listOf(EstadoCuentaPc("ana.gomez", "ACTIVO", "OPERADOR", null)), estadosCuenta)
         assertTrue(estados().all { it == Estado.CONFIRMADO })
@@ -203,5 +209,80 @@ class SyncClientTest {
         val pc = FakePc(estadoCuenta = "SUSPENDIDO")
         sync(pc)
         assertTrue(pc.inicios.isEmpty())
+    }
+
+    // ------------------------------------------------------------------ fotos (protocolo 5)
+    private fun foto(seq: Long, bytes: Int = 10_000): ByteArray {
+        val datos = ByteArray(bytes) { (it * 7 + seq).toByte() }
+        val temporal = carpeta.newFile().apply { writeBytes(datos) }
+        fotos.adjuntar(seq, temporal)
+        return datos
+    }
+
+    private fun estadoFoto(seq: Long) = db.fotos().porSeq(seq)!!.estado
+
+    @Test
+    fun lasFotosSalenDespuesDeLasLecturasYQuedanEnviadas() {
+        cargar(3)
+        val datos = foto(2)
+        val pc = FakePc()
+        val eventos = sync(pc)
+        assertArrayEquals(datos, pc.fotos[2L])
+        assertEquals(FotoEntity.ENVIADA, estadoFoto(2))
+        assertEquals(listOf("REC", "REC", "REC", "FOTO", "FOTO", "FOTO", "FOTO", "FOTO", "END"), pc.recibidos)
+        assertEquals(SyncProgress.Done(aceptados = 3, rechazados = 0, pendientes = 0), eventos.last())
+        assertEquals(0, fotos.contarPendientes())
+    }
+
+    @Test
+    fun fotoGrandeQuedaRechazadaYConCrcMaloSeReintenta() {
+        cargar(2)
+        foto(1)
+        foto(2)
+        sync(FakePc(fotoErr = mapOf(1L to "GRANDE", 2L to "CRC")))
+        assertEquals(FotoEntity.RECHAZADA, estadoFoto(1))
+        assertEquals(FotoEntity.PENDIENTE, estadoFoto(2))
+        assertEquals(1, fotos.contarPendientes())
+    }
+
+    @Test(timeout = 20_000)
+    fun unNakEnLaUltimaParteDeUnaFotoNoCuelgaLaSincronizacion() {
+        cargar(2)
+        foto(2)
+        val eventos = sync(FakePc(nakFotoFinal = 2))
+        assertEquals(FotoEntity.PENDIENTE, estadoFoto(2))       // se reintenta en la próxima sesión
+        assertTrue(estados().all { it == Estado.CONFIRMADO })
+        assertTrue(eventos.last() is SyncProgress.Done)
+    }
+
+    @Test
+    fun corteAMitadDeUnaFotoLaDejaPendienteYLasLecturasConfirmadas() {
+        cargar(2)
+        foto(2)
+        sync(FakePc(cutOnFotoPart = 3))
+        assertEquals(FotoEntity.PENDIENTE, estadoFoto(2))
+        assertTrue(estados().all { it == Estado.CONFIRMADO })   // la primera parte ya hizo confirmar las lecturas
+    }
+
+    @Test
+    fun fotoDeUnaLecturaDeOtraSesionSaleSola() {
+        cargar(2)
+        sync(FakePc())                       // las lecturas ya están en el PC
+        val datos = foto(1, bytes = 500)     // y luego se adjunta la foto (p. ej. no se pudo enviar antes)
+        val pc = FakePc(lastSeq = 2)
+        sync(pc)
+        assertArrayEquals(datos, pc.fotos[1L])
+        assertEquals(listOf("FOTO", "END"), pc.recibidos)
+    }
+
+    @Test
+    fun conCuentaSuspendidaNoSalenFotos() {
+        cargar(1)
+        sync(FakePc())
+        foto(1)
+        val pc = FakePc(estadoCuenta = "SUSPENDIDO", lastSeq = 1)
+        sync(pc)
+        assertTrue(pc.fotos.isEmpty())
+        assertEquals(FotoEntity.PENDIENTE, estadoFoto(1))
     }
 }

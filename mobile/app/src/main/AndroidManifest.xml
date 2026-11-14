@@ -30,6 +30,14 @@
         <activity android:name=".ui.AuthActivity" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ui.EstadoCuentaActivity" android:screenOrientation="portrait" />
         <activity android:name=".ui.PerfilActivity" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize" />
+        <!-- Fase 4: la cámara escribe la foto de evidencia en la caché de la app a través de este proveedor. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fotos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/rutas_fotos" />
+        </provider>
         <activity android:name=".ui.TareasActivity" android:screenOrientation="portrait" />
         <activity android:name=".ui.ContarActivity" android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ui.LecturasActivity" android:screenOrientation="portrait" />

@@ -6,7 +6,7 @@ import pyqtgraph as pg
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
-from .. import auth, db
+from .. import auth, db, tareas
 from ..models import fmt_cop, fmt_pct
 from . import widgets
 from .base import QueryRunner, StateBanner
@@ -228,7 +228,8 @@ class DashboardView(QWidget):
         self.btn_cerrar.setEnabled(False)
         self.btn_cerrar.setText("Cerrando…")
         id_conteo = self._id
-        self._runner.run(db.cerrar_conteo, lambda _: self._cerrado(id_conteo), self._error_cierre, id_conteo)
+        self._runner.run(tareas.cerrar_conteo, lambda _: self._cerrado(id_conteo), self._error_cierre,
+                         self._sesion, id_conteo)
 
     def _cerrado(self, id_conteo: str) -> None:
         self.conteo_cerrado.emit(id_conteo)

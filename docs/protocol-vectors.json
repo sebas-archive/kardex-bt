@@ -1,19 +1,19 @@
 {
-  "version": 4,
+  "version": 5,
   "descripcion": "Vectores compartidos Python/Kotlin. frame_fields = kind + campos ya codificados (lo que recibe frame()); fields = campos decodificados sin el kind (lo que devuelve parse()). line = linea completa sin el salto de linea final.",
   "vectors": [
     {
       "name": "hello",
-      "line": "HELLO|4|dev-0001|Bodega Norte*E3FC18A3",
+      "line": "HELLO|5|dev-0001|Bodega Norte*788FF277",
       "frame_fields": [
         "HELLO",
-        "4",
+        "5",
         "dev-0001",
         "Bodega Norte"
       ],
       "kind": "HELLO",
       "fields": [
-        "4",
+        "5",
         "dev-0001",
         "Bodega Norte"
       ]
@@ -34,7 +34,7 @@
     },
     {
       "name": "rec_simple",
-      "line": "REC|1|1731170400000|CONT-2026-11|7701234000011|12.5|Ana|ok*3B3B9456",
+      "line": "REC|1|1731170400000|CONT-2026-11|7701234000011|12.5|Ana|ok|*09821DCF",
       "frame_fields": [
         "REC",
         "1",
@@ -43,7 +43,8 @@
         "7701234000011",
         "12.5",
         "Ana",
-        "ok"
+        "ok",
+        ""
       ],
       "kind": "REC",
       "fields": [
@@ -53,12 +54,13 @@
         "7701234000011",
         "12.5",
         "Ana",
-        "ok"
+        "ok",
+        ""
       ]
     },
     {
       "name": "rec_special_text",
-      "line": "REC|2|1731170401000|CONT-2026-11|7701234000012|3|Ñandú%7C%25|a%7Cb%0Ac%25😀*3D0238C5",
+      "line": "REC|2|1731170401000|CONT-2026-11|7701234000012|3|Ñandú%7C%25|a%7Cb%0Ac%25😀|*6082E69D",
       "frame_fields": [
         "REC",
         "2",
@@ -67,7 +69,8 @@
         "7701234000012",
         "3",
         "Ñandú%7C%25",
-        "a%7Cb%0Ac%25😀"
+        "a%7Cb%0Ac%25😀",
+        ""
       ],
       "kind": "REC",
       "fields": [
@@ -77,7 +80,8 @@
         "7701234000012",
         "3",
         "Ñandú|%",
-        "a|b\nc%😀"
+        "a|b\nc%😀",
+        ""
       ]
     },
     {
@@ -258,6 +262,66 @@
       "kind": "INICIO",
       "fields": [
         "T-001"
+      ]
+    },
+    {
+      "name": "rec_danados",
+      "line": "REC|3|1731170402000|CONT-2026-11|7701234000011|12.5|Ana|caja %7C rota|2*0E510FDF",
+      "frame_fields": [
+        "REC",
+        "3",
+        "1731170402000",
+        "CONT-2026-11",
+        "7701234000011",
+        "12.5",
+        "Ana",
+        "caja %7C rota",
+        "2"
+      ],
+      "kind": "REC",
+      "fields": [
+        "3",
+        "1731170402000",
+        "CONT-2026-11",
+        "7701234000011",
+        "12.5",
+        "Ana",
+        "caja | rota",
+        "2"
+      ]
+    },
+    {
+      "name": "foto",
+      "line": "FOTO|7|1|1|2AB97C3D|/9j/4EpGSUYAcHJ1ZWJh/9k=*68039CA2",
+      "frame_fields": [
+        "FOTO",
+        "7",
+        "1",
+        "1",
+        "2AB97C3D",
+        "/9j/4EpGSUYAcHJ1ZWJh/9k="
+      ],
+      "kind": "FOTO",
+      "fields": [
+        "7",
+        "1",
+        "1",
+        "2AB97C3D",
+        "/9j/4EpGSUYAcHJ1ZWJh/9k="
+      ]
+    },
+    {
+      "name": "fotoerr",
+      "line": "FOTOERR|7|CRC*9BFD32FE",
+      "frame_fields": [
+        "FOTOERR",
+        "7",
+        "CRC"
+      ],
+      "kind": "FOTOERR",
+      "fields": [
+        "7",
+        "CRC"
       ]
     }
   ]

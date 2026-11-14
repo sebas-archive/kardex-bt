@@ -90,6 +90,7 @@ CREATE TABLE registros_procesados (
     fecha_captura    TIMESTAMP          NOT NULL,
     vigente          CHAR(1)            DEFAULT 'S' NOT NULL,
     fecha_procesado  TIMESTAMP          DEFAULT SYSTIMESTAMP,
+    danados          NUMBER(12, 3),                            -- Fase 4: unidades dañadas de las contadas
     CONSTRAINT pk_registros_procesados PRIMARY KEY (id_registro),
     CONSTRAINT uq_registros_transito UNIQUE (id_transito),
     CONSTRAINT fk_registros_transito FOREIGN KEY (id_transito)
@@ -127,6 +128,16 @@ CREATE TABLE conciliacion (
 
 -- ------------------------------------------------------------ bitacoras
 CREATE SEQUENCE seq_sync START WITH 1 INCREMENT BY 1;
+
+-- Fase 4: fotos de evidencia. El archivo vive en la carpeta FOTOS_DIR del PC; aquí, su ruta relativa.
+CREATE TABLE fotos (
+    uuid_dispositivo  VARCHAR2(50 CHAR)  NOT NULL,
+    seq               NUMBER             NOT NULL,
+    ruta              VARCHAR2(200 CHAR) NOT NULL,
+    bytes             NUMBER             NOT NULL,
+    recibida          TIMESTAMP          DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT pk_fotos PRIMARY KEY (uuid_dispositivo, seq)
+);
 
 CREATE TABLE sync_sesiones (
     id                NUMBER            NOT NULL,

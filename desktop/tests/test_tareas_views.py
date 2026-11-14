@@ -29,10 +29,14 @@ def _sql(sql, **binds):
         conn.commit()
 
 
-def _leer(id_tarea, sku, cant, nota=""):
+def _leer(id_tarea, sku, cant, nota="", danados="", foto=None):
     with dbq._conexion() as conn:
         n = next(_seq)
-        staging(conn, "tst-tareas-esc", n, T0 + n * 1000, id_tarea, sku, cant, nota=nota)
+        staging(conn, "tst-tareas-esc", n, T0 + n * 1000, id_tarea, sku, cant, nota=nota, danados=danados)
+        if foto:
+            conn.cursor().execute("INSERT INTO fotos (uuid_dispositivo, seq, ruta, bytes) VALUES ('tst-tareas-esc', :s, :r, 9)",
+                                  s=n, r=foto)
+            conn.commit()
         conn.cursor().callproc("pkg_batch.procesar_pendientes")
 
 
@@ -98,8 +102,8 @@ def test_avance_reasignar_y_cerrar(qtbot, gente, monkeypatch):
     esperar(qtbot, lambda: _fila(vista, id_tarea)[4:] == ("1/2", "Enviada parcialmente"))
     vista.seleccionar(id_tarea)
     assert not vista.btn_reasignar.isEnabled()                    # ya empezó: no se reasigna
-    esperar(qtbot, lambda: vista.avance_filas() == [(ARROZ, "Arroz 500 g", "Sí", "3"),
-                                                    (JABON, "Jabón de Barra 300 g", "No", "")])
+    esperar(qtbot, lambda: vista.avance_filas() == [(ARROZ, "Arroz 500 g", "Sí", "3", ""),
+                                                    (JABON, "Jabón de Barra 300 g", "No", "", "")])
     monkeypatch.setattr(vtar, "confirmar", lambda *a: True)
     vista.btn_cerrar.click()
     esperar(qtbot, lambda: _fila(vista, id_tarea)[5] == "Cerrada")
@@ -182,8 +186,8 @@ def test_diferencias_muestra_y_filtra(qtbot, con_diferencia):
     _t, _ana, luis, id_tarea = con_diferencia
     vista = _vista(qtbot, DiferenciasView, luis)
     mias = [f for f in vista.filas() if f[0] == id_tarea]
-    assert (id_tarea, "Arroz 500 g", "ALM-01", "10", "7", "-3", "Faltante", "caja rota", "Pendiente") in mias
-    assert (id_tarea, "Jabón de Barra 300 g", "ALM-01", "10", "12", "+2", "Sobrante", "", "Pendiente") in mias
+    assert (id_tarea, "Arroz 500 g", "ALM-01", "10", "7", "-3", "Faltante", "caja rota", "Pendiente", "", "") in mias
+    assert (id_tarea, "Jabón de Barra 300 g", "ALM-01", "10", "12", "+2", "Sobrante", "", "Pendiente", "", "") in mias
     vista.combo_tipo.setCurrentIndex(vista.combo_tipo.findData("SOBRANTE"))
     assert all(f[6] == "Sobrante" for f in vista.filas())
     vista.combo_tipo.setCurrentIndex(0)
@@ -259,3 +263,34 @@ def test_avance_explica_las_lecturas_con_error(qtbot, gente):
     vista.seleccionar(id_tarea)
     esperar(qtbot, lambda: "SKU_DESCONOCIDO" in vista.lbl_errores.text() and "7709990001234" in vista.lbl_errores.text())
     assert not vista.lbl_errores.isHidden()
+
+
+
+# ------------------------------------------------------------------ Fase 4: dañados y fotos
+def test_foto_en_diferencias_y_en_el_avance(qtbot, gente, monkeypatch):
+    t, _ana, luis = gente
+    _sql("UPDATE existencias_tst SET cantidad = 10 WHERE codigo_almacen = 'ALM-01' AND sku IN (:a, :b)", a=ARROZ, b=JABON)
+    id_tarea = t.crear_tarea(luis, "Tarea", "ALM-01", "pedro", [ARROZ, JABON], "")
+    _leer(id_tarea, ARROZ, 7, nota="caja rota", danados="2", foto="tst-tareas-esc/77.jpg")
+    _leer(id_tarea, JABON, 12)
+    abiertas = []
+    monkeypatch.setattr(vdif, "ver_foto", lambda _p, ruta, *a: abiertas.append(ruta))
+    monkeypatch.setattr(vtar, "ver_foto", lambda _p, ruta, *a: abiertas.append(ruta))
+
+    difs = _vista(qtbot, DiferenciasView, luis)
+    difs.combo_tarea.setCurrentIndex(difs.combo_tarea.findData(id_tarea))
+    filas = {f[1]: f for f in difs.filas()}
+    assert filas["Arroz 500 g"][9:] == ("2", "📷") and filas["Jabón de Barra 300 g"][9:] == ("", "")
+    fila_arroz = [f[1] for f in difs.filas()].index("Arroz 500 g")
+    fila_jabon = [f[1] for f in difs.filas()].index("Jabón de Barra 300 g")
+    difs.tabla.cellClicked.emit(fila_jabon, 10)            # sin foto: no abre nada
+    difs.tabla.cellClicked.emit(fila_arroz, 9)             # otra columna: tampoco
+    difs.tabla.cellClicked.emit(fila_arroz, 10)
+    assert abiertas == ["tst-tareas-esc/77.jpg"]
+
+    tareas_v = _vista(qtbot, TareasView, luis)
+    tareas_v.seleccionar(id_tarea)
+    esperar(qtbot, lambda: tareas_v.tabla_avance.rowCount() == 2)
+    assert tareas_v.avance_filas()[0][4] == "📷"
+    tareas_v.tabla_avance.cellClicked.emit(0, 4)
+    assert abiertas[-1] == "tst-tareas-esc/77.jpg"

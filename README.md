@@ -79,6 +79,10 @@ adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 > al momento) y solicita ajustes en **Ajustes** o desde **Diferencias**. Un ajuste que cambia 10 % o más, o vale
 > $200.000 o más, espera la aprobación del Administrador.
 >
+> **Fotos, dañados y auditoría** (Fase 4, protocolo 5): en «Contar» el operador puede indicar dañados y adjuntar una
+> foto (cámara o galería). Las fotos viajan después de las lecturas y quedan en `fotos/` (carpeta del PC, fuera de git;
+> otra ruta con `FOTOS_DIR`); en **Diferencias** el 📷 las abre. **Auditoría** muestra quién hizo qué y cuándo.
+>
 > **Solo se sincroniza un teléfono a la vez** (D19): un segundo teléfono recibe «PC ocupado» y debe esperar.
 
 ### Uso en una frase

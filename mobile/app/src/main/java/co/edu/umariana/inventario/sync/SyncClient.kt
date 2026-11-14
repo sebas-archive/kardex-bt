@@ -2,6 +2,8 @@ package co.edu.umariana.inventario.sync
 
 import co.edu.umariana.inventario.data.Catalog
 import co.edu.umariana.inventario.data.CatalogRepository
+import co.edu.umariana.inventario.data.FotoEntity
+import co.edu.umariana.inventario.data.FotoRepository
 import co.edu.umariana.inventario.data.ItemTareaEntity
 import co.edu.umariana.inventario.data.TareaEntity
 import co.edu.umariana.inventario.data.Outbox
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.flowOn
 import java.io.BufferedOutputStream
 import java.io.Closeable
 import java.io.EOFException
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -77,6 +80,7 @@ class SyncClient(
     private val cuentaUsuario: String,
     private val cuentaNombre: String,
     private val alEstado: (EstadoCuentaPc) -> Unit = {},
+    private val fotos: FotoRepository? = null,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     fun sync(socket: BluetoothSocketLike): Flow<SyncProgress> = flow {
@@ -139,6 +143,7 @@ class SyncClient(
         var confirmed = last
         var next = last + 1
         var endSent = false
+        var fotosHechas = false
         while (true) {
             while (!endSent && next <= total && next - 1 - confirmed < WINDOW) {
                 val lectura = outbox.tomarParaEnviar(next)
@@ -148,11 +153,27 @@ class SyncClient(
                 }
                 out.write(
                     Rec(lectura.seq, lectura.tsOriginalMs + offset, lectura.idConteo, lectura.sku, lectura.cantidad,
-                        lectura.operador, lectura.nota).toFrame()
+                        lectura.operador, lectura.nota, lectura.danados).toFrame()
                 )
                 next++
             }
             if (!endSent && next > total) {
+                // Las fotos van después de las lecturas y antes del END (protocolo 5). Si el PC rechaza una lectura
+                // mientras tanto (NAK), se vuelve a las lecturas y las fotos se intentan otra vez después.
+                if (!fotosHechas && fotos != null) {
+                    val nak = enviarFotos(fotos, out, ::read) { confirmado ->
+                        confirmed = confirmado
+                        outbox.confirmarHasta(confirmado)
+                        emit(SyncProgress.Progress(confirmado, total))
+                    }
+                    if (nak != null && nak <= total) {   // rechazó una lectura: se reenvía y luego otra vez las fotos
+                        next = nak
+                        continue
+                    }
+                    // Un NAK más allá de la última lectura es de una línea de foto: hasta aquí llegan las fotos
+                    // de esta sesión (las que faltan siguen PENDIENTE).
+                    fotosHechas = true
+                }
                 out.write(Protocol.frame(listOf("END", maxOf(0L, total - last).toString())))
                 endSent = true
             }
@@ -174,6 +195,42 @@ class SyncClient(
                 }
             }
         }
+    }
+
+    /**
+     * Envía, una a una, las fotos cuya lectura ya salió. Espera FOTOOK o FOTOERR de cada una (atiende los ACK que
+     * lleguen en medio). Devuelve el seq de un NAK si el PC rechazó una lectura, o null si terminó.
+     */
+    private suspend fun enviarFotos(
+        fotos: FotoRepository, out: BufferedOutputStream, read: () -> Message, alAck: suspend (Long) -> Unit,
+    ): Long? {
+        var nak: Long? = null
+        for (foto in fotos.enviables()) {
+            val archivo = File(fotos.dir, foto.archivo)
+            if (!archivo.exists()) {  // se borró del teléfono: no hay nada que enviar
+                fotos.marcar(foto.seq, FotoEntity.RECHAZADA)
+                continue
+            }
+            for (linea in Protocol.fotoLineas(foto.seq, archivo.readBytes())) out.write(Protocol.frame(linea))
+            out.flush()
+            while (true) {
+                val m = read()
+                val esta = m.fields.firstOrNull() == foto.seq.toString()
+                when {
+                    m.kind == "ACK" -> alAck(m.fields[0].toLong())
+                    // Un NAK aquí puede ser de una parte de esta foto (CRC de línea): el PC ya no mandará FOTOOK ni
+                    // FOTOERR, así que no se espera más; la foto sigue PENDIENTE y se reintenta en la próxima sesión.
+                    m.kind == "NAK" -> { nak = m.fields[0].toLong(); break }
+                    m.kind == "FOTOOK" && esta -> { fotos.marcar(foto.seq, FotoEntity.ENVIADA); break }
+                    m.kind == "FOTOERR" && esta -> {
+                        if (m.fields[1] == "GRANDE") fotos.marcar(foto.seq, FotoEntity.RECHAZADA)  // CRC/otros: se reintenta
+                        break
+                    }
+                }
+            }
+            if (nak != null) return nak
+        }
+        return null
     }
 
     private fun readCatalog(read: () -> Message): Catalog {

@@ -23,7 +23,7 @@ BY_NAME = {v["name"]: v for v in VECTORS}
 
 
 def test_frame_matches_all_vectors():
-    assert len(VECTORS) == 15
+    assert len(VECTORS) == 18
     for v in VECTORS:
         assert frame(v["frame_fields"]) == v["line"].encode("utf-8") + b"\n", v["name"]
 
@@ -59,12 +59,12 @@ def test_too_few_fields_raises_format():
 
 
 def test_line_over_4000_bytes_raises_linea_larga():
-    base = frame(["REC", "1", "2", "C", "S", "1", "Ana", ""])
+    base = frame(["REC", "1", "2", "C", "S", "1", "Ana", "", ""])
     pad = 4000 - (len(base) - 1)  # el limite cuenta la linea sin el salto final
-    exactly_4000 = frame(["REC", "1", "2", "C", "S", "1", "Ana", "x" * pad])
+    exactly_4000 = frame(["REC", "1", "2", "C", "S", "1", "Ana", "x" * pad, ""])
     assert len(exactly_4000) - 1 == 4000
     assert parse(exactly_4000).kind == "REC"  # 4000 bytes: todavia valido
-    too_long = frame(["REC", "1", "2", "C", "S", "1", "Ana", "x" * (pad + 1)])
+    too_long = frame(["REC", "1", "2", "C", "S", "1", "Ana", "x" * (pad + 1), ""])
     with pytest.raises(FrameError) as exc:
         parse(too_long)
     assert exc.value.reason == "LINEA_LARGA"
@@ -83,7 +83,7 @@ def test_rec_to_raw_excludes_crc():
     )
     assert (
         simple.to_raw()
-        == "REC|1|1731170400000|CONT-2026-11|7701234000011|12.5|Ana|ok"
+        == "REC|1|1731170400000|CONT-2026-11|7701234000011|12.5|Ana|ok|"
     )
     # Con texto raro: to_raw vuelve a producir la forma de cable (sin el CRC).
     special = Rec.from_message(parse(BY_NAME["rec_special_text"]["line"].encode("utf-8")))
@@ -94,7 +94,7 @@ def test_rec_to_raw_excludes_crc():
 
 def test_cli_frame_prints_vector():
     result = subprocess.run(
-        [sys.executable, "-m", "btsync.protocol", "--frame", "HELLO", "4", "dev-0001", "Bodega Norte"],
+        [sys.executable, "-m", "btsync.protocol", "--frame", "HELLO", "5", "dev-0001", "Bodega Norte"],
         capture_output=True,
         text=True,
         check=True,
@@ -116,7 +116,7 @@ def test_mensajes_de_tareas_exigen_sus_campos():
 
 def test_acct_acctst_round_trip_con_crc():
     from btsync.protocol import PROTOCOL_VERSION
-    assert PROTOCOL_VERSION == "4"
+    assert PROTOCOL_VERSION == "5"
     suspendido = BY_NAME["acctst_suspendido"]
     msg = parse(suspendido["line"].encode("utf-8") + b"\n")
     assert msg.kind == "ACCTST" and msg.fields[3] == "Revisar | inventario al 100%\nhabla con el jefe"
@@ -125,3 +125,18 @@ def test_acct_acctst_round_trip_con_crc():
         parse(frame(["ACCT", "solo-usuario"]))          # ACCT exige usuario y nombre
     with pytest.raises(FrameError):
         parse(frame(["ACCTST", "luis", "ACTIVO"]))      # ACCTST exige 4 campos
+
+
+def test_rec_lleva_danados_y_foto_viaja_en_partes():
+    from btsync.protocol import Rec, foto_lineas
+    rec = Rec.from_message(parse(BY_NAME["rec_danados"]["line"].encode() + b"\n"))
+    assert (rec.cantidad, rec.danados) == ("12.5", "2")
+    with pytest.raises(FrameError):
+        parse(frame(["REC", "1", "2", "C", "S", "1", "Ana", ""]))      # 8 partes: protocolo 4
+    datos = bytes(range(256)) * 30                                    # 7680 bytes → base64 10240 → 4 partes
+    lineas = foto_lineas(7, datos)
+    assert [x[:4] for x in lineas] == [["FOTO", "7", str(n), "4"] for n in range(1, 5)]
+    assert all(len(frame(x)) <= 4000 for x in lineas)
+    import base64, zlib
+    assert base64.b64decode("".join(x[5] for x in lineas)) == datos
+    assert lineas[0][4] == f"{zlib.crc32(datos) & 0xFFFFFFFF:08X}"

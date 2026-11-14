@@ -35,11 +35,15 @@ def gente(cuentas, tareas_db):
 _seq = iter(range(1, 100_000))
 
 
-def _leer(id_tarea, sku, cant, nota=""):
-    """Una lectura del móvil, procesada por el batch."""
+def _leer(id_tarea, sku, cant, nota="", danados="", foto=None):
+    """Una lectura del móvil, procesada por el batch; con ``foto`` (ruta relativa) también llegó su foto."""
     with dbq._conexion() as conn:
         n = next(_seq)
-        staging(conn, "tst-tareas-esc", n, T0 + n * 1000, id_tarea, sku, cant, nota=nota)
+        staging(conn, "tst-tareas-esc", n, T0 + n * 1000, id_tarea, sku, cant, nota=nota, danados=danados)
+        if foto:
+            conn.cursor().execute("INSERT INTO fotos (uuid_dispositivo, seq, ruta, bytes) VALUES ('tst-tareas-esc', :s, :r, 9)",
+                                  s=n, r=foto)
+            conn.commit()
         conn.cursor().callproc("pkg_batch.procesar_pendientes")
 
 
@@ -133,7 +137,7 @@ def test_cerrar_y_avance(gente):
     t, _ana, luis = gente
     id_tarea = _crear(t, luis)
     _leer(id_tarea, ARROZ, 4)
-    assert t.avance(id_tarea) == [(ARROZ, "Arroz 500 g", True, 4.0), (JABON, "Jabón de Barra 300 g", False, None)]
+    assert t.avance(id_tarea) == [(ARROZ, "Arroz 500 g", True, 4.0, ""), (JABON, "Jabón de Barra 300 g", False, None, "")]
     t.cerrar(luis, id_tarea)
     assert next(x for x in t.listar_tareas() if x.id == id_tarea).estado == bt.CERRADA
 
@@ -155,7 +159,7 @@ def test_listar_diferencias(gente):
     t, _ana, luis = gente
     id_tarea = _con_diferencias(t, luis)
     assert _difs(t, id_tarea) == [t.Diferencia(id_tarea, ARROZ, "Arroz 500 g", "ALM-01", 10.0, 7.0, -3.0, "FALTANTE",
-                                                "caja rota", t.PENDIENTE)]
+                                                "caja rota", t.PENDIENTE, None, "")]
 
 
 def test_marcar_revisada_y_pedir_recuento(gente):
@@ -240,3 +244,36 @@ def test_errores_de_la_tarea_dicen_por_que(gente):
     id_tarea = _crear(t, luis)
     _leer(id_tarea, "7709990001234", 3)            # SKU desconocido
     assert t.errores(id_tarea) == [("7709990001234", "SKU_DESCONOCIDO")]
+
+
+
+# ------------------------------------------------------------------ Fase 4: dañados y foto
+def test_diferencia_y_avance_traen_danados_y_foto(gente):
+    t, _ana, luis = gente
+    _sql("UPDATE existencias_tst SET cantidad = 10 WHERE codigo_almacen = 'ALM-01' AND sku = :a", a=ARROZ)
+    id_tarea = _crear(t, luis, skus=(ARROZ,))
+    _leer(id_tarea, ARROZ, 7, nota="caja rota", danados="2", foto="tst-tareas-esc/1.jpg")
+    d = _difs(t, id_tarea)[0]
+    assert (d.danados, d.foto) == (2.0, "tst-tareas-esc/1.jpg")
+    assert t.avance(id_tarea) == [(ARROZ, "Arroz 500 g", True, 7.0, "tst-tareas-esc/1.jpg")]
+
+
+def test_recuento_sin_foto_no_hereda_la_foto_vieja(gente):
+    t, _ana, luis = gente
+    _sql("UPDATE existencias_tst SET cantidad = 10 WHERE codigo_almacen = 'ALM-01' AND sku = :a", a=ARROZ)
+    id_tarea = _crear(t, luis, skus=(ARROZ,))
+    _leer(id_tarea, ARROZ, 7, foto="tst-tareas-esc/vieja.jpg")
+    _leer(id_tarea, ARROZ, 6)                         # recuento: la lectura vigente no tiene foto
+    assert _difs(t, id_tarea)[0].foto == ""
+
+
+def test_leer_foto_que_no_esta(tmp_path, monkeypatch):
+    from app.views import foto
+    monkeypatch.setenv("FOTOS_DIR", str(tmp_path))
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "1.jpg").write_bytes(b"\xff\xd8x")
+    assert foto.leer_foto("a/1.jpg") == b"\xff\xd8x"
+    with pytest.raises(ErrorDeAcceso, match="no está en la carpeta del PC"):
+        foto.leer_foto("a/2.jpg")
+    with pytest.raises(ErrorDeAcceso, match="no está en la carpeta del PC"):
+        foto.leer_foto("../../etc/passwd")      # nunca sale de la carpeta de fotos

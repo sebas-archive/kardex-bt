@@ -63,6 +63,7 @@ data class HomeUi(
     val pendientes: Int = 0,
     val total: Int = 0,
     val hayCatalogo: Boolean = true,
+    val fotosPendientes: Int = 0,
 )
 
 /** Inicio: quién cuenta, dónde, cuánto falta por enviar y los cuatro caminos de la app. */
@@ -129,6 +130,10 @@ private fun Portada(ui: HomeUi, alElegir: () -> Unit, alPerfil: () -> Unit) {
                 Column(Modifier.padding(bottom = 10.dp)) {
                     Text(if (ui.pendientes == 1) "lectura por enviar" else "lecturas por enviar", color = Color.White, style = MaterialTheme.typography.titleMedium)
                     Text("${ui.total} guardadas en el teléfono", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                    if (ui.fotosPendientes > 0) {
+                        Text(if (ui.fotosPendientes == 1) "📷 1 foto por enviar" else "📷 ${ui.fotosPendientes} fotos por enviar",
+                            color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

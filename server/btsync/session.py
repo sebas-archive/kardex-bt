@@ -9,8 +9,11 @@ Las reglas de ACK, NAK y retroceso están en docs/protocolo.md.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 import time
+import zlib
 from typing import Callable
 
 import oracledb
@@ -19,10 +22,14 @@ from .protocol import PROTOCOL_VERSION, FrameError, Message, Rec, encode_text, f
 from .store import Store
 from .transports.base import Connection
 
+_UUID = re.compile(r"[A-Za-z0-9-]{1,50}")
+
 COMMIT_EVERY = 25
 USUARIO = re.compile(r"[a-z0-9._-]{3,30}")   # como desktop/app/auth.py (el móvil admite hasta 20)
 MAX_NOMBRE = 60
 
+
+MAX_FOTO = 2 * 1024 * 1024   # bytes de una foto ya decodificada; más grande: FOTOERR GRANDE
 
 def time_ms() -> int:
     return int(time.time() * 1000)
@@ -51,6 +58,7 @@ class Session:
         self.nak_active = False      # go-back-N: se ignora todo hasta el seq esperado
         self.cuenta_activa = False   # según ACCTST: sin cuenta ACTIVO no se aceptan REC ni INICIO
         self.usuario = ""
+        self.fotos: dict[int, dict] = {}   # fotos a medio llegar, por seq de su lectura
 
     # ------------------------------------------------------------------ API
     def run(self) -> None:
@@ -93,6 +101,8 @@ class Session:
                 # tarea ajena, cerrada o inexistente no cambia nada.
                 if self.cuenta_activa:
                     self.store.marcar_iniciada(self.usuario, msg.fields[0])
+            elif msg.kind == "FOTO":
+                self._on_foto(msg)
             elif msg.kind == "END":
                 self._on_end()
                 return
@@ -108,7 +118,8 @@ class Session:
         except FrameError as exc:
             self._send(["NAK", "0", exc.reason])
             return False
-        if msg.kind != "HELLO" or msg.fields[0] != PROTOCOL_VERSION:
+        # El uuid acaba en una ruta de disco (la carpeta de sus fotos): solo letras, dígitos y guiones.
+        if msg.kind != "HELLO" or msg.fields[0] != PROTOCOL_VERSION or not _UUID.fullmatch(msg.fields[1]):
             self._send(["NAK", "0", "FORMAT"])
             return False
         self.uuid, name = msg.fields[1], msg.fields[2]
@@ -186,6 +197,51 @@ class Session:
         self.nak_active = False
         if self.pending >= COMMIT_EVERY:
             self._commit_and_ack()
+
+    def _on_foto(self, msg: Message) -> None:
+        """Arma una foto parte a parte (en memoria: un corte no deja nada en disco) y, completa y con el CRC bien,
+        la guarda y responde FOTOOK. Cualquier problema: FOTOERR y la foto se descarta (el móvil la reintenta)."""
+        f = msg.fields
+        try:
+            seq, parte, total = int(f[0]), int(f[1]), int(f[2])
+        except ValueError:
+            self._send(["FOTOERR", f[0], "FORMAT"])
+            return
+        crc, trozo = f[3], f[4]
+        actual = self.fotos.get(seq)
+        if parte == 1:
+            if self.pending:   # las lecturas que acaban de llegar quedan confirmadas antes de la foto
+                self._commit_and_ack()
+            actual = self.fotos[seq] = {"total": total, "crc": crc, "trozos": [], "largo": 0}
+        if actual is None or actual.get("descartada") or parte != len(actual["trozos"]) + 1 or total != actual["total"]:
+            if actual is None or not actual.get("descartada"):
+                self._send(["FOTOERR", str(seq), "FORMAT"])
+            self.fotos[seq] = {"descartada": True}
+            return
+        actual["trozos"].append(trozo)
+        actual["largo"] += len(trozo)
+        if actual["largo"] * 3 // 4 > MAX_FOTO:
+            self.fotos[seq] = {"descartada": True}
+            self._send(["FOTOERR", str(seq), "GRANDE"])
+            return
+        if parte < total:
+            return
+        del self.fotos[seq]
+        try:
+            datos = base64.b64decode("".join(actual["trozos"]), validate=True)
+        except (ValueError, binascii.Error):
+            self._send(["FOTOERR", str(seq), "FORMAT"])
+            return
+        if f"{zlib.crc32(datos) & 0xFFFFFFFF:08X}" != actual["crc"]:   # el que anunció la primera parte
+            self._send(["FOTOERR", str(seq), "CRC"])
+            return
+        if not self.cuenta_activa or not self.store.existe_rec(self.uuid, seq):
+            self._send(["FOTOERR", str(seq), "SIN_LECTURA"])
+            return
+        self.store.guardar_foto(self.uuid, seq, datos)
+        self.store.commit()
+        self._send(["FOTOOK", str(seq)])
+        self.on_event("foto", {"seq": seq, "bytes": len(datos)})
 
     def _commit_and_ack(self) -> None:
         self.store.commit()

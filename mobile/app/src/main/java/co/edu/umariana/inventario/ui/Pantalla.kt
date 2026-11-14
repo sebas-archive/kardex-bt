@@ -61,6 +61,7 @@ fun SaveResult.mensaje(): String = when (this) {
     SaveResult.SkuFaltante -> "Escanea o escribe el SKU"
     SaveResult.CantidadInvalida -> "Cantidad inválida: usa números con punto decimal (hasta 9 enteros y 3 decimales)"
     SaveResult.NotaLarga -> "La nota admite hasta ${CountViewModel.MAX_NOTA} caracteres"
+    SaveResult.DanadosInvalidos -> "Los dañados deben ser un número (punto decimal) y no más que la cantidad"
 }
 
 /** El mensaje de cada resultado de acceso que no es un éxito. */

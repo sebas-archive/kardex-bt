@@ -1,17 +1,22 @@
 package co.edu.umariana.inventario.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import co.edu.umariana.inventario.fotos.Compresor
 import androidx.lifecycle.lifecycleScope
 import co.edu.umariana.inventario.scan.CodigoEscaneado
 import co.edu.umariana.inventario.ui.pantallas.ContarScreen
 import co.edu.umariana.inventario.ui.pantallas.ContarUi
+import co.edu.umariana.inventario.ui.pantallas.LecturaFila
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.math.BigDecimal
 
 /**
@@ -39,14 +45,25 @@ class ContarActivity : PantallaActivity() {
         if (concedido) lanzarEscaner() else aviso("Sin permiso de cámara: escribe el SKU a mano")
     }
 
+    // ---- foto de evidencia (Fase 4): se toma o se elige, se comprime fuera del hilo de la interfaz y se muestra.
+    private val captura by lazy { File(cacheDir, "camara/captura.jpg").apply { parentFile?.mkdirs() } }
+    private val tomarFoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) comprimirFoto { captura.inputStream() }
+    }
+    private val elegirFoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) comprimirFoto { contentResolver.openInputStream(uri) ?: error("sin datos") }
+    }
+    private val permisoFoto = registerForActivityResult(ActivityResultContracts.RequestPermission()) { concedido ->
+        if (concedido) lanzarCamara() else aviso("Sin permiso de cámara: elige la foto de la galería")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val conteo = s.contar.conteo.value
         if (conteo == null) { finish(); return }
 
         val skuACorregir = intent.getStringExtra(EXTRA_SKU)
-        ui = ContarUi(conteo, edicion = skuACorregir != null,
-            cantidad = intent.getStringExtra(EXTRA_CANTIDAD).orEmpty(), nota = intent.getStringExtra(EXTRA_NOTA).orEmpty())
+        ui = uiInicial(conteo, intent)
         if (skuACorregir != null) cambiarSku(skuACorregir, espera = 0)
 
         pantalla {
@@ -59,6 +76,12 @@ class ContarActivity : PantallaActivity() {
                 alEscanear = ::escanear,
                 alGuardar = ::guardar,
                 alVolver = { finish() },
+                alCambiarDanados = { ui = ui.copy(danados = it, error = null) },
+                alCamara = ::camara,
+                alGaleria = {
+                    elegirFoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                alQuitarFoto = { ui = ui.copy(foto = null) },
             )
         }
     }
@@ -76,6 +99,21 @@ class ContarActivity : PantallaActivity() {
             .setBeepEnabled(true)
             .setOrientationLocked(false)
     )
+
+    private fun camara() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) lanzarCamara()
+        else permisoFoto.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun lanzarCamara() = tomarFoto.launch(FileProvider.getUriForFile(this, "$packageName.fotos", captura))
+
+    private fun comprimirFoto(abrir: () -> java.io.InputStream) {
+        lifecycleScope.launch {
+            val destino = File(cacheDir, "fotos-nuevas/${System.currentTimeMillis()}.jpg")
+            val ok = withContext(Dispatchers.IO) { runCatching { Compresor.comprimir(abrir(), destino) }.isSuccess }
+            if (ok) ui = ui.copy(foto = destino.path, error = null) else aviso("No se pudo leer esa foto")
+        }
+    }
 
     private fun sumar(paso: Int) {
         val actual = ui.cantidad.toBigDecimalOrNull() ?: BigDecimal.ZERO
@@ -101,7 +139,9 @@ class ContarActivity : PantallaActivity() {
         if (ui.exito) return  // todavía se está mostrando la confirmación del guardado anterior
         val actual = ui
         lifecycleScope.launch {
-            val resultado = withContext(Dispatchers.IO) { s.contar.guardar(actual.sku, actual.cantidad, actual.nota) }
+            val resultado = withContext(Dispatchers.IO) {
+                s.contar.guardar(actual.sku, actual.cantidad, actual.nota, actual.danados, actual.foto?.let(::File))
+            }
             if (resultado !is SaveResult.Guardada) {
                 ui = ui.copy(error = resultado.mensaje())
                 return@launch
@@ -119,5 +159,20 @@ class ContarActivity : PantallaActivity() {
         const val EXTRA_SKU = "sku"
         const val EXTRA_CANTIDAD = "cantidad"
         const val EXTRA_NOTA = "nota"
+        const val EXTRA_DANADOS = "danados"
+
+        /** Los extras para corregir [fila]: lo que ya tenía la lectura (también los dañados, o se perderían). */
+        fun correccion(intent: Intent, fila: LecturaFila): Intent = intent
+            .putExtra(EXTRA_SKU, fila.sku)
+            .putExtra(EXTRA_CANTIDAD, fila.cantidad)
+            .putExtra(EXTRA_NOTA, fila.nota)
+            .putExtra(EXTRA_DANADOS, fila.danados)
+
+        /** El estado con que abre la pantalla: vacío para contar, o precargado con [correccion]. */
+        fun uiInicial(conteo: String, intent: Intent) = ContarUi(conteo,
+            edicion = intent.getStringExtra(EXTRA_SKU) != null,
+            cantidad = intent.getStringExtra(EXTRA_CANTIDAD).orEmpty(),
+            nota = intent.getStringExtra(EXTRA_NOTA).orEmpty(),
+            danados = intent.getStringExtra(EXTRA_DANADOS).orEmpty())
     }
 }

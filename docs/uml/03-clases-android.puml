@@ -177,6 +177,11 @@ package "data (Room)" {
   class TareaEntity
   class ItemTareaEntity
   class InicioEntity
+  class FotoEntity
+  class FotoRepository {
+    +adjuntar(seq, temporal)
+    +enviables()
+  }
   class ProductoEntity
 }
 

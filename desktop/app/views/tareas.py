@@ -17,9 +17,10 @@ from btsync import tareas as bt
 
 from .. import auth, maestros, tareas
 from .base import QueryRunner, StateBanner
+from .foto import ver_foto
 
 ENCABEZADOS = ("Tarea", "Almacén", "Operador", "Productos", "Avance", "Estado")
-ENCABEZADOS_AVANCE = ("Código", "Producto", "Contado", "Cantidad")
+ENCABEZADOS_AVANCE = ("Código", "Producto", "Contado", "Cantidad", "Foto")
 COLOR_ESTADO = {bt.CON_DIFERENCIAS: "#FBBF24", bt.CON_ERROR: "#F87171", bt.SINCRONIZADA: "#4ADE80"}
 
 
@@ -223,6 +224,7 @@ class TareasView(QWidget):
         raiz.addWidget(self.tabla_avance, 2)
 
         self.tabla.itemSelectionChanged.connect(self._al_elegir)
+        self.tabla_avance.cellClicked.connect(self._clic_avance)
         for combo in (self.combo_estado, self.combo_operador):
             combo.currentIndexChanged.connect(self._filtrar)
         self.btn_nuevo.clicked.connect(lambda: self._nuevo())   # clicked pasa «checked»: no es lo escrito
@@ -340,10 +342,15 @@ class TareasView(QWidget):
                                      "en el teléfono o pide al administrador que las reprocese.")
         self.lbl_errores.setVisible(bool(errores))
         self.tabla_avance.setRowCount(len(self._avance))
-        for fila, (sku, nombre, contado, cantidad) in enumerate(self._avance):
-            for columna, texto in enumerate((sku, nombre, "Sí" if contado else "No", _numero(cantidad))):
+        for fila, (sku, nombre, contado, cantidad, foto) in enumerate(self._avance):
+            for columna, texto in enumerate((sku, nombre, "Sí" if contado else "No", _numero(cantidad), "📷" if foto else "")):
                 self.tabla_avance.setItem(fila, columna, QTableWidgetItem(texto))
         self.tabla_avance.resizeColumnsToContents()
+
+    def _clic_avance(self, fila: int, columna: int) -> None:
+        if columna == len(ENCABEZADOS_AVANCE) - 1 and 0 <= fila < len(self._avance) and self._avance[fila][4]:
+            sku, nombre, *_resto, foto = self._avance[fila]
+            ver_foto(self, foto, f"{nombre} · {sku}")
 
     def _ajustar(self) -> None:
         gestiona, r = self._gestiona(), self._elegida()

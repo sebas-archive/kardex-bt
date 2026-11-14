@@ -54,13 +54,14 @@ class HomeActivity : PantallaActivity() {
             val (pendientes, total, hayCatalogo) = withContext(Dispatchers.IO) {
                 Triple(s.contar.contarPendientes(), s.contar.todasLasLecturas().size, s.contar.hayCatalogo())
             }
+            val fotos = withContext(Dispatchers.IO) { s.contar.fotosPendientes() }
             // Tras sincronizar: si la tarea actual se cerró o se reasignó, ya no se cuenta en ella.
             val soltada = withContext(Dispatchers.IO) { if (hayCatalogo) s.contar.soltarTareaSiYaNoEsta() else null }
             if (soltada != null) {
                 android.widget.Toast.makeText(this@HomeActivity, "La tarea $soltada ya no está asignada a ti.",
                     android.widget.Toast.LENGTH_LONG).show()
             }
-            ui = HomeUi(sesion.nombre, Rol.nombre(sesion.rol), s.contar.conteo.value, pendientes, total, hayCatalogo)
+            ui = HomeUi(sesion.nombre, Rol.nombre(sesion.rol), s.contar.conteo.value, pendientes, total, hayCatalogo, fotos)
         }
     }
 }

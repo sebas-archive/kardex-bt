@@ -83,6 +83,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         l_cant    VARCHAR2(4000);
         l_oper    VARCHAR2(4000);
         l_nota    VARCHAR2(4000);
+        l_danados VARCHAR2(4000);   -- protocolo 5: unidades danadas de las contadas (vacio si no se indico)
         l_n       PLS_INTEGER;
     BEGIN
         l_ts := campo(p_raw, 3);
@@ -95,6 +96,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         l_cant   := texto(campo(p_raw, 6));
         l_oper   := texto(campo(p_raw, 7));
         l_nota   := texto(campo(p_raw, 8));
+        l_danados := texto(campo(p_raw, 9));
 
         SELECT COUNT(*) INTO l_n FROM conteos WHERE id_conteo = l_conteo AND estado = 'ABIERTO';
         IF l_n = 0 THEN
@@ -108,9 +110,14 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         IF l_cant IS NULL OR NOT REGEXP_LIKE(l_cant, '^[0-9]{1,9}(\.[0-9]{1,3})?$') THEN
             fallar('CANTIDAD_INVALIDA');
         END IF;
+        -- Danados: el mismo formato que la cantidad y nunca mas que lo contado.
+        IF l_danados IS NOT NULL AND (NOT REGEXP_LIKE(l_danados, '^[0-9]{1,9}(\.[0-9]{1,3})?$')
+           OR TO_NUMBER(l_danados, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,''') > TO_NUMBER(l_cant, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,''')) THEN
+            fallar('DANADOS_INVALIDO');
+        END IF;
 
         INSERT INTO registros_procesados
-            (id_transito, id_conteo, sku, cantidad, operador, nota, fecha_captura, vigente)
+            (id_transito, id_conteo, sku, cantidad, operador, nota, fecha_captura, vigente, danados)
         VALUES
             (p_id, l_conteo, l_sku,
              -- Mascara fija: no depende del NLS de la sesion.
@@ -118,7 +125,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
              SUBSTR(l_oper, 1, 60), SUBSTR(l_nota, 1, 255),
              -- epoch_ms -> TIMESTAMP en UTC.
              TIMESTAMP '1970-01-01 00:00:00' + NUMTODSINTERVAL(TO_NUMBER(l_ts) / 1000, 'SECOND'),
-             'N');
+             'N',
+             CASE WHEN l_danados IS NULL THEN NULL ELSE TO_NUMBER(l_danados, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,''') END);
 
         recalcular_vigente(l_conteo, l_sku);
         g_conteos(l_conteo) := TRUE;
@@ -319,7 +327,10 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
            AND t.fecha_recepcion < SYSTIMESTAMP - NUMTODSINTERVAL(p_dias, 'DAY')
            AND t.seq < (SELECT MAX(u.seq)
                           FROM captura_transito u
-                         WHERE u.uuid_dispositivo = t.uuid_dispositivo);
+                         WHERE u.uuid_dispositivo = t.uuid_dispositivo)
+           -- FOTO_PROTEGIDA: la fila de una lectura con foto enlaza la evidencia (uuid, seq) con su registro.
+           AND NOT EXISTS (SELECT 1 FROM fotos f
+                            WHERE f.uuid_dispositivo = t.uuid_dispositivo AND f.seq = t.seq);
         COMMIT;
     END purgar_transito;
 

@@ -50,7 +50,8 @@ import co.edu.umariana.inventario.ui.componentes.colorDeEstado
 import co.edu.umariana.inventario.ui.componentes.textoDeEstado
 import co.edu.umariana.inventario.ui.theme.Cifra
 
-data class LecturaFila(val sku: String, val nombre: String?, val cantidad: String, val estado: String, val nota: String)
+data class LecturaFila(val sku: String, val nombre: String?, val cantidad: String, val estado: String, val nota: String,
+                       val foto: Boolean = false, val danados: String = "")
 
 /** Lo contado en el conteo actual; tocar una fila la corrige (recontar). */
 @Composable
@@ -91,6 +92,10 @@ private fun TarjetaLectura(fila: LecturaFila, alPulsar: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     PildoraEstado(fila.estado)
+                    if (fila.foto) Text("  📷", style = MaterialTheme.typography.bodySmall)
+                    if (fila.danados.isNotBlank()) {
+                        Text("  ${fila.danados} dañados", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
                     if (fila.nota.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
                         Text(fila.nota, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -32,7 +32,7 @@ class FakeConnection:
 
 
 def hello(uuid=UUID) -> bytes:
-    return frame(["HELLO", "4", uuid, "Bodega Test"])
+    return frame(["HELLO", "5", uuid, "Bodega Test"])
 
 
 def acct(usuario=OPERADOR_ACTIVO, nombre="Operador de prueba") -> bytes:
@@ -45,7 +45,7 @@ def inicio(uuid=UUID, usuario=OPERADOR_ACTIVO) -> list[bytes]:
 
 
 def rec(seq: int, nota: str = "") -> bytes:
-    return frame(["REC", str(seq), str(NOW + seq), CONTEO, "7701234000001", "1", "Ana", nota])
+    return frame(["REC", str(seq), str(NOW + seq), CONTEO, "7701234000001", "1", "Ana", nota, ""])
 
 
 def end(n: int) -> bytes:
@@ -161,7 +161,7 @@ def test_seq_gap_naks_once_and_ignores_followers(store, db):
 
 
 def test_line_over_4000_bytes_naks_linea_larga(store, db):
-    giant = frame(["REC", "2", str(NOW), CONTEO, "7701234000001", "1", "Ana", "x" * 4100])
+    giant = frame(["REC", "2", str(NOW), CONTEO, "7701234000001", "1", "Ana", "x" * 4100, ""])
     assert len(giant) - 1 > 4000
     conn, _ = run(store, [*inicio(), rec(1), giant, rec(2), end(2)])
     out = [(m.kind, m.fields) for m in sent(conn)]
@@ -319,8 +319,8 @@ def _iniciada(cur) -> bool:
     return cur.fetchone()[0] is not None
 
 
-def test_version_3_se_rechaza(store, db):
-    conn, _ = run(store, [frame(["HELLO", "3", UUID, "APK de la fase 2"]), acct(), end(0)])
+def test_version_4_se_rechaza(store, db):
+    conn, _ = run(store, [frame(["HELLO", "4", UUID, "APK de la fase 3"]), acct(), end(0)])
     assert [(m.kind, m.fields) for m in sent(conn)] == [("NAK", ["0", "FORMAT"])]
 
 
