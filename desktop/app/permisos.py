@@ -120,25 +120,37 @@ def guardar(quien: Sesion, rol: str, modulo: str, nivel_nuevo: str) -> None:
         conn.commit()
 
 
+def _existe_tabla(cur) -> bool:
+    cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = :t", t=TABLA.upper())
+    return cur.fetchone()[0] > 0
+
+
+def _filas_existentes(cur) -> set[tuple[str, str]]:
+    cur.execute(f"SELECT rol, modulo FROM {TABLA}")
+    return set(cur.fetchall())
+
+
 def migrar() -> None:
     """Crea la tabla si falta y añade los valores iniciales de los módulos que no tengan fila. Es idempotente:
-    nunca pisa lo que el administrador ya cambió."""
+    nunca pisa lo que el administrador ya cambió, y aguanta que otro escritorio esté haciendo lo mismo a la vez."""
     with db._conexion() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = :t", t=TABLA.upper())
-        if cur.fetchone()[0] == 0:
-            cur.execute(f"""CREATE TABLE {TABLA} (
+        if not _existe_tabla(cur):
+            db.ddl_tolerante(cur, f"""CREATE TABLE {TABLA} (
                 rol    VARCHAR2(12 CHAR) NOT NULL,
                 modulo VARCHAR2(30 CHAR) NOT NULL,
                 nivel  VARCHAR2(10 CHAR) NOT NULL,
                 CONSTRAINT pk_{TABLA} PRIMARY KEY (rol, modulo),
                 CONSTRAINT ck_{TABLA}_nivel CHECK (nivel IN ('NINGUNO', 'CONSULTA', 'GESTION')))""")
-        cur.execute(f"SELECT rol, modulo FROM {TABLA}")
-        existentes = set(cur.fetchall())
+        existentes = _filas_existentes(cur)
         filas = [(rol, clave, nivel_inicial)
                  for clave, _nombre, *niveles in _MATRIZ_INICIAL
                  for rol, nivel_inicial in zip((ADMIN, INVENTARIO, OPERADOR), niveles)
                  if (rol, clave) not in existentes]
         if filas:
-            cur.executemany(f"INSERT INTO {TABLA} (rol, modulo, nivel) VALUES (:1, :2, :3)", filas)
+            # Si otro escritorio insertó alguna a la vez, su ORA-00001 se ignora: la fila ya está (y no se pisa).
+            cur.executemany(f"INSERT INTO {TABLA} (rol, modulo, nivel) VALUES (:1, :2, :3)", filas, batcherrors=True)
+            otros = [e for e in cur.getbatcherrors() if "ORA-00001" not in e.message]
+            if otros:
+                raise RuntimeError(otros[0].message)
         conn.commit()

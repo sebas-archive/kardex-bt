@@ -97,3 +97,11 @@ def test_exigir_con_cuenta_inexistente_niega(permisos_db, cuentas):
 def test_modulos_en_uso(permisos_db):
     assert {"usuarios", "solicitudes", "permisos", "roles", "dashboard", "existencias", "bluetooth", "reportes",
             "perfil", "categorias", "conteos"} == set(permisos_db.EN_USO)
+
+
+def test_permisos_migrar_aguanta_otro_escritorio(permisos_db, monkeypatch):
+    antes = permisos_db.matriz()
+    monkeypatch.setattr(permisos_db, "_existe_tabla", lambda *a: False)
+    monkeypatch.setattr(permisos_db, "_filas_existentes", lambda *a: set())   # cree que faltan todas
+    permisos_db.migrar()
+    assert permisos_db.matriz() == antes

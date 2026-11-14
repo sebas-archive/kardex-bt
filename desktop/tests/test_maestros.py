@@ -146,3 +146,40 @@ def test_admin_no_escribe_con_ninguna_funcion(gente):
                    lambda: m.editar_almacen(ana, "ALM-01", "X", "")):
         with pytest.raises(ErrorDeAcceso, match="permiso"):
             accion()
+
+
+# ------------------------------------------------------------------ pendientes de la Fase 2
+def test_listar_solo_activos(gente):
+    m, _ana, luis = gente
+    m.activar_almacen(luis, "ALM-02", False)
+    m.activar_categoria(luis, "Aseo", False)
+    assert [a.codigo for a in m.listar_almacenes(solo_activos=True)] == ["ALM-01"]
+    assert "Aseo" not in [c.nombre for c in m.listar_categorias(solo_activas=True)]
+    assert "Aseo" in [c.nombre for c in m.listar_categorias()]
+
+
+def test_existencia_sabe_si_su_almacen_y_categoria_estan_activos(gente):
+    m, _ana, luis = gente
+    m.activar_categoria(luis, "Aseo", False)
+    m.activar_almacen(luis, "ALM-01", False)
+    e = next(x for x in m.listar_existencias() if x.categoria == "Aseo")
+    assert (e.almacen_activo, e.categoria_activa) == (False, False)
+
+
+def test_migrar_aguanta_otro_escritorio_que_ya_creo_todo(maestros_db, monkeypatch):
+    """Dos escritorios arrancan a la vez: el segundo ve «no existe» y al crear ya existe. No debe caerse ni duplicar."""
+    antes = len(maestros_db.listar_existencias())
+    monkeypatch.setattr(maestros_db, "_existe", lambda *a: False)
+    monkeypatch.setattr(maestros_db, "_hay_columna", lambda *a: False)
+    monkeypatch.setattr(maestros_db, "_hay_indice", lambda *a: False)
+    maestros_db.migrar()
+    assert len(maestros_db.listar_existencias()) == antes
+
+
+def test_ddl_tolerante_ignora_lo_que_ya_existe_y_no_lo_demas():
+    with dbq._conexion() as conn:
+        cur = conn.cursor()
+        dbq.ddl_tolerante(cur, "CREATE TABLE productos (x NUMBER)")           # ORA-00955: ya existe
+        dbq.ddl_tolerante(cur, "ALTER TABLE productos ADD (nombre VARCHAR2(5))")   # ORA-01430: columna ya existe
+        with pytest.raises(Exception, match="ORA-00942"):
+            dbq.ddl_tolerante(cur, "ALTER TABLE no_existe_tabla ADD (x NUMBER)")

@@ -41,6 +41,25 @@ def _cerrar(conn) -> None:
         pass
 
 
+# Errores de DDL que solo dicen «eso ya está así»: aparecen cuando dos escritorios arrancan a la vez sobre una base
+# nueva y ambos crean lo mismo. Cualquier otro error se propaga.
+DDL_YA_HECHO = ("ORA-00955",   # el nombre ya lo usa otro objeto (tabla, índice)
+                "ORA-01430",   # la columna ya existe
+                "ORA-01451",   # la columna ya admite NULL
+                "ORA-02260", "ORA-02261", "ORA-02264", "ORA-02275")  # clave o restricción ya existe
+
+
+def ddl_tolerante(cur, sql: str, tambien: tuple[str, ...] = ()) -> bool:
+    """Ejecuta un DDL; si falla porque otro ya lo hizo, sigue. Devuelve ``False`` en ese caso."""
+    try:
+        cur.execute(sql)
+        return True
+    except Exception as exc:  # oracledb.DatabaseError; el mensaje trae el código ORA
+        if any(codigo in str(exc) for codigo in DDL_YA_HECHO + tambien):
+            return False
+        raise
+
+
 def liberar_conexion() -> None:
     """Cierra la conexión de este hilo (la próxima consulta abrirá otra)."""
     conn = getattr(_local, "conn", None)

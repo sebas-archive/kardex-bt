@@ -55,21 +55,27 @@ class Existencia:
     cantidad: float
     minimo: float
     estado: str
+    almacen_activo: bool = True
+    categoria_activa: bool = True
 
 
 # ------------------------------------------------------------------ consultas
-def listar_categorias() -> list[Categoria]:
+def listar_categorias(solo_activas: bool = False) -> list[Categoria]:
+    """Todas, o solo las activas (las que se ofrecen al registrar algo nuevo)."""
     with db._conexion() as conn:
         cur = conn.cursor()
+        filtro = "WHERE c.activa = 'S'" if solo_activas else ""
         cur.execute(f"SELECT c.nombre, c.activa, (SELECT COUNT(*) FROM productos p WHERE p.categoria = c.nombre) "
-                    f"FROM {CATEGORIAS} c ORDER BY c.nombre")
+                    f"FROM {CATEGORIAS} c {filtro} ORDER BY c.nombre")
         return [Categoria(n, a == "S", int(k)) for n, a, k in cur]
 
 
-def listar_almacenes() -> list[Almacen]:
+def listar_almacenes(solo_activos: bool = False) -> list[Almacen]:
+    """Todos, o solo los activos (los que se ofrecen al registrar algo nuevo)."""
     with db._conexion() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT codigo, nombre, NVL(ubicacion, ''), activo FROM {ALMACENES} ORDER BY codigo")
+        filtro = "WHERE activo = 'S'" if solo_activos else ""
+        cur.execute(f"SELECT codigo, nombre, NVL(ubicacion, ''), activo FROM {ALMACENES} {filtro} ORDER BY codigo")
         return [Almacen(c, n, u or "", a == "S") for c, n, u, a in cur]
 
 
@@ -80,10 +86,12 @@ def listar_existencias() -> list[Existencia]:
         cur.execute(
             f"SELECT p.sku, p.nombre, p.categoria, a.codigo, a.nombre, e.cantidad, p.stock_minimo, "
             f"CASE WHEN e.cantidad <= 0 THEN '{AGOTADO}' WHEN e.cantidad < p.stock_minimo THEN '{STOCK_BAJO}' "
-            f"ELSE '{DISPONIBLE}' END "
+            f"ELSE '{DISPONIBLE}' END, a.activo, NVL(c.activa, 'S') "
             f"FROM {EXISTENCIAS} e JOIN productos p ON p.sku = e.sku JOIN {ALMACENES} a ON a.codigo = e.codigo_almacen "
+            f"LEFT JOIN {CATEGORIAS} c ON c.nombre = p.categoria "
             f"ORDER BY a.codigo, p.nombre")
-        return [Existencia(s, n, c, ca, an, float(q), float(m), est) for s, n, c, ca, an, q, m, est in cur]
+        return [Existencia(s, n, c, ca, an, float(q), float(m), est, aa == "S", cc == "S")
+                for s, n, c, ca, an, q, m, est, aa, cc in cur]
 
 
 @contextmanager
@@ -202,42 +210,57 @@ def activar_almacen(quien: Sesion, codigo: str, activo: bool) -> None:
 
 
 # ------------------------------------------------------------------ esquema
+def _existe(cur, tabla: str) -> bool:
+    cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = :t", t=tabla.upper())
+    return cur.fetchone()[0] > 0
+
+
+def _hay_columna(cur) -> bool:
+    cur.execute("SELECT COUNT(*) FROM user_tab_columns WHERE table_name = 'PRODUCTOS' AND column_name = 'STOCK_MINIMO'")
+    return cur.fetchone()[0] > 0
+
+
+def _hay_indice(cur, nombre: str) -> bool:
+    cur.execute("SELECT COUNT(*) FROM user_indexes WHERE index_name = :i", i=nombre.upper())
+    return cur.fetchone()[0] > 0
+
+
+def _sembrar_si_vacia(cur, tabla: str, sembrar) -> None:
+    """Siembra solo si la tabla está vacía. El bloqueo hace que otro escritorio que arranca a la vez espere y, al
+    volver a mirar, la encuentre llena: nunca se siembra dos veces."""
+    cur.execute(f"LOCK TABLE {tabla} IN EXCLUSIVE MODE")
+    cur.execute(f"SELECT COUNT(*) FROM {tabla}")
+    if cur.fetchone()[0] == 0:
+        sembrar()
+
+
 def migrar() -> None:
-    """Crea lo que falte y siembra **solo tablas vacías** (nunca pisa lo que la persona ya editó). Idempotente."""
+    """Crea lo que falte y siembra **solo tablas vacías** (nunca pisa lo que la persona ya editó). Idempotente, y
+    aguanta que otro escritorio arranque a la vez (``db.ddl_tolerante`` y siembra con bloqueo)."""
     with db._conexion() as conn:
         cur = conn.cursor()
-
-        def existe(tabla: str) -> bool:
-            cur.execute("SELECT COUNT(*) FROM user_tables WHERE table_name = :t", t=tabla.upper())
-            return cur.fetchone()[0] > 0
-
-        def vacia(tabla: str) -> bool:
-            cur.execute(f"SELECT COUNT(*) FROM {tabla}")
-            return cur.fetchone()[0] == 0
-
-        cur.execute("SELECT COUNT(*) FROM user_tab_columns WHERE table_name = 'PRODUCTOS' AND column_name = 'STOCK_MINIMO'")
-        if cur.fetchone()[0] == 0:
-            cur.execute(f"ALTER TABLE productos ADD (stock_minimo NUMBER(12, 3) DEFAULT {MINIMO_INICIAL} NOT NULL)")
-        if not existe(CATEGORIAS):
-            cur.execute(f"""CREATE TABLE {CATEGORIAS} (
+        if not _hay_columna(cur):
+            db.ddl_tolerante(cur, f"ALTER TABLE productos ADD (stock_minimo NUMBER(12, 3) DEFAULT {MINIMO_INICIAL} NOT NULL)")
+        if not _existe(cur, CATEGORIAS):
+            db.ddl_tolerante(cur, f"""CREATE TABLE {CATEGORIAS} (
                 nombre  VARCHAR2(40 CHAR) NOT NULL,
                 activa  CHAR(1) DEFAULT 'S' NOT NULL,
                 CONSTRAINT pk_{CATEGORIAS} PRIMARY KEY (nombre),
                 CONSTRAINT ck_{CATEGORIAS}_activa CHECK (activa IN ('S', 'N')))""")
         # Sin distinguir mayúsculas también en la base: dos usuarios a la vez no pueden crear «Bebidas» y «BEBIDAS».
-        cur.execute("SELECT COUNT(*) FROM user_indexes WHERE index_name = :i", i=f"UX_{CATEGORIAS}_UP".upper())
-        if cur.fetchone()[0] == 0:
-            cur.execute(f"CREATE UNIQUE INDEX ux_{CATEGORIAS}_up ON {CATEGORIAS} (UPPER(nombre))")
-        if not existe(ALMACENES):
-            cur.execute(f"""CREATE TABLE {ALMACENES} (
+        if not _hay_indice(cur, f"ux_{CATEGORIAS}_up"):
+            db.ddl_tolerante(cur, f"CREATE UNIQUE INDEX ux_{CATEGORIAS}_up ON {CATEGORIAS} (UPPER(nombre))",
+                             tambien=("ORA-01408",))   # ya hay un índice sobre esa expresión
+        if not _existe(cur, ALMACENES):
+            db.ddl_tolerante(cur, f"""CREATE TABLE {ALMACENES} (
                 codigo     VARCHAR2(20 CHAR) NOT NULL,
                 nombre     VARCHAR2(60 CHAR) NOT NULL,
                 ubicacion  VARCHAR2(120 CHAR),
                 activo     CHAR(1) DEFAULT 'S' NOT NULL,
                 CONSTRAINT pk_{ALMACENES} PRIMARY KEY (codigo),
                 CONSTRAINT ck_{ALMACENES}_activo CHECK (activo IN ('S', 'N')))""")
-        if not existe(EXISTENCIAS):
-            cur.execute(f"""CREATE TABLE {EXISTENCIAS} (
+        if not _existe(cur, EXISTENCIAS):
+            db.ddl_tolerante(cur, f"""CREATE TABLE {EXISTENCIAS} (
                 sku             VARCHAR2(30 CHAR) NOT NULL,
                 codigo_almacen  VARCHAR2(20 CHAR) NOT NULL,
                 cantidad        NUMBER(12, 3) DEFAULT 0 NOT NULL,
@@ -245,15 +268,14 @@ def migrar() -> None:
                 CONSTRAINT fk_{EXISTENCIAS}_sku FOREIGN KEY (sku) REFERENCES productos (sku),
                 CONSTRAINT fk_{EXISTENCIAS}_alm FOREIGN KEY (codigo_almacen) REFERENCES {ALMACENES} (codigo),
                 CONSTRAINT ck_{EXISTENCIAS}_cant CHECK (cantidad >= 0))""")
-        if vacia(CATEGORIAS):
-            cur.execute(f"INSERT INTO {CATEGORIAS} (nombre) SELECT DISTINCT categoria FROM productos")
-        if vacia(ALMACENES):
-            cur.executemany(f"INSERT INTO {ALMACENES} (codigo, nombre, ubicacion) VALUES (:1, :2, :3)", list(ALMACENES_INICIALES))
-        if vacia(EXISTENCIAS):
-            # Datos de ejemplo: todo en el primer almacén, con el stock del sistema del conteo más reciente.
-            cur.execute(
-                f"INSERT INTO {EXISTENCIAS} (sku, codigo_almacen, cantidad) "
-                f"SELECT p.sku, :a, NVL((SELECT s.cantidad_sistema FROM stock_sistema s WHERE s.sku = p.sku AND s.id_conteo = "
-                f"(SELECT id_conteo FROM (SELECT id_conteo FROM conteos ORDER BY fecha_inicio DESC) WHERE ROWNUM = 1)), 0) "
-                f"FROM productos p", a=ALMACENES_INICIALES[0][0])
+        _sembrar_si_vacia(cur, CATEGORIAS, lambda: cur.execute(
+            f"INSERT INTO {CATEGORIAS} (nombre) SELECT DISTINCT categoria FROM productos"))
+        _sembrar_si_vacia(cur, ALMACENES, lambda: cur.executemany(
+            f"INSERT INTO {ALMACENES} (codigo, nombre, ubicacion) VALUES (:1, :2, :3)", list(ALMACENES_INICIALES)))
+        # Datos de ejemplo: todo en el primer almacén, con el stock del sistema del conteo más reciente.
+        _sembrar_si_vacia(cur, EXISTENCIAS, lambda: cur.execute(
+            f"INSERT INTO {EXISTENCIAS} (sku, codigo_almacen, cantidad) "
+            f"SELECT p.sku, :a, NVL((SELECT s.cantidad_sistema FROM stock_sistema s WHERE s.sku = p.sku AND s.id_conteo = "
+            f"(SELECT id_conteo FROM (SELECT id_conteo FROM conteos ORDER BY fecha_inicio DESC) WHERE ROWNUM = 1)), 0) "
+            f"FROM productos p", a=ALMACENES_INICIALES[0][0]))
         conn.commit()
