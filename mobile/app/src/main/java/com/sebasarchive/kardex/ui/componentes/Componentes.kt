@@ -117,6 +117,7 @@ fun Pantalla(
                     }
                 }
                 acciones()
+                BotonApariencia()
             }
             }
             Column(Modifier.weight(1f).fillMaxWidth(), content = contenido)

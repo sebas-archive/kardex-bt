@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import com.sebasarchive.kardex.auth.AuthRepository
 import com.sebasarchive.kardex.auth.Claves
 import com.sebasarchive.kardex.ui.Textos
+import com.sebasarchive.kardex.ui.componentes.BotonApariencia
 import com.sebasarchive.kardex.ui.componentes.Iconos
 import com.sebasarchive.kardex.ui.theme.Marca
 import kotlin.math.hypot
@@ -201,6 +202,10 @@ fun AuthScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         Bienvenida(ui.bienvenida)
+        BotonApariencia(
+            tinte = Color.White,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 4.dp),
+        )
     }
 }
 

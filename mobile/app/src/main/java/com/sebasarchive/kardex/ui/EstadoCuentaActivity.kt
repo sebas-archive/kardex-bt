@@ -21,7 +21,7 @@ class EstadoCuentaActivity : PantallaActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pantalla {
+        pantallaPara(null) {  // Estado de cuenta se considera invitado para tema e idioma
             ui?.let {
                 EstadoCuentaScreen(
                     it,

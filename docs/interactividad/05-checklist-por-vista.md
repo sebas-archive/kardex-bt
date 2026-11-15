@@ -97,3 +97,4 @@ Lista de comprobación para la corrida final. No fija resultados: la suite confi
 - [ ] Contar con SKU, cantidad, dañados, nota y foto; aviso de SKU desconocido y de lectura repetida.
 - [ ] Recuperación local con pregunta de seguridad; «Mi cuenta» sin cambio de contraseña.
 - [ ] Tema e idioma por usuario; foto con editor.
+- [ ] Icono de apariencia en la barra superior de todas las pantallas; abre tema e idioma.

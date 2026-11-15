@@ -139,7 +139,8 @@ desde el pie de la barra, y la campana aparece solo si el rol tiene acceso a Not
 En **Perfil** (escritorio) y **Mi cuenta** (móvil) cada usuario pone, edita o elimina su foto con un editor de rotar,
 zoom, recortar y vista previa; el avatar se muestra circular y el archivo se guarda cuadrado. Se validan JPEG, PNG y
 WebP; en el escritorio vale el tamaño máximo configurado (2 MB por defecto) y en el teléfono, 2 MB. El tema (claro, sistema u oscuro) y el idioma (español o inglés) se aplican de
-inmediato y se guardan por usuario. El cambio de contraseña del Administrador es directo; el de Inventario queda
+inmediato y se guardan por usuario. En el móvil, el botón de apariencia de la barra superior abre el selector en
+cualquier pantalla; Acceso, Inicio y Estado de cuenta lo llevan arriba. El cambio de contraseña del Administrador es directo; el de Inventario queda
 pendiente de aprobación en **Solicitudes**. El Operador recupera su contraseña localmente con la pregunta de seguridad
 del teléfono; el Administrador no puede resetearla desde el PC. Si el Administrador olvida la suya, en **Acceso** usa
 «¿Olvidaste tu contraseña?» y responde su pregunta de seguridad; se aplica al momento, sin pasar por Solicitudes.

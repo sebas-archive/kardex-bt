@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sebasarchive.kardex.ui.Textos
+import com.sebasarchive.kardex.ui.componentes.BotonApariencia
 import com.sebasarchive.kardex.ui.componentes.Entrada
 import com.sebasarchive.kardex.ui.componentes.IconoEnCirculo
 import com.sebasarchive.kardex.ui.componentes.Iconos
@@ -133,9 +134,8 @@ private fun Portada(ui: HomeUi, alNotificaciones: () -> Unit, alPerfil: () -> Un
                 Column(Modifier.weight(1f)) {
                     Text(Textos.t("Hola,"), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium)
                     Text(ui.operador, color = Color.White, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(Textos.rol(ui.rol), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                BotonApariencia(tinte = Color.White)
                 Campana(ui.noLeidas, alNotificaciones)
                 IconButton(onClick = alPerfil) { Icon(Icons.Default.Person, contentDescription = Textos.t("Mi cuenta"), tint = Color.White) }
             }

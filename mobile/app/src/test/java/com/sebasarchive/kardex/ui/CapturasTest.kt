@@ -21,6 +21,8 @@ import com.sebasarchive.kardex.ui.pantallas.DatosRegistro
 import com.sebasarchive.kardex.ui.pantallas.FotoEditorScreen
 import com.sebasarchive.kardex.ui.pantallas.HomeScreen
 import com.sebasarchive.kardex.ui.pantallas.HomeUi
+import com.sebasarchive.kardex.ui.pantallas.EstadoCuentaScreen
+import com.sebasarchive.kardex.ui.pantallas.EstadoCuentaUi
 import com.sebasarchive.kardex.ui.pantallas.LecturaFila
 import com.sebasarchive.kardex.ui.pantallas.LecturasScreen
 import com.sebasarchive.kardex.ui.pantallas.ModoAuth
@@ -35,6 +37,7 @@ import com.sebasarchive.kardex.ui.pantallas.SincronizarUi
 import com.sebasarchive.kardex.ui.theme.InventarioTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.BeforeClass
 import org.junit.Rule
 import org.junit.Test
@@ -64,6 +67,14 @@ class CapturasTest {
 
     @get:Rule
     val compose = createComposeRule()
+
+    @Before
+    fun aparienciaEnEspanol() {
+        // Los tests corren en cualquier orden: las capturas siempre se generan en español y tema sistema.
+        Apariencia.tema = SettingsStore.TEMA_SISTEMA
+        Apariencia.idioma = "es"
+        Apariencia.usuarioActual = null
+    }
 
     private fun capturar(nombre: String, oscuro: Boolean = false, contenido: @Composable () -> Unit) {
         compose.setContent { InventarioTheme(oscuro = oscuro) { contenido() } }
@@ -224,6 +235,13 @@ class CapturasTest {
             drawCircle(300f, 200f, 130f, android.graphics.Paint().apply { color = android.graphics.Color.rgb(240, 200, 120) })
         }
         FotoEditorScreen(bmp, alGuardar = { _, _, _, _ -> }, alCancelar = {})
+    }
+
+    @Test fun estado_cuenta() = capturar("26-estado-cuenta") {
+        EstadoCuentaScreen(
+            EstadoCuentaUi("Ana María Gómez", "ana.gomez", EstadoCuenta.PENDIENTE, null, 1_731_170_400_000L),
+            alComprobar = {}, alSalir = {},
+        )
     }
 
     @Test fun acceso_oscuro() = capturar("24-acceso-oscuro", oscuro = true) { Acceso(AuthUi(), ana.copy(nombre = "", confirmacion = "", respuesta = "")) }
