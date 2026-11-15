@@ -2,6 +2,7 @@ package co.edu.umariana.inventario.ui.pantallas
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import co.edu.umariana.inventario.auth.EstadoCuenta
 import co.edu.umariana.inventario.ui.Textos
+import co.edu.umariana.inventario.ui.componentes.BotonApariencia
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,6 +54,7 @@ fun textoBotonEstado(estado: String): String =
 @Composable
 fun EstadoCuentaScreen(ui: EstadoCuentaUi, alComprobar: () -> Unit, alSalir: () -> Unit) {
     val color = if (ui.estado == EstadoCuenta.PENDIENTE) Color(0xFFB7791F) else MaterialTheme.colorScheme.error
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -81,5 +84,7 @@ fun EstadoCuentaScreen(ui: EstadoCuentaUi, alComprobar: () -> Unit, alSalir: () 
         if (ui.estado != EstadoCuenta.RECHAZADO) {
             TextButton(onClick = alComprobar, modifier = Modifier.fillMaxWidth()) { Text(Textos.t("Comprobar estado")) }
         }
+    }
+    BotonApariencia(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp))
     }
 }

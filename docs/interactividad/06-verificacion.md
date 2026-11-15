@@ -37,6 +37,6 @@ los cita todos y que las clases de los diagramas 01–03 existen en el código.
 
 ## Capturas
 
-Las capturas del escritorio se retiraron junto con la herramienta que las generaba. Las 28 capturas de la APK
-están en [`../img/movil/`](../img/movil/) y corresponden a la interfaz final (Catálogo, Notificaciones y editor de foto
-incluidos); se regeneran con `CapturasTest`.
+Las capturas del escritorio se retiraron junto con la herramienta que las generaba. Las 29 capturas de la APK
+están en [`../img/movil/`](../img/movil/) y corresponden a la interfaz final (Catálogo, Notificaciones, Estado de cuenta
+y editor de foto incluidos); se regeneran con `CapturasTest`.

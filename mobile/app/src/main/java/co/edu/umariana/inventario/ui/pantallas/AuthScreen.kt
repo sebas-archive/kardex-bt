@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import co.edu.umariana.inventario.auth.AuthRepository
 import co.edu.umariana.inventario.auth.Claves
 import co.edu.umariana.inventario.ui.Textos
+import co.edu.umariana.inventario.ui.componentes.BotonApariencia
 import co.edu.umariana.inventario.ui.componentes.Iconos
 import co.edu.umariana.inventario.ui.theme.Marca
 import kotlin.math.hypot
@@ -201,6 +202,10 @@ fun AuthScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         Bienvenida(ui.bienvenida)
+        BotonApariencia(
+            tinte = Color.White,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 4.dp),
+        )
     }
 }
 

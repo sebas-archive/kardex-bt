@@ -63,6 +63,15 @@ para que la APK se sienta igual. Cada gesto indica su feedback visual y háptico
 | Tap | Abrir la pantalla relacionada (y marcarla leída) | Transición lateral | Light |
 | Tap en «Marcar todas» | Marcar todos los avisos | Check + toast | Medium |
 
+## Apariencia (barra superior)
+
+| Gesto | Acción | Feedback | Háptico |
+|---|---|---|---|
+| Tap en el icono de apariencia | Abre el diálogo de tema e idioma | Diálogo con chips; el cambio se aplica al instante | Light |
+| Tap en un chip | Cambia el tema o el idioma y cierra | Chip activo; la pantalla se redibuja | Selection tick |
+
+Acceso, Inicio y Estado de cuenta llevan el icono arriba; el resto de pantallas, en su barra superior.
+
 ## Bottom sheets (todas las vistas)
 
 | Gesto | Acción |

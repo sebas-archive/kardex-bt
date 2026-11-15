@@ -111,7 +111,7 @@ leen y guardan tema e idioma por cuenta. El cambio se aplica en el acto y no req
 | D28 | **Fotos de evidencia**: protocolo 5; el archivo vive en `FOTOS_DIR/<uuid>/<seq>.jpg` y Oracle guarda la ruta relativa. La foto se abre desde el detalle de la lectura. **Auditoría** en la misma transacción que cada cambio. | Evidencia sin bloquear el texto (cola aparte, < 50 ms por registro) y rastro de toda modificación. |
 | D29 | **Configuración, respaldos y servicio independiente**: `CONFIGURACION` guarda el intervalo del lote, el tamaño máximo de foto y la carpeta (solo lectura); al guardar se reaplican los jobs. El respaldo es un `.zip` con `manifest.json`, una tabla por `.jsonl` y las fotos; restaurar pausa el servicio, guarda un respaldo «previo», restaura en una transacción y cierra la sesión. El servicio Bluetooth (`btsync.servicio`, `restart: unless-stopped`) escribe estado y latido en `SERVICIO_BT`. | La recepción no depende de la ventana y el respaldo se restaura desde la pantalla, sin herramientas externas. |
 | D30 | **Notificaciones**: tabla `NOTIFICACIONES` (a un rol o a un usuario; `(tipo, clave)` único cuando hay clave) y `NOTIFICACIONES_LEIDAS` (una fila por persona). La campana aparece solo con acceso al módulo. Eventos: sincronización recibida, solicitud nueva, respaldo automático, servicio caído. Una notificación se lee; una solicitud se aprueba o rechaza en Solicitudes. | Separa «algo pasó» de «algo espera tu decisión», sin perder el aviso de las solicitudes. |
-| D31 | **Foto, tema e idioma por usuario**: editor de rotar, zoom, recortar y vista previa; formatos JPEG, PNG y WebP; tamaño máximo configurable (2 MB en el teléfono); avatar circular y archivo cuadrado. Tema claro/sistema/oscuro e idioma español/inglés, aplicados de inmediato y guardados por cuenta. | La especificación los pide para los tres roles y los dos clientes, sin privilegios de administración. |
+| D31 | **Foto, tema e idioma por usuario**: editor de rotar, zoom, recortar y vista previa; formatos JPEG, PNG y WebP; tamaño máximo configurable (2 MB en el teléfono); avatar circular y archivo cuadrado. Tema claro/sistema/oscuro e idioma español/inglés, aplicados de inmediato y guardados por cuenta. En el móvil, el botón de apariencia de la barra superior abre el mismo selector en todas las pantallas; Acceso, Inicio y Estado de cuenta lo llevan arriba. | La especificación los pide para los tres roles y los dos clientes, sin privilegios de administración. |
 
 ## 4. Límites conocidos
 
@@ -256,6 +256,6 @@ La app usa Jetpack Compose (Material 3) y guarda el tema y el idioma por cuenta.
 `CapturasTest` y el motor gráfico de Android (Robolectric en modo nativo) a 1080 × 2340 px, con datos de ejemplo; no
 son fotos de un teléfono físico.
 
-Las 28 capturas de la versión final están en [`img/movil/`](img/movil/); incluyen Catálogo, Notificaciones y el editor de foto. Para regenerarlas:
+Las 29 capturas de la versión final están en [`img/movil/`](img/movil/); incluyen Catálogo, Notificaciones, Estado de cuenta y el editor de foto. Para regenerarlas:
 `docker compose --profile build run --rm apk-build ./gradlew cleanTestDebugUnitTest testDebugUnitTest --tests '*CapturasTest'`
 y copiar `mobile/app/build/capturas/*.png` a `docs/img/movil/`.

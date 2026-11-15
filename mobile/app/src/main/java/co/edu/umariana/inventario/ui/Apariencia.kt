@@ -12,7 +12,11 @@ object Apariencia {
     var tema by mutableStateOf(SettingsStore.TEMA_SISTEMA)
     var idioma by mutableStateOf("es")
 
+    /** Usuario con el que se están guardando las preferencias; null = invitado (Acceso y Estado de cuenta). */
+    var usuarioActual: String? = null
+
     fun cargar(settings: SettingsStore, usuario: String?) {
+        usuarioActual = usuario
         tema = settings.tema(usuario).takeIf { it in SettingsStore.TEMAS } ?: SettingsStore.TEMA_SISTEMA
         idioma = if (settings.idioma(usuario) == "en") "en" else "es"
     }

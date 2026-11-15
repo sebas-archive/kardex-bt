@@ -25,9 +25,13 @@ enum class Transicion(val entra: Int, val sale: Int, val vuelveEntra: Int, val v
  */
 abstract class PantallaActivity : ComponentActivity() {
     /** Carga el tema y el idioma del usuario de la sesión antes de dibujar: cada pantalla respeta su preferencia. */
-    protected fun pantalla(contenido: @Composable () -> Unit) {
+    protected fun pantalla(contenido: @Composable () -> Unit) =
+        pantallaPara(Servicios.de(this).auth.sesion()?.usuario, contenido)
+
+    /** Igual que [pantalla], pero con un usuario explícito; `null` = invitado (Acceso y Estado de cuenta). */
+    protected fun pantallaPara(usuarioApariencia: String?, contenido: @Composable () -> Unit) {
         val servicios = Servicios.de(this)
-        Apariencia.cargar(servicios.settings, servicios.auth.sesion()?.usuario)
+        Apariencia.cargar(servicios.settings, usuarioApariencia)
         setContent { InventarioTheme { contenido() } }
     }
 

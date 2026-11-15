@@ -61,7 +61,8 @@ object Textos {
         }
     )
 
-    fun idiomaNombre(valor: String): String = t(if (valor == "en") "Inglés" else "Español")
+    /** Etiqueta fija del selector: el idioma se llama igual en cualquier interfaz. */
+    fun idiomaNombre(valor: String): String = if (valor == "en") "English" else "Español"
 
     fun tituloAviso(aviso: NotificacionEntity): String = t(
         when (aviso.tipo) {
@@ -133,6 +134,9 @@ object Textos {
         "Corregir" to "Correct",
         "Conteo actual" to "Current count",
         "Tema" to "Theme",
+        "Apariencia" to "Appearance",
+        "Cambiar apariencia" to "Change appearance",
+        "Listo" to "Done",
         "Idioma" to "Language",
         "Correo" to "Email",
         "Sin correo" to "No email",
