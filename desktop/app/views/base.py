@@ -157,7 +157,7 @@ QToolButton#cerrarDrawer:hover { background: #2A2A2A; color: #FFFFFF; }
 QLabel#datoDrawer { color: #EDEDED; font-weight: 600; background: transparent; }
 
 /* Modal de confirmación */
-QFrame#modalCaja { background: #121212; border: 1px solid #333333; border-radius: 14px; }
+QFrame#modalCaja { background: #121212; border: 1px solid #333333; border-radius: 16px; }
 QLabel#modalTitulo { font-size: 18px; font-weight: 600; color: #FFFFFF; background: transparent; }
 QLabel#modalTexto { color: #CFCFCF; font-size: 13px; background: transparent; }
 QCheckBox { color: #CFCFCF; spacing: 8px; }
@@ -267,10 +267,10 @@ QLabel#estadoVistaTexto { color: #8A8A8A; font-size: 12px; background: transpare
 QFrame#estadoVista { background: transparent; border: none; }
 
 /* Tarjetas */
-QFrame#lienzo QFrame#card { background: #111111; border: 1px solid #232323; border-radius: 12px; }
+QFrame#lienzo QFrame#card { background: #111111; border: 1px solid #232323; border-radius: 14px; }
 
 /* Botones: un solo lenguaje (alto uniforme, hover, presionado, deshabilitado y foco) */
-QFrame#lienzo QPushButton { min-height: 18px; padding: 7px 16px; border-radius: 8px; border: 1px solid #2E2E2E;
+QFrame#lienzo QPushButton { min-height: 18px; padding: 7px 16px; border-radius: 9px; border: 1px solid #2E2E2E;
                             background: #111111; font-weight: 600; }
 QFrame#lienzo QPushButton:hover { background: #1C1C1C; border-color: #3A3A3A; }
 QFrame#lienzo QPushButton:pressed { background: #232323; }
@@ -289,7 +289,7 @@ QFrame#lienzo QPushButton#enlace:hover { color: #6EE7B7; background: transparent
 
 /* Campos: misma altura, borde suave y foco visible */
 QFrame#lienzo QLineEdit, QFrame#lienzo QComboBox, QFrame#lienzo QSpinBox, QFrame#lienzo QDoubleSpinBox,
-QFrame#lienzo QDateEdit { min-height: 18px; padding: 7px 12px; border: 1px solid #2E2E2E; border-radius: 8px;
+QFrame#lienzo QDateEdit { min-height: 18px; padding: 7px 12px; border: 1px solid #2E2E2E; border-radius: 9px;
                           background: #111111; selection-background-color: #10B981; selection-color: #04130E; }
 QFrame#lienzo QLineEdit:hover, QFrame#lienzo QComboBox:hover, QFrame#lienzo QSpinBox:hover { border-color: #3A3A3A; }
 QFrame#lienzo QLineEdit:focus, QFrame#lienzo QComboBox:focus, QFrame#lienzo QSpinBox:focus,
@@ -307,7 +307,7 @@ QRadioButton::indicator:checked { border: 5px solid #10B981; background: #111111
 QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #10B981; }
 
 /* Tablas: sin rejilla, filas con separador fino, encabezado discreto alineado a la izquierda */
-QFrame#lienzo QTableView, QFrame#lienzo QTableWidget { background: #111111; border: 1px solid #232323; border-radius: 12px;
+QFrame#lienzo QTableView, QFrame#lienzo QTableWidget { background: #111111; border: 1px solid #232323; border-radius: 14px;
                                                        gridline-color: transparent; outline: none; }
 QTableView::item, QTableWidget::item { padding: 0 10px; border: none; border-bottom: 1px solid #1C1C1C; }
 QTableView::item:hover, QTableWidget::item:hover { background: rgba(255,255,255,0.035); }
@@ -340,6 +340,31 @@ QDialog QLabel { background: transparent; }
 QDialogButtonBox QPushButton { min-width: 84px; }
 QProgressBar { border: none; background: #232323; border-radius: 4px; max-height: 8px; text-align: center; }
 QProgressBar::chunk { background: #10B981; border-radius: 4px; }
+
+/* Personalización del dashboard */
+QFrame#baldosa, QWidget#hojaPanel { background: transparent; border: none; }
+QScrollArea#hojaScroll, QScrollArea#hojaScroll > QWidget > QWidget { background: transparent; }
+QFrame#barraEdicion { background: #111111; border: 1px solid #232323; border-radius: 14px; }
+QFrame#barraEdicion QLabel { background: transparent; }
+QToolButton#baldosaMenu { background: rgba(255,255,255,0.08); color: #A3A3A3; border: none; border-radius: 11px;
+    min-width: 24px; max-width: 24px; min-height: 22px; max-height: 22px; padding: 0; font-size: 14px; font-weight: 700; }
+QToolButton#baldosaMenu:hover { background: rgba(255,255,255,0.16); color: #FFFFFF; }
+QToolButton#baldosaQuitar { background: #F87171; color: #04130E; border: none; border-radius: 11px;
+    min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; padding: 0; font-size: 15px; font-weight: 700; }
+QToolButton#baldosaQuitar:hover { background: #7A2A24; color: #FFFFFF; }
+QFrame#marcadorDestino { background: rgba(255,255,255,0.05); border: 2px dashed #2F6B57; border-radius: 14px; }
+QFrame#itemCatalogo { background: #0F0F0F; border: 1px solid #232323; border-radius: 12px; }
+QFrame#itemCatalogo QLabel { background: transparent; }
+QPushButton#categoriaCatalogo { text-align: left; padding: 8px 12px; border: none; background: transparent; color: #A3A3A3; }
+QPushButton#categoriaCatalogo:hover { background: rgba(255,255,255,0.06); color: #FFFFFF; }
+QPushButton#categoriaCatalogo:checked { background: #10261F; color: #34D399; }
+QToolButton#tipoGrafico { background: transparent; border: 1px solid #2E2E2E; border-radius: 10px; padding: 0; }
+QToolButton#tipoGrafico:hover { border-color: #4A4A4A; background: transparent; }
+QToolButton#tipoGrafico:checked { border: 2px solid #10B981; background: #10261F; }
+QFrame#modalCaja QDateEdit, QFrame#modalCaja QSpinBox, QFrame#modalCaja QLineEdit, QFrame#modalCaja QComboBox {
+    min-height: 18px; padding: 6px 10px; border: 1px solid #2E2E2E; border-radius: 8px; background: #111111; }
+QFrame#modalCaja QLineEdit:focus, QFrame#modalCaja QComboBox:focus, QFrame#modalCaja QSpinBox:focus,
+QFrame#modalCaja QDateEdit:focus { border: 1px solid #10B981; }
 """
 
 
