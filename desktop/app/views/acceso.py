@@ -8,7 +8,7 @@ del backend no cambia (``auth._validar_clave``).
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
 
@@ -46,20 +46,22 @@ class PanelMarca(QFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(340)
+        self.setFixedWidth(390)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(34, 40, 34, 34)
+        lay.setContentsMargins(20, 40, 20, 34)
         lay.setSpacing(10)
         self.lbl_marca = QLabel(t("GESTIÓN DE INVENTARIO"))
         self.lbl_marca.setStyleSheet("color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 700; "
                                      "letter-spacing: 1.5px; background: transparent;")
         self.lbl_bienvenida = QLabel(t("BIENVENIDO"))
-        self.lbl_bienvenida.setStyleSheet("color: #FFFFFF; font-size: 32px; font-weight: 800; background: transparent;")
+        self.lbl_bienvenida.setStyleSheet("color: #FFFFFF; font-size: 24px; font-weight: 800; background: transparent;")
         self.lbl_bienvenida.setWordWrap(True)
+        self.lbl_bienvenida.setMaximumWidth(200)
         self.lbl_imagen = QLabel(t("Conteo físico sin red.\nEl PC recibe por Bluetooth y Oracle concilia."))
-        self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 14px; background: transparent;")
+        self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 13px; background: transparent;")
         self.lbl_imagen.setWordWrap(True)
+        self.lbl_imagen.setMaximumWidth(180)
         self.lbl_pie = QLabel(t("Android · Bluetooth · Oracle"))
         self.lbl_pie.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 11px; background: transparent;")
         lay.addStretch(1)
@@ -73,30 +75,63 @@ class PanelMarca(QFrame):
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        camino = QPainterPath()
-        r = 18.0
         ancho, alto = float(self.width()), float(self.height())
-        camino.moveTo(r, 0)
-        camino.lineTo(ancho, 0)
-        camino.lineTo(ancho, alto)
-        camino.lineTo(r, alto)
-        camino.quadTo(0, alto, 0, alto - r)
-        camino.lineTo(0, r)
-        camino.quadTo(0, 0, r, 0)
-        camino.closeSubpath()
-        p.setClipPath(camino)
-        g = QLinearGradient(0, 0, 0, self.height())
-        g.setColorAt(0.0, QColor("#1E40AF"))
-        g.setColorAt(0.55, QColor("#1D4ED8"))
+        r = 18.0
+
+        # Recorte exterior: esquinas izquierdas redondeadas; el borde derecho es una curva orgánica.
+        recorte = QPainterPath()
+        recorte.moveTo(r, 0)
+        recorte.lineTo(ancho, 0)
+        recorte.lineTo(ancho, alto)
+        recorte.lineTo(r, alto)
+        recorte.quadTo(0, alto, 0, alto - r)
+        recorte.lineTo(0, r)
+        recorte.quadTo(0, 0, r, 0)
+        recorte.closeSubpath()
+        p.setClipPath(recorte)
+
+        # Azul: borde derecho curvo de arriba a abajo, sin tramo recto inferior.
+        azul = QPainterPath()
+        azul.moveTo(r, 0)
+        azul.lineTo(ancho, 0)
+        azul.cubicTo(ancho - 8, alto * 0.18, ancho - 18, alto * 0.50, ancho - 10, alto * 0.72)
+        azul.cubicTo(ancho - 5, alto * 0.88, ancho - 2, alto * 0.95, ancho, alto)
+        azul.lineTo(r, alto)
+        azul.quadTo(0, alto, 0, alto - r)
+        azul.lineTo(0, r)
+        azul.quadTo(0, 0, r, 0)
+        azul.closeSubpath()
+        g = QLinearGradient(0, 0, ancho * 0.4, alto)
+        g.setColorAt(0.0, QColor("#172554"))
+        g.setColorAt(0.45, QColor("#1E40AF"))
         g.setColorAt(1.0, QColor("#2563EB"))
-        p.fillPath(camino, g)
         p.setPen(Qt.PenStyle.NoPen)
-        for x, y, r, alfa in ((self.width() * 1.02, self.height() * 0.18, 120, 26),
-                              (-30, self.height() * 0.62, 90, 22),
-                              (self.width() * 0.92, self.height() * 0.92, 150, 18),
-                              (self.width() * 0.18, -35, 70, 24)):
-            p.setBrush(QColor(255, 255, 255, alfa))
-            p.drawEllipse(QPointF(x, y), r, r)
+        p.fillPath(azul, g)
+
+        # Gran lóbulo de superficie: del borde superior a ~75 % de la altura.
+        superficie = QColor(tema.colores()["tarjeta"])
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(superficie)
+        p.drawEllipse(QPointF(ancho + 40, alto * 0.38), 215, 215)
+
+        # Dos círculos DESPUÉS del lóbulo, recortados al rectángulo del panel: abajo-izquierda y
+        # centro-derecha (este cruza el lóbulo). Azules visibles, sin brillo blanco.
+        p.save()
+        p.setClipPath(recorte)
+        p.setPen(Qt.PenStyle.NoPen)
+        gradiente = QRadialGradient(20, alto * 0.78, 230)
+        gradiente.setColorAt(0.0, QColor("#3B82F6"))
+        gradiente.setColorAt(1.0, QColor("#2563EB"))
+        p.setBrush(gradiente)
+        p.drawEllipse(QPointF(ancho * 0.18, alto * 0.85), ancho * 0.42, ancho * 0.42)
+
+        gradiente = QRadialGradient(ancho * 0.55, alto * 0.82, 250)
+        gradiente.setColorAt(0.0, QColor("#60A5FA"))
+        gradiente.setColorAt(0.65, QColor("#3B82F6"))
+        gradiente.setColorAt(1.0, QColor("#2563EB"))
+        p.setBrush(gradiente)
+        p.drawEllipse(QPointF(ancho * 0.68, alto * 0.95), ancho * 0.48, ancho * 0.48)
+        p.restore()
         p.end()
 
 
@@ -182,7 +217,6 @@ class AccesoView(QWidget):
         super().__init__(parent)
         self._runner = QueryRunner(self)
         self._primero = False
-        self._ya_animado = False
         self._ajustes = QSettings("GestionInventario", "Acceso")
 
         # ---------------------------------------------------------- fondo y tarjeta
@@ -192,12 +226,13 @@ class AccesoView(QWidget):
         self._tarjeta.setObjectName("tarjetaAcceso")
         self._tarjeta.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._tarjeta.setFixedSize(900, 600)
+        self._fondo._tarjeta = self._tarjeta
         en_tarjeta = QHBoxLayout(self._tarjeta)
         en_tarjeta.setContentsMargins(0, 0, 0, 0)
         en_tarjeta.setSpacing(0)
         self._marca_panel = PanelMarca()
-        self._marca_panel.setMinimumWidth(340)
-        self._marca_panel.setMaximumWidth(340)
+        self._marca_panel.setMinimumWidth(390)
+        self._marca_panel.setMaximumWidth(390)
         self._marca_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self._marca_panel.setVisible(True)
         self._panel_form = QWidget()
@@ -221,8 +256,6 @@ class AccesoView(QWidget):
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(0, 0, 0, 0)
         raiz.addWidget(self._scroll)
-        motion.sombra(self._tarjeta, "#000000", 40, 0, 160)
-
         # ---------------------------------------------------------- páginas
         self.lbl_error = QLabel("")
         self.lbl_error.setObjectName("errorFormulario")
@@ -245,7 +278,7 @@ class AccesoView(QWidget):
             transparente.setAutoFillBackground(False)
             transparente.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         en_form = QVBoxLayout(self._panel_form)
-        en_form.setContentsMargins(40, 40, 40, 24)
+        en_form.setContentsMargins(32, 40, 40, 24)
         en_form.setSpacing(10)
         en_form.addWidget(self._scroll_form, 1)
         en_form.addWidget(self.lbl_error)
@@ -484,11 +517,6 @@ class AccesoView(QWidget):
         super().showEvent(evento)
         if hasattr(self, "_tarjeta"):
             self._tarjeta.setFixedWidth(max(760, min(900, self.width() - 56)))
-        if not self._ya_animado:
-            self._ya_animado = True
-            if widgets.ANIMAR:
-                motion.desvanecer(self._marca_panel, 0.0, 1.0, 300)
-                motion.desvanecer(self._tarjeta, 0.0, 1.0, 380)
         QTimer.singleShot(0, self._enfocar)
 
     def _enfocar(self) -> None:
