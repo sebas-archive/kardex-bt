@@ -62,6 +62,7 @@ docker run -d --rm --name app-wayland --network inventario-bt_default \
   -e QT_QPA_PLATFORM=wayland \
   -e WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
   -e XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+  -e DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus" \
   -e DB_DSN=oracle:1521/XE \
   -e DB_USER="$DB_USER" \
   -e DB_PASSWORD="$DB_PASSWORD" \

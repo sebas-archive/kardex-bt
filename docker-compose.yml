@@ -61,6 +61,13 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /etc/localtime:/etc/localtime:ro   # la hora del PC (nombres y fechas de los respaldos)
       - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority-host:ro
+      # Bus de sesión del usuario: el tema «Sistema» le pregunta al portal de escritorio si el PC está en oscuro o claro
+      # (por X11 y sin este bus Qt no lo sabe). Sin sesión gráfica el montaje falla en vez de crear una carpeta ahí.
+      - type: bind
+        source: ${XDG_RUNTIME_DIR:-/run/user/1000}/bus
+        target: /run/user/1000/bus
+        bind:
+          create_host_path: false
     environment:
       DB_DSN: 127.0.0.1:1521/XE
       DB_USER: ${DB_USER}
@@ -73,6 +80,7 @@ services:
       XDG_CONFIG_HOME: /work/config   # QSettings (usuario recordado, tema, idioma) sobrevive a recrear el contenedor
       DISPLAY: ${DISPLAY:-:0}
       XAUTHORITY: /tmp/.Xauthority-host
+      DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1000/bus
       BT_TRANSPORT: ${BT_TRANSPORT:-bluez}
       BT_TCP_PORT: ${BT_TCP_PORT:-9000}
       BT_CON_CLAVE: ${BT_CON_CLAVE:-0}
