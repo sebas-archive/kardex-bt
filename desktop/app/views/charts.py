@@ -143,14 +143,13 @@ class ChartsView(QWidget):
             titulo = QLabel(t(TITULOS[chart_id]))
             titulo.setObjectName("seccion")
             titulo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+            lay.setContentsMargins(16, 14, 16, 12)
+            lay.addWidget(titulo)
             if chart_id == "dona":
-                titulo.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-                lay.addWidget(titulo)
                 lay.addWidget(self.dona)
             else:
                 formato = fmt_pct if chart_id == "avance" else _entero
                 plot = pg.PlotWidget(axisItems={"left": EjeFormato("left", formato)})
-                plot.setTitle(t(TITULOS[chart_id]), size="11pt", color=self._color["texto"])
                 plot.setBackground(self._color["tarjeta"])
                 for eje in ("left", "bottom"):
                     plot.getAxis(eje).setPen(pg.mkPen(self._color["texto_suave"]))
@@ -289,9 +288,9 @@ class ChartsView(QWidget):
         eje.setTicks([[(x, _etiqueta_corta(e) if muchas else e) for x, (e, _) in enumerate(datos)]])
         plot.setXRange(-0.8, len(datos) - 0.2, padding=0)
         maximo = max(valores + [0.0])
-        tope = 100.0 if chart_id == "avance" else maximo * 1.25 + 0.5
+        tope = 110.0 if chart_id == "avance" else maximo * 1.25 + 0.5
         plot.setYRange(0, tope, padding=0)
-        paso = max(1, math.ceil(tope / 5))
+        paso = 20 if chart_id == "avance" else max(1, math.ceil(tope / 5))
         plot.getAxis("left").setTickSpacing(major=paso, minor=paso)
         widgets._detener(self._anims.get(chart_id))
         self._anims[chart_id] = widgets.animar(self, 0.0, 1.0, 700,

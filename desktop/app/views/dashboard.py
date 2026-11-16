@@ -27,6 +27,7 @@ from . import components
 from .base import QueryRunner, StateBanner
 from .dashboard_paneles import CatalogoWidgets, ConfigGrafico
 from .grafico_personal import GraficoPersonal
+from .iconos import icono
 from .isla import isla
 from .rejilla_personal import Baldosa, RejillaPersonal
 from .widgets import VERDE, TarjetaKpi
@@ -153,7 +154,8 @@ class DashboardView(QWidget):
         textos.setSpacing(2)
         textos.addWidget(self.titulo)
         textos.addWidget(self.subtitulo)
-        self.btn_personalizar = QPushButton(t("Personalizar dashboard"))
+        self.btn_personalizar = QPushButton(" " + t("Personalizar dashboard"))
+        self.btn_personalizar.setIcon(icono("sliders", tam=16))
         self.btn_personalizar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_personalizar.clicked.connect(lambda: self.set_edicion(True))
         encabezado = QHBoxLayout()
@@ -167,10 +169,13 @@ class DashboardView(QWidget):
         fila.setSpacing(8)
         pista = QLabel(t("Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o configurar."))
         pista.setObjectName("ayuda")
-        self.btn_agregar = QPushButton(t("Agregar widget"))
-        self.btn_restaurar = QPushButton(t("Restaurar predeterminado"))
-        self.btn_listo = QPushButton(t("Listo"))
+        self.btn_agregar = QPushButton(" " + t("Agregar widget"))
+        self.btn_restaurar = QPushButton(" " + t("Restaurar predeterminado"))
+        self.btn_listo = QPushButton(" " + t("Listo"))
         self.btn_listo.setObjectName("primario")
+        self.btn_agregar.setIcon(icono("plus", tam=16))
+        self.btn_restaurar.setIcon(icono("rotate_ccw", tam=16))
+        self.btn_listo.setIcon(icono("check", color="#04130E", tam=16))
         for b in (self.btn_agregar, self.btn_restaurar, self.btn_listo):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
         fila.addWidget(pista, 1)
