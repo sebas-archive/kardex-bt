@@ -10,7 +10,7 @@ import math
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import (
+from PyQt6.QtWidgets import (QSizePolicy,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -142,6 +142,7 @@ class ChartsView(QWidget):
             lay.setContentsMargins(10, 10, 10, 10)
             titulo = QLabel(t(TITULOS[chart_id]))
             titulo.setObjectName("seccion")
+            titulo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
             if chart_id == "dona":
                 titulo.setAlignment(Qt.AlignmentFlag.AlignHCenter)
                 lay.addWidget(titulo)

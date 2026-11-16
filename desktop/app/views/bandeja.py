@@ -289,6 +289,11 @@ class HojaNotificaciones(QWidget):
         self.hide()
 
     def poner(self, vista: QWidget) -> None:
+        """Pone la vista extendida; si ya había una (las vistas se reconstruyen al cambiar tema o idioma), la reemplaza."""
+        anterior = self.vista
+        if anterior is not None and anterior is not vista:
+            self._lay.removeWidget(anterior)
+            anterior.deleteLater()
         self.vista = vista
         self._lay.addWidget(vista, 1)
 

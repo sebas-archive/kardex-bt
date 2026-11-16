@@ -6,6 +6,7 @@ Scheduler con el intervalo nuevo. No hay umbrales de ajuste crítico ni purga co
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                              QWidget)
 
@@ -65,13 +66,16 @@ class ConfiguracionView(QWidget):
         tarjeta = QFrame()
         tarjeta.setObjectName("card")
         cuerpo = QVBoxLayout(tarjeta)
-        cuerpo.setContentsMargins(20, 16, 20, 16)
-        cuerpo.setSpacing(10)
+        cuerpo.setContentsMargins(24, 20, 24, 20)
+        cuerpo.setSpacing(14)
         for titulo, campos in GRUPOS:
             encabezado = QLabel(t(titulo))
             encabezado.setObjectName("seccion")
             cuerpo.addWidget(encabezado)
             forma = QFormLayout()
+            forma.setVerticalSpacing(12)
+            forma.setHorizontalSpacing(16)
+            forma.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             for clave, etiqueta, unidad in campos:
                 editor = QLineEdit()
                 editor.setMaximumWidth(140)

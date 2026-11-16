@@ -597,6 +597,7 @@ class MainWindow(QMainWindow):
 
     def _poner_chip(self, chip: QLabel, texto: str, estado: str) -> None:
         chip.setText(texto)
+        chip.setMinimumWidth(chip.sizeHint().width() + 4)   # el texto del chip nunca se recorta
         chip.setProperty("estado", estado)
         chip.style().unpolish(chip)
         chip.style().polish(chip)
@@ -742,6 +743,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_raiz"):
             return
         self._centrar_contenido()
+        self.lbl_actualizado.setVisible(self.width() >= 1000)   # en ventanas estrechas el encabezado prioriza lo esencial
         if not self._colapso_manual and self._raiz.currentIndex() == 1:
             if self.width() < 1060 and not self._colapsada:
                 self._auto_colapsada = True

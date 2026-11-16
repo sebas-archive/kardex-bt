@@ -325,6 +325,7 @@ class Capsula(QWidget):
 
     def _aplicar_estilo(self) -> None:
         self.setStyleSheet(
+            "QWidget { background: transparent; border: none; }"   # la hoja global pinta fondo a todo QWidget
             "QLabel#islaTitulo { color: #FFFFFF; background: transparent; font-weight: 700; }"
             "QLabel#islaDesc { color: rgba(255,255,255,0.74); background: transparent; }"
             "QLabel#islaVeces { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.14); border-radius: 8px;"

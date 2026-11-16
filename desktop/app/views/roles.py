@@ -38,6 +38,9 @@ class RolesView(QWidget):
         self.tabla.verticalHeader().hide()
         self.tabla.verticalHeader().setDefaultSectionSize(40)
         self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for columna in range(1, 1 + len(auth.ROLES)):   # cada rol con ancho fijo: el selector no se recorta
+            self.tabla.horizontalHeader().setSectionResizeMode(columna, QHeaderView.ResizeMode.Fixed)
+            self.tabla.setColumnWidth(columna, 190)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(4, 4, 4, 4)

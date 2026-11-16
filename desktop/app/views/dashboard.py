@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QSizePolicy, QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from .. import auth, db
 from ..i18n import registrar, t
@@ -107,7 +107,7 @@ class DashboardView(QWidget):
             self.plot.getAxis(eje).setPen(pg.mkPen(self._colores["texto_suave"]))
             self.plot.getAxis(eje).setTextPen(pg.mkPen(self._colores["texto_tenue"]))
         self.plot.setMinimumHeight(220)
-        self.plot.setMaximumHeight(300)
+        self.plot.setMaximumHeight(560)
         self.plot.setMenuEnabled(False)
         self.plot.setMouseEnabled(False, False)
         self.plot.hideButtons()
@@ -147,9 +147,10 @@ class DashboardView(QWidget):
         lay.setContentsMargins(14, 10, 14, 10)
         rotulo = QLabel(titulo)
         rotulo.setObjectName("seccion")
+        rotulo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         lay.addWidget(rotulo)
         for pieza in contenido:
-            lay.addWidget(pieza)
+            lay.addWidget(pieza, 1)
         return tarjeta
 
     # ------------------------------------------------------------------ API
