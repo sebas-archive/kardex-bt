@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
 from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFontMetrics, QKeySequence, QPixmap, QShortcut
+from PyQt6.QtGui import QFontMetrics, QIcon, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -1035,6 +1036,9 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setApplicationName("Inventario BT")
+    app.setDesktopFileName("inventario-bt")   # en Wayland la barra busca el icono por este nombre (.desktop del equipo)
+    app.setWindowIcon(QIcon(str(Path(__file__).with_name("recursos") / "icono.svg")))
     app.setStyleSheet(estilo())
     try:                   # si Oracle aún no está listo, la ventana abre igual y muestra el error al entrar
         auth.migrar()      # columnas nuevas (correo, pregunta, foto, tema, idioma)
