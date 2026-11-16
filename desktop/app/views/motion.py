@@ -7,6 +7,8 @@ de 150–300 ms, nada bloquea más de 500 ms.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from typing import Callable
 
 from PyQt6.QtCore import QAbstractAnimation, QEasingCurve, QEvent, QObject, QPointF, QRectF, Qt, QTimer, QVariantAnimation
@@ -15,6 +17,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
     QGraphicsDropShadowEffect,
+    QGraphicsEffect,
     QGraphicsOpacityEffect,
     QLayout,
     QTableView,
@@ -34,9 +37,308 @@ TINTA_SUAVE = "#8A8A8A"
 
 def animar(dueno: QObject, inicio: float, fin: float, ms: int, paso: Callable[[float], None],
            fin_cb: Callable[[], None] | None = None,
-           curva: QEasingCurve.Type = CURVA) -> QVariantAnimation | None:
+           curva: QEasingCurve.Type | QEasingCurve = CURVA) -> QVariantAnimation | None:
     """Atajo de ``widgets.animar`` con los tokens de esta capa."""
-    return widgets.animar(dueno, inicio, fin, ms, paso, fin_cb, curva)
+    return widgets.animar(dueno, inicio, fin, ms, paso, fin_cb, curva)  # type: ignore[arg-type]
+
+
+# --------------------------------------------------------------------------- sistema de movimiento (Apple-like)
+# Duraciones por naturaleza de la interacción: no todo dura lo mismo (hover ≪ entrada < pantalla < gráfica).
+class Dur:
+    HOVER, PRESION = 150, 130
+    ENTRADA, SALIDA = 360, 240
+    ESTADO, PANTALLA = 320, 420
+    EXPANSION, GRAFICA = 440, 560
+
+
+def curva_resorte(sobre: float = 1.15) -> QEasingCurve:
+    """Ease-out con un rebasamiento muy sutil (spring-like) para expansión y recuperación tras una pulsación."""
+    c = QEasingCurve(QEasingCurve.Type.OutBack)
+    c.setOvershoot(sobre)
+    return c
+
+
+_reducido: bool | None = None
+
+
+def reducido() -> bool:
+    """Preferencia de movimiento reducido (``APP_MOVIMIENTO_REDUCIDO=1`` o «animaciones» apagadas en GNOME).
+
+    Con ella activa se omiten partículas, ciclos continuos y desplazamientos grandes; las transiciones esenciales
+    (color, opacidad, estado) siguen, más cortas. Se consulta una sola vez."""
+    global _reducido
+    if _reducido is None:
+        forzado = os.environ.get("APP_MOVIMIENTO_REDUCIDO")
+        if forzado is not None:
+            _reducido = forzado == "1"
+        else:
+            try:
+                r = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "enable-animations"],
+                                   capture_output=True, text=True, timeout=0.6)
+                _reducido = r.returncode == 0 and r.stdout.strip() == "false"
+            except Exception:  # sin gsettings (otro escritorio, contenedor): se asume movimiento normal
+                _reducido = False
+    return _reducido
+
+
+def fijar_reducido(valor: bool | None) -> None:
+    """Fuerza (o, con ``None``, vuelve a consultar) la preferencia; lo usan las pruebas."""
+    global _reducido
+    _reducido = valor
+
+
+def dur(base: int) -> int:
+    """Duración efectiva: en movimiento reducido las transiciones esenciales se acortan."""
+    return min(base, 160) if reducido() else base
+
+
+def desp(distancia: float) -> float:
+    """Desplazamiento efectivo: en movimiento reducido casi no hay recorrido."""
+    return distancia * 0.2 if reducido() else distancia
+
+
+def decorativo() -> bool:
+    """¿Se permiten efectos decorativos y ciclos continuos (partículas, ondas, respiración)?"""
+    return widgets.ANIMAR and not reducido()
+
+
+def sin_efecto_en_ancestros(widget: QWidget) -> bool:
+    """Qt dibuja mal efectos gráficos anidados: antes de fundir un hijo se comprueba que ningún padre tenga uno."""
+    p = widget.parentWidget()
+    while p is not None:
+        if p.graphicsEffect() is not None:
+            return False
+        p = p.parentWidget()
+    return True
+
+
+class EfectoMovimiento(QGraphicsEffect):
+    """Un único efecto reutilizable para entrada, hover y pulsación de una tarjeta: opacidad, desplazamiento vertical,
+    escala alrededor del centro y una sombra ambiental suave (capas de rectángulos, sin desenfoque costoso).
+
+    Se instala solo mientras hace falta y se quita al volver al reposo, de modo que una tarjeta quieta no paga nada.
+    """
+
+    PAD = 30
+
+    def __init__(self, padre: QWidget, radio: float = 16, color: str = VERDE) -> None:
+        super().__init__(padre)
+        self._op, self._dy, self._esc, self._sombra = 1.0, 0.0, 1.0, 0.0
+        self._radio = radio
+        self._color = QColor(color)
+
+    def opacidad(self) -> float:
+        return self._op
+
+    def set_opacidad(self, v: float) -> None:
+        self._op = max(0.0, min(1.0, v))
+        self.update()
+
+    def set_dy(self, v: float) -> None:
+        self._dy = v
+        self.update()
+
+    def set_escala(self, v: float) -> None:
+        self._esc = v
+        self.update()
+
+    def sombra(self) -> float:
+        return self._sombra
+
+    def set_sombra(self, v: float) -> None:
+        self._sombra = max(0.0, v)
+        self.update()
+
+    def en_reposo(self) -> bool:
+        return self._op >= 1.0 and abs(self._dy) < 0.01 and abs(self._esc - 1.0) < 0.0005 and self._sombra <= 0.001
+
+    def boundingRectFor(self, rect: QRectF) -> QRectF:
+        return rect.adjusted(-self.PAD, -self.PAD, self.PAD, self.PAD + 10)
+
+    def draw(self, painter: QPainter) -> None:
+        pix, off = self.sourcePixmap(Qt.CoordinateSystem.LogicalCoordinates, QGraphicsEffect.PixmapPadMode.NoPad)
+        if pix.isNull():
+            return
+        tam = pix.deviceIndependentSize()
+        r = QRectF(off.x(), off.y(), tam.width(), tam.height())
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        c = r.center()
+        painter.translate(c.x(), c.y() + self._dy)
+        painter.scale(self._esc, self._esc)
+        painter.translate(-c.x(), -c.y())
+        painter.setOpacity(self._op)
+        if self._sombra > 0.001:
+            painter.setPen(Qt.PenStyle.NoPen)
+            capas = 7
+            for k in range(capas, 0, -1):      # de fuera hacia dentro: el centro de la sombra queda más denso
+                crece = k * 2.6
+                tono = QColor(self._color)
+                tono.setAlphaF(min(1.0, self._sombra * 0.06 * (1 - (k - 1) / capas)))
+                painter.setBrush(tono)
+                painter.drawRoundedRect(r.adjusted(-crece, -crece + 6, crece, crece + 6), self._radio + crece,
+                                        self._radio + crece)
+        painter.drawPixmap(r.topLeft(), pix)
+        painter.restore()
+
+
+def efecto_movimiento(widget: QWidget, radio: float = 16, color: str = VERDE) -> EfectoMovimiento:
+    """El efecto de movimiento del widget (lo crea si no hay ninguno; si hay otro tipo de efecto lo reemplaza)."""
+    actual = widget.graphicsEffect()
+    if isinstance(actual, EfectoMovimiento):
+        return actual
+    efecto = EfectoMovimiento(widget, radio, color)
+    widget.setGraphicsEffect(efecto)
+    return efecto
+
+
+def soltar_efecto(widget: QWidget, efecto: QGraphicsEffect) -> None:
+    if not sip.isdeleted(widget) and not sip.isdeleted(efecto) and widget.graphicsEffect() is efecto:
+        widget.setGraphicsEffect(None)
+
+
+def entrar(widget: QWidget, retardo: int = 0, dy: float = 14, escala: float = 1.0, ms_: int = Dur.ENTRADA,
+           radio: float = 16, al_terminar: Callable[[], None] | None = None) -> None:
+    """Entrada de un widget: fade-in + desplazamiento vertical (y expansión si ``escala`` < 1) tras ``retardo`` ms.
+
+    Quita el efecto al terminar y es seguro si el widget se destruye (la vista se reconstruye con el tema/idioma)."""
+    if not widgets.ANIMAR:
+        return
+    dy, ms_ = desp(dy), dur(ms_)
+    detener(getattr(widget, "_entrada_anim", None))        # re-entrante: volver a la pantalla reemplaza la entrada previa
+    token = object()
+    widget._entrada_tok = token                              # type: ignore[attr-defined]
+    efecto = efecto_movimiento(widget, radio)
+    efecto.set_opacidad(0.0)
+    efecto.set_dy(dy)
+    efecto.set_escala(escala)
+
+    def paso(v: float) -> None:
+        if sip.isdeleted(efecto):
+            return
+        efecto.set_opacidad(min(1.0, v * 1.6))
+        efecto.set_dy(dy * (1 - v))
+        efecto.set_escala(escala + (1.0 - escala) * v)
+
+    def fin() -> None:
+        if getattr(widget, "_entrada_tok", None) is not token:
+            return
+        soltar_efecto(widget, efecto)
+        if al_terminar is not None:
+            al_terminar()
+
+    def arrancar() -> None:
+        if sip.isdeleted(widget) or getattr(widget, "_entrada_tok", None) is not token:
+            return
+        if not widget.isVisible():                           # se salió de la pantalla antes de que le tocara: no se anima
+            soltar_efecto(widget, efecto)
+            return
+        curva = curva_resorte(1.05) if escala < 1.0 else QEasingCurve.Type.OutCubic
+        widget._entrada_anim = animar(widget, 0.0, 1.0, ms_, paso, fin, curva)   # type: ignore[attr-defined]
+
+    if retardo > 0:
+        QTimer.singleShot(retardo, arrancar)
+    else:
+        arrancar()
+
+
+class InteraccionTarjeta(QObject):
+    """Hover y pulsación de una tarjeta, sin mover el layout: elevación ligera con sombra ambiental, compresión al
+    pulsar y recuperación tipo spring. El efecto solo existe mientras hay movimiento o el cursor está encima."""
+
+    def __init__(self, tarjeta: QWidget, radio: float = 14, color: str = VERDE, elevacion: float = 3.0) -> None:
+        super().__init__(tarjeta)
+        self._t, self._radio, self._color, self._elev = tarjeta, radio, color, elevacion
+        self._dentro = False
+        self._hover = 0.0
+        self._pulso = 0.0
+        self._a_hover: QVariantAnimation | None = None
+        self._a_pulso: QVariantAnimation | None = None
+        tarjeta.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        tarjeta.installEventFilter(self)
+
+    def _efecto(self) -> EfectoMovimiento | None:
+        actual = self._t.graphicsEffect()
+        if actual is None:
+            return efecto_movimiento(self._t, self._radio, self._color)
+        return actual if isinstance(actual, EfectoMovimiento) else None   # hay otro efecto en curso: no se pisa
+
+    def _aplicar(self) -> None:
+        efecto = self._efecto()
+        if efecto is None:
+            return
+        if not self._dentro and self._hover <= 0.001 and self._pulso <= 0.001:
+            soltar_efecto(self._t, efecto)
+            return
+        efecto.set_dy(-self._elev * self._hover)
+        efecto.set_escala(1.0 - 0.018 * self._pulso)    # sin escala en reposo: el texto no se re-muestrea
+        efecto.set_sombra(self._hover)
+
+    def _hover_a(self, destino: float) -> None:
+        detener(self._a_hover)
+        self._a_hover = animar(self._t, self._hover, destino, Dur.HOVER + 40, self._paso_hover)
+
+    def _paso_hover(self, v: float) -> None:
+        self._hover = v
+        self._aplicar()
+
+    def _pulso_a(self, destino: float, ms_: int, curva) -> None:
+        detener(self._a_pulso)
+        self._a_pulso = animar(self._t, self._pulso, destino, ms_, self._paso_pulso, None, curva)
+
+    def _paso_pulso(self, v: float) -> None:
+        self._pulso = v
+        self._aplicar()
+
+    def eventFilter(self, objeto, evento) -> bool:
+        if not widgets.ANIMAR:
+            return False
+        tipo = evento.type()
+        if tipo in (QEvent.Type.HoverEnter, QEvent.Type.Enter):
+            if not self._dentro:
+                self._dentro = True
+                self._hover_a(1.0)
+        elif tipo in (QEvent.Type.HoverLeave, QEvent.Type.Leave):
+            if self._dentro:
+                self._dentro = False
+                self._hover_a(0.0)
+        elif tipo == QEvent.Type.MouseButtonPress:
+            self._pulso_a(1.0, dur(Dur.PRESION), QEasingCurve.Type.OutCubic)
+        elif tipo == QEvent.Type.MouseButtonRelease:
+            self._pulso_a(0.0, dur(Dur.ESTADO), curva_resorte(1.9))
+        return False
+
+
+def hacer_interactiva(tarjeta: QWidget, radio: float = 14, color: str = VERDE) -> InteraccionTarjeta:
+    """Instala (una sola vez) el hover/pulsación premium en una tarjeta."""
+    previa = getattr(tarjeta, "_interaccion", None)
+    if previa is not None:
+        return previa
+    tarjeta._interaccion = InteraccionTarjeta(tarjeta, radio, color)  # type: ignore[attr-defined]
+    return tarjeta._interaccion  # type: ignore[attr-defined]
+
+
+def cruzar_texto(etiqueta, texto: str, ms_: int = Dur.ESTADO) -> None:
+    """Cross-fade del texto de una etiqueta: sale (rápido), se cambia y entra. Sin cambio de texto no hace nada.
+
+    Si la etiqueta no es visible, o un ancestro ya lleva un efecto gráfico, el texto cambia al instante."""
+    if etiqueta.text() == texto:
+        return
+    if not widgets.ANIMAR or not etiqueta.isVisible() or not sin_efecto_en_ancestros(etiqueta):
+        etiqueta.setText(texto)
+        return
+    detener(getattr(etiqueta, "_cruce", None))
+    total = dur(ms_)
+    mitad = max(60, total // 3)
+
+    def entra() -> None:
+        if sip.isdeleted(etiqueta):
+            return
+        etiqueta.setText(texto)
+        etiqueta._cruce = desvanecer(etiqueta, 0.0, 1.0, total - mitad)
+
+    etiqueta._cruce = desvanecer(etiqueta, 1.0, 0.0, mitad, entra)
 
 
 def detener(anim: QVariantAnimation | None) -> None:
@@ -61,16 +363,29 @@ def desvanecer(widget: QWidget, desde: float, hasta: float, ms: int = NORMAL,
     Un fundido que termina en opacidad plena quita su efecto: dejarlo puesto anidaba efectos con los de los hijos
     (p. ej. las cifras de una tarjeta KPI) y Qt los dibujaba en blanco.
     """
+    # Un fundido nuevo sobre el mismo widget sustituye al anterior: sin esto, el primero al terminar borraba el efecto
+    # mientras el segundo aún lo usaba («wrapped C/C++ object … has been deleted»).
+    detener(getattr(widget, "_fundido", None))
+    token = object()
+    widget._fundido_token = token   # type: ignore[attr-defined]
     efecto, _ = opacidad(widget)
     efecto.setOpacity(desde)
 
+    def paso(v: float) -> None:
+        if not sip.isdeleted(efecto):
+            efecto.setOpacity(v)
+
     def fin() -> None:
+        if getattr(widget, "_fundido_token", None) is not token:   # lo reemplazó otro fundido: él se encarga
+            return
         if hasta >= 1.0 and not sip.isdeleted(widget) and widget.graphicsEffect() is efecto:
             widget.setGraphicsEffect(None)
         if fin_cb is not None:
             fin_cb()
 
-    return animar(widget, desde, hasta, ms, efecto.setOpacity, fin)
+    anim = animar(widget, desde, hasta, ms, paso, fin)
+    widget._fundido = anim   # type: ignore[attr-defined]
+    return anim
 
 
 def sombra(widget: QWidget, color: str = "#000000", blur: int = 0, dy: int = 0, alpha: int = 0) -> QGraphicsDropShadowEffect:
