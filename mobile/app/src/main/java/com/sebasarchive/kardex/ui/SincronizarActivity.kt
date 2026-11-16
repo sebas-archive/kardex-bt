@@ -24,6 +24,7 @@ import com.sebasarchive.kardex.sync.PcConnector
 import com.sebasarchive.kardex.ui.pantallas.SincronizarScreen
 import com.sebasarchive.kardex.ui.pantallas.SincronizarUi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,6 +37,8 @@ class SincronizarActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
     private val vm: SyncViewModel by viewModels { SyncViewModelFactory(Servicios.de(this)) }
     private var ui by mutableStateOf(SincronizarUi())
+    /** Modo «conectar primero»: la app se abrió sin sesión; se comprueba el PC y se sigue al acceso. */
+    private val soloConectar by lazy { intent.getBooleanExtra(EXTRA_SOLO_CONECTAR, false) }
     private var pendiente: (() -> Unit)? = null
     private var receptorActivo = false
     private var seqInicial: Long? = null  // primer seq de esta sincronización: el progreso se mide desde ahí
@@ -69,7 +72,7 @@ class SincronizarActivity : PantallaActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ui = ui.copy(pcNombre = s.settings.pcNombre, pcDireccion = s.settings.pcDireccion, puedeCambiarPc = puedeCambiarPc())
+        ui = ui.copy(pcNombre = s.settings.pcNombre, pcDireccion = s.settings.pcDireccion, puedeCambiarPc = puedeCambiarPc(), soloConectar = soloConectar)
         pantalla {
             SincronizarScreen(
                 ui,
@@ -117,6 +120,13 @@ class SincronizarActivity : PantallaActivity() {
             else -> {
                 ui = ui.copy(estado = estado)
                 contarPendientes()
+                if (soloConectar && estado is SyncEstado.Listo) {  // PC conectado: se ve el visto un instante y sigue el acceso
+                    s.pcVerificado = true
+                    lifecycleScope.launch {
+                        delay(900)
+                        reemplazarPor(AuthActivity::class.java)
+                    }
+                }
             }
         }
     }
@@ -159,7 +169,7 @@ class SincronizarActivity : PantallaActivity() {
         asegurarBluetooth(buscando = false) {
             detenerBusqueda()
             ui = ui.copy(encontrados = emptyList(), mensaje = null)
-            vm.iniciar(direccion)
+            if (soloConectar) vm.probar(direccion) else vm.iniciar(direccion)
         }
     }
 
@@ -196,6 +206,11 @@ class SincronizarActivity : PantallaActivity() {
         }
         runCatching { s.conector.adaptador()?.cancelDiscovery() }
         if (ui.buscando) ui = ui.copy(buscando = false)
+    }
+
+    companion object {
+        /** `true`: la app se abrió sin sesión y hay que conectar con el PC antes del acceso. */
+        const val EXTRA_SOLO_CONECTAR = "solo_conectar"
     }
 
     private fun agregarPc(direccion: String, nombre: String?) {

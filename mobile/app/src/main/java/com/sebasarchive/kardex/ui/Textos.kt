@@ -280,6 +280,12 @@ object Textos {
         "Bluetooth · sin wifi" to "Bluetooth · no Wi-Fi",
         "Sincronizando…" to "Syncing…",
         "Sincronizar ahora" to "Sync now",
+        "Conectar con el PC" to "Connect to the PC",
+        "Conecta con el PC" to "Connect to the PC",
+        "Antes de iniciar sesión o registrarte, el teléfono debe estar conectado con el PC." to "Before signing in or registering, the phone must be connected to the PC.",
+        "¡Conectado!" to "Connected!",
+        "PC conectado. Ahora puedes iniciar sesión o registrarte." to "PC connected. You can now sign in or register.",
+        "Conectar" to "Connect",
         "Buscando el PC…" to "Looking for the PC…",
         "En el PC pulsa «Iniciar sincronización». Aparece como {pc}." to
             "On the PC press “Start sync”. It appears as {pc}.",

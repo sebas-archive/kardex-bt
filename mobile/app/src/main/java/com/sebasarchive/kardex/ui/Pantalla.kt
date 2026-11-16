@@ -43,8 +43,8 @@ abstract class PantallaActivity : ComponentActivity() {
 
     /** Abre [destino] como única pantalla de la app (tras entrar o cerrar sesión), con un fundido. */
     @Suppress("DEPRECATION")
-    protected fun reemplazarPor(destino: Class<*>) {
-        startActivity(Intent(this, destino).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+    protected fun reemplazarPor(destino: Class<*>, configurar: Intent.() -> Unit = {}) {
+        startActivity(Intent(this, destino).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK).apply(configurar))
         overridePendingTransition(Transicion.FUNDIDO.entra, Transicion.FUNDIDO.sale)
     }
 
