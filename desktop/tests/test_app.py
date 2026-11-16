@@ -68,6 +68,17 @@ def test_inventory_sidebar_exact_order(qtbot, puente):
     assert not ventana.btn_avisos.isHidden()
 
 
+def test_collapsed_sidebar_survives_a_theme_change(qtbot, puente):
+    """Al reconstruir las vistas (tema o idioma) la barra contraída sigue mostrando solo iconos."""
+    ventana = abrir(qtbot, puente, ANA)
+    ventana.alternar_lateral()
+    assert ventana.lateral_contraida()
+    ventana.cambiar_tema("oscuro")
+    qtbot.wait(200)
+    assert ventana.lateral_contraida()
+    assert all(boton.text() == "" for _t, _v, boton, _m, _r in ventana._secciones)
+
+
 def test_no_removed_screens_are_registered(qtbot, puente):
     ventana = abrir(qtbot, puente, ANA)
     for retirada in ("Tareas", "Tareas de conteo", "Diferencias", "Movimientos", "Ajustes", "Existencias",
