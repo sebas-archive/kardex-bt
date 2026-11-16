@@ -10,6 +10,7 @@ No hay cierres: el conteo siempre está abierto y este panel se recalcula con ca
 from __future__ import annotations
 
 import copy
+import time
 from functools import partial
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -53,7 +54,7 @@ registrar({
     "Se perderá la distribución que armaste y volverá la inicial. Tus datos no se tocan.":
         "Your layout will be lost and the initial one will return. Your data is not touched.",
     "Restaurar": "Restore", "Dashboard restaurado": "Dashboard restored", "Sin actividad registrada.": "No activity recorded.",
-    "con error:": "with error:", "Lecturas por procesar": "Readings to process",
+    "con error:": "with error:",
     "Se perdió la conexión con los datos de los gráficos.": "Chart data could not be loaded.",
 })
 
@@ -68,20 +69,35 @@ FUENTES_SERIES = {"avance_categoria", "lecturas_categoria", "danados", "contados
 FUENTES_ACTIVIDAD = {"operador", "operador_tiempo"}
 
 
+INTENTOS = 3        # un fallo suelto de Oracle (p. ej. ORA-12516 al abrir conexiones seguidas) no deja el widget vacío
+ESPERA_REINTENTO = 0.4
+
+
+def _con_reintentos(fn, *args, **kwargs):
+    for intento in range(1, INTENTOS + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            if intento == INTENTOS:
+                raise
+            time.sleep(ESPERA_REINTENTO * intento)
+
+
 def _cargar(series: bool, actividad: bool, sesion_audit):
     """Corre en un hilo de trabajo: lo básico y, solo si hay widgets que lo piden, series, actividad y auditoría."""
     extra: dict = {}
     if series:
-        extra["series"] = db.fetch_series(top=40)
+        extra["series"] = _con_reintentos(db.fetch_series, top=40)
     if actividad:
-        extra["actividad"] = db.fetch_actividad()
+        extra["actividad"] = _con_reintentos(db.fetch_actividad)
     if sesion_audit is not None:
         from .. import auditoria
         try:
             extra["auditoria"] = auditoria.listar(sesion_audit)[:8]
         except Exception:      # sin permiso o sin tabla: el panel simplemente queda sin entradas
             extra["auditoria"] = []
-    return db.fetch_resumen(), db.fetch_estado_batch(), db.fetch_por_categoria(), extra
+    return (_con_reintentos(db.fetch_resumen), _con_reintentos(db.fetch_estado_batch),
+            _con_reintentos(db.fetch_por_categoria), extra)
 
 
 def _fmt_entero(valor: float) -> str:
@@ -141,6 +157,7 @@ class DashboardView(QWidget):
         self.cards: dict[str, TarjetaKpi] = {}
         self._hojas: dict[str, QWidget] = {}
         self._edicion = False
+        self._fallo = False     # la última carga falló (tras los reintentos): los widgets dejan de decir «Cargando…»
 
         self.titulo = QLabel(t("Conteo continuo"))
         self.titulo.setObjectName("seccion")
@@ -229,8 +246,28 @@ class DashboardView(QWidget):
             self.banner.show_loading()
         claves = {i.clave for i in self._items}
         audit = self._sesion if "actividad_reciente" in claves else None
-        self._runner.run(_cargar, self._mostrar, self.banner.show_error, bool(claves & FUENTES_SERIES),
+        self._fallo = False
+        self._runner.run(_cargar, self._mostrar, self._fallo_carga, bool(claves & FUENTES_SERIES),
                          bool(claves & FUENTES_ACTIVIDAD), audit, key="dashboard")
+
+    def _fallo_carga(self, mensaje: str) -> None:
+        self._fallo = True
+        self.banner.show_error(mensaje)
+        for item in self._items:
+            if item.definicion.tipo == prefs.GRAFICO:
+                self._pintar_grafico(item)
+
+    def _esperando(self, item: prefs.Item) -> bool:
+        """El gráfico aún no tiene su dato porque la consulta está en curso."""
+        if self._fallo or self._sesion is None:
+            return False
+        if self._resumen is None:
+            return True
+        if item.clave in FUENTES_SERIES:
+            return self._crudo.get("series") is None
+        if item.clave in FUENTES_ACTIVIDAD:
+            return self._crudo.get("actividad") is None
+        return False
 
     def card_text(self, clave: str) -> str:
         """El valor de una tarjeta (el final, aunque la cifra aún esté contando)."""
@@ -402,22 +439,20 @@ class DashboardView(QWidget):
 
     def _valor_kpi(self, clave: str):
         r, b = self._resumen, self._batch
-        if clave in ("avance", "total", "contados", "sin_contar", "coincidentes", "faltantes", "sobrantes", "exactitud"):
+        if clave in ("avance", "contados", "sin_contar", "coincidentes", "faltantes", "sobrantes"):
             if r is None:
                 return None
             return {
                 "avance": (r.avance_pct, fmt_pct, f"{r.contados} {t('de')} {r.skus_totales} {t('SKU')}"),
-                "total": (r.skus_totales, _fmt_entero, f"{r.contados} {t('Contados').lower()}"),
                 "contados": (r.contados, _fmt_entero, f"{t('SKU contados')}: {r.contados}"),
                 "sin_contar": (r.sin_contar, _fmt_entero, f"{r.sin_contar} {t('de')} {r.skus_totales} {t('SKU')}"),
-                "coincidentes": (r.ok, _fmt_entero, f"{r.ok} {t('de')} {r.contados} {t('Contados').lower()}"),
+                "coincidentes": (r.ok, _fmt_entero, f"{fmt_pct(r.exactitud_pct)} · {r.ok} {t('de')} {r.contados} {t('Contados').lower()}"),
                 "faltantes": (r.faltantes, _fmt_entero, ""),
                 "sobrantes": (r.sobrantes, _fmt_entero, ""),
-                "exactitud": (r.exactitud_pct, fmt_pct, f"{r.ok} {t('de')} {r.contados} {t('Contados').lower()}"),
             }[clave]
         if b is None:
             return None
-        return {"con_error": (b.errores, _fmt_entero, ""), "pendientes_sync": (b.pendientes, _fmt_entero, "")}.get(clave)
+        return {"con_error": (b.errores, _fmt_entero, "")}.get(clave)
 
     def _aplicar_datos(self) -> None:
         for clave, tarjeta in self.cards.items():
@@ -456,6 +491,7 @@ class DashboardView(QWidget):
         marco = self._marcos.get(item.id)
         if marco is not None:
             marco.poner_titulo(o.get("titulo") or t(item.definicion.nombre))
+        grafico.cargando = self._esperando(item)
         grafico.poner(construir(item.clave, o, self._crudo), o.get("tipo", item.definicion.tipo_defecto),
                       bool(o.get("leyenda", True)), bool(o.get("etiquetas", True)), item.definicion.drill)
 
