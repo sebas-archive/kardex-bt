@@ -58,8 +58,8 @@ registrar({
     "Añadir gráfica": "Add chart",
     "Restaurar predeterminado": "Restore default",
     "Listo": "Done",
-    "Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o quitar la gráfica.":
-        "Drag to reorder. Use ⋯ to resize or remove a chart.",
+    "Arrastra para reordenar y la esquina ◢ para cambiar el tamaño. Usa ⋯ para quitar la gráfica.":
+        "Drag to reorder and the ◢ corner to resize. Use ⋯ to remove a chart.",
     "Quitar de Gráficas": "Remove from Charts",
     "Tamaño": "Size",
     "No hay gráficas. Pulsa «Personalizar gráficas» y luego «Añadir gráfica».":
@@ -221,7 +221,7 @@ class ChartsView(QWidget):
         fila = QHBoxLayout(self.barra_edicion)
         fila.setContentsMargins(14, 8, 8, 8)
         fila.setSpacing(8)
-        ayuda_edicion = QLabel(t("Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o quitar la gráfica."))
+        ayuda_edicion = QLabel(t("Arrastra para reordenar y la esquina ◢ para cambiar el tamaño. Usa ⋯ para quitar la gráfica."))
         ayuda_edicion.setObjectName("ayuda")
         self.btn_agregar = QPushButton(" " + t("Añadir gráfica"))
         self.btn_restaurar = QPushButton(" " + t("Restaurar predeterminado"))
@@ -245,7 +245,9 @@ class ChartsView(QWidget):
         self.vacio.hide()
         raiz.addWidget(self.vacio)
         self.rejilla = RejillaPersonal()
+        self.rejilla.redimensionable = True          # asa en la esquina: ancho por columnas y alto libre
         self.rejilla.orden_cambiado.connect(self._orden_cambiado)
+        self.rejilla.medidas_cambiadas.connect(self._medidas_cambiadas)
         raiz.addWidget(self.rejilla)
         raiz.addStretch(1)
         desplazable = QScrollArea()
@@ -265,6 +267,7 @@ class ChartsView(QWidget):
         self.btn_agregar.clicked.connect(self._menu_agregar)
         self.btn_restaurar.clicked.connect(self.restaurar)
         self._items: list[tuple[str, str]] = prefs.predeterminado()   # (gráfica, tamaño), en el orden en pantalla
+        self._medidas: dict[str, tuple[int, int]] = {}                # medida propia (columnas, alto) si se redimensionó
         self._edicion = False
         self._poner_baldosas()
 
@@ -275,6 +278,7 @@ class ChartsView(QWidget):
             self._cargado = False
         else:
             self._items = prefs.cargar(sesion.usuario)
+            self._medidas = prefs.cargar_medidas(sesion.usuario)
             self._poner_baldosas()
             self.refresh()
 
@@ -313,6 +317,7 @@ class ChartsView(QWidget):
         if all(c != chart_id for c, _t in self._items):
             return
         self._items = [(c, tam) for c, tam in self._items if c != chart_id]
+        self._medidas.pop(chart_id, None)
         self._poner_baldosas()
         self._persistir()
 
@@ -320,7 +325,24 @@ class ChartsView(QWidget):
         if tam not in prefs.TAMS:
             return
         self._items = [(c, tam if c == chart_id else x) for c, x in self._items]
-        self.rejilla.cambiar_tam(chart_id, tam)
+        self._medidas.pop(chart_id, None)               # un tamaño S/M/L descarta la medida propia
+        self.rejilla.cambiar_tam(chart_id, tam, reiniciar=True)
+        self._persistir()
+
+    def poner_medidas(self, chart_id: str, cols: int, alto: int) -> None:
+        """Medida propia: ``cols`` columnas y ``alto`` px (0 = la del tamaño)."""
+        if all(c != chart_id for c, _t in self._items):
+            return
+        medida = prefs.limitar_medidas(cols, alto)
+        if any(medida):
+            self._medidas[chart_id] = medida
+        else:
+            self._medidas.pop(chart_id, None)
+        self.rejilla.poner_medidas(chart_id, *medida)
+        self._persistir()
+
+    def _medidas_cambiadas(self, chart_id: str, cols: int, alto: int) -> None:
+        self._medidas[chart_id] = (cols, alto)
         self._persistir()
 
     def restaurar(self) -> None:
@@ -328,6 +350,7 @@ class ChartsView(QWidget):
             self._items = prefs.restaurar(self._sesion.usuario)
         else:
             self._items = prefs.predeterminado()
+        self._medidas = {}
         self._poner_baldosas()
 
     def bar_data(self, chart_id: str) -> list[tuple[str, float]]:
@@ -352,7 +375,8 @@ class ChartsView(QWidget):
             marco.setParent(self._contenido)
         baldosas = []
         for chart_id, tam in self._items:
-            b = Baldosa(chart_id, "grafico", tam, self._marcos[chart_id])
+            cols, alto = self._medidas.get(chart_id, (0, 0))
+            b = Baldosa(chart_id, "grafico", tam, self._marcos[chart_id], cols, alto)
             b.menu_pedido.connect(self._menu)
             b.quitar.connect(self.quitar_grafica)
             baldosas.append(b)
@@ -366,7 +390,7 @@ class ChartsView(QWidget):
 
     def _persistir(self) -> None:
         if self._sesion is not None:
-            prefs.guardar(self._sesion.usuario, self._items)
+            prefs.guardar(self._sesion.usuario, self._items, self._medidas)
 
     def _orden_cambiado(self, ids: list[str]) -> None:
         tam = dict(self._items)
@@ -380,7 +404,12 @@ class ChartsView(QWidget):
         for x in prefs.TAMS:
             a = tam.addAction(t(NOMBRE_TAMANO[x]), lambda v=x: self.cambiar_tam(chart_id, v))
             a.setCheckable(True)
-            a.setChecked(tam_actual == x)
+            a.setChecked(tam_actual == x and chart_id not in self._medidas)
+        if chart_id in self._medidas:
+            a = tam.addAction(t("Personalizado"))
+            a.setCheckable(True)
+            a.setChecked(True)
+            a.setEnabled(False)
         m.addSeparator()
         m.addAction(t("Quitar de Gráficas"), lambda: self.quitar_grafica(chart_id))
         m.exec(QCursor.pos())
