@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Genera de forma reproducible los datos de demostración: db/init/08_demo.sql.
 
-Parte del catálogo de gen_seed.py (mismos --seed) y le añade 30 días de historia para que todas las pantallas
+Parte del catálogo de gen_seed.py (mismos --seed) y le añade 13 meses de historia para que todas las pantallas
 y gráficas tengan algo que mostrar:
 
   * cuentas: Administrador, Inventario, 4 operadores del celular y 3 solicitudes (pendientes y rechazada);
@@ -15,6 +15,8 @@ Uso (desde la raíz):  python tools/gen_seed.py --seed 42 && python tools/gen_de
 """
 
 import argparse
+import math
+from datetime import date, timedelta
 import base64
 import hashlib
 import random
@@ -31,7 +33,7 @@ from gen_seed import lit  # noqa: E402
 CLAVE_DEMO = "Demo1234"
 RESPUESTA_DEMO = "bogota"
 PREGUNTA_ADMIN = "¿En qué ciudad naciste?"
-DIAS = 30
+DIAS = 400   # un año y un mes de historia
 
 # (usuario, nombre, uuid del teléfono, nombre del teléfono, peso)
 OPERADORES = [
@@ -105,28 +107,37 @@ def construir(seed: int):
         seg = (h + UTC_DESDE_LOCAL) * 3600 + rng.randint(0, 3599)
         return ("b", -dia * 86400 + seg)
 
-    # ---- lecturas: cada SKU contado se cuenta 1..5 veces; la última es el valor final
+    # ---- peso de cada día: más actividad reciente, picos en los cierres de trimestre, algo de estacionalidad y sin domingos
+    hoy = date.today()
+    cierres = [date(y, m, d) for y in (hoy.year - 1, hoy.year) for m, d in ((3, 31), (6, 30), (9, 30), (12, 31))]
+
+    def peso_dia(d: int) -> float:
+        f = hoy - timedelta(days=d)
+        if f.weekday() == 6 and d > 0:
+            return 0.0
+        w = (1 + 1.5 * math.exp(-d / 70)) * (1 + 0.35 * math.sin(2 * math.pi * f.timetuple().tm_yday / 365))
+        if any(abs((f - c).days) <= 6 for c in cierres):
+            w *= 2.6   # conteo de cierre de trimestre
+        return w
+
+    pesos_dias = [peso_dia(d) for d in range(DIAS)]
+
+    # ---- lecturas: cada SKU contado se recuenta entre 6 y 14 veces en el año; la más reciente es el valor final
     por_sku = {p["sku"]: p for p in productos}
     for sku, final in finales.items():
         if final is None:
             continue
         p = por_sku[sku]
-        n = rng.choices([1, 2, 3, 4, 5], weights=[12, 22, 28, 22, 16])[0]
-        # La campaña se acelera: los primeros conteos caen más cerca del presente.
-        dia = min(DIAS - 1, int(rng.triangular(1, DIAS - 1, 16)))
-        dias_de_lectura = []
-        for _ in range(n):
-            if dia < 0:
-                break
-            dias_de_lectura.append(dia)
-            dia -= rng.randint(1, 6)
-        dias_de_lectura = [d for d in dias_de_lectura if d >= 0] or [0]
+        n = rng.randint(6, 14)
+        dias_de_lectura = sorted(set(rng.choices(range(DIAS), weights=pesos_dias, k=n)), reverse=True)  # del más viejo al más nuevo
         for i, d in enumerate(dias_de_lectura):
             ultima = i == len(dias_de_lectura) - 1
             if ultima:
                 cant = final
+            elif rng.random() < 0.25:
+                cant = final
             else:
-                cant = max(0, final + rng.choice([-4, -3, -2, -1, 1, 2, 3, 5])) if rng.random() < 0.7 else final
+                cant = max(0, round(final * rng.uniform(0.75, 1.25)) + rng.choice([-2, -1, 0, 1, 2]))
             dan = None
             if cant >= 1 and rng.random() < DANADOS[p["categoria"]]:
                 dan = rng.randint(1, max(1, min(cant, round(cant * 0.2) + 1)))
@@ -149,13 +160,20 @@ def construir(seed: int):
                         "estado": estado, "msg": msg, "_t": 0})
     ana, luis, marta, diego = OPERADORES
     sku_ok = productos[5]["sku"]
-    extra(1, "RAW", ("{ts}|ACTUAL|%s|abc|{op}||" % sku_ok), marta, "ERROR", "CANTIDAD_INVALIDA")
-    extra(3, "RAW", ("{ts}|ACTUAL|%s|5|{op}||9" % productos[20]["sku"]), luis, "ERROR", "DANADOS_INVALIDO")
-    extra(6, "RAW", ("{ts}|ACTUAL|%s|-3|{op}||" % productos[40]["sku"]), ana, "ERROR", "CANTIDAD_INVALIDA")
-    extra(9, "RAW", ("{ts}|ACTUAL||4|{op}||" ), diego, "ERROR", "SKU_DESCONOCIDO")
+    plantillas = [
+        ("{ts}|ACTUAL|%s|abc|{op}||", "CANTIDAD_INVALIDA"),
+        ("{ts}|ACTUAL|%s|5|{op}||9", "DANADOS_INVALIDO"),
+        ("{ts}|ACTUAL|%s|-3|{op}||", "CANTIDAD_INVALIDA"),
+        ("{ts}|ACTUAL|%s|2,5|{op}||", "CANTIDAD_INVALIDA"),
+    ]
+    for _ in range(36):
+        plantilla, motivo = rng.choice(plantillas)
+        d = rng.choices(range(1, DIAS), weights=pesos_dias[1:])[0]
+        extra(d, "RAW", plantilla % rng.choice(productos)["sku"], operador_de(d, rng.choice(productos)["categoria"]), "ERROR", motivo)
     extra(0, "RAW", "{ts}|ACTUAL|7701234009901|6|{op}|Producto sin etiqueta del sistema|", ana, "NUEVO_SKU", "SKU_DESCONOCIDO")
     extra(0, "RAW", "{ts}|ACTUAL|7701234009902|12|{op}||1", ana, "NUEVO_SKU", "SKU_DESCONOCIDO")
     extra(5, "RAW", "{ts}|ACTUAL|7701234009903|2|{op}|Regalo de proveedor|", luis, "DESCARTADO", None)
+    extra(40, "RAW", "{ts}|ACTUAL|7701234009904|8|{op}|Muestra de proveedor|", marta, "DESCARTADO", None)
     for ev in eventos:
         if ev["_t"] == 0:
             ev["_t"] = tiempo(ev["off"])
@@ -222,17 +240,17 @@ def render(seed: int) -> str:
 
     hace = lambda d: f"SYSTIMESTAMP - NUMTODSINTERVAL({d}, 'DAY')"  # noqa: E731
     ins("admin", "Camila Restrepo", "admin@demo.local", "ADMIN", clave, "ACTIVO", "ESCRITORIO",
-        pregunta=lit(PREGUNTA_ADMIN), respuesta_hash=lit(resp), creado=hace(40))
+        pregunta=lit(PREGUNTA_ADMIN), respuesta_hash=lit(resp), creado=hace(420))
     ins("inventario", "Andrés Molina", "inventario@demo.local", "INVENTARIO", clave, "ACTIVO", "ESCRITORIO",
-        resuelto_por=lit("admin"), resuelto=hace(38), creado=hace(39))
+        resuelto_por=lit("admin"), resuelto=hace(417), creado=hace(418))
     for usr, nombre, uuid, _, _ in OPERADORES:
         ins(usr, nombre, None, "OPERADOR", "-", "ACTIVO", "MOVIL", uuid_dispositivo=lit(uuid),
-            resuelto_por=lit("admin"), resuelto=hace(34), creado=hace(35))
+            resuelto_por=lit("admin"), resuelto=hace(414), creado=hace(415))
     ins("sofia.vega", "Sofía Vega", None, None, "-", "PENDIENTE", "MOVIL", creado="SYSTIMESTAMP - NUMTODSINTERVAL(3, 'HOUR')")
     ins("laura.mora", "Laura Mora", "laura.mora@demo.local", None, clave, "PENDIENTE", "ESCRITORIO",
         creado="SYSTIMESTAMP - NUMTODSINTERVAL(1, 'DAY')")
     ins("pedro.ruiz", "Pedro Ruiz", None, None, "-", "RECHAZADO", "MOVIL", motivo=lit("No pertenece a la bodega"),
-        resuelto_por=lit("admin"), resuelto=hace(12), creado=hace(13))
+        resuelto_por=lit("admin"), resuelto=hace(90), creado=hace(91))
     w("")
 
     # ---------------------------------------------------------------- bloque PL/SQL
