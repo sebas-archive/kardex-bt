@@ -1,224 +1,483 @@
-"""Pantalla de acceso: iniciar sesión, crear cuenta o recuperar la contraseña. Sin sesión no se pasa de aquí.
+"""Pantalla de Acceso: tarjeta de dos paneles (marca azul + formulario) con login, registro y recuperación.
 
-El Administrador recupera con su pregunta de seguridad; Inventory deja una solicitud para que el Administrador
-la apruebe. El correo es obligatorio al crear una cuenta del PC y la pregunta solo se pide a la primera cuenta.
+La tarjeta se centra sobre un fondo azul y se desplaza si no cabe. La izquierda es siempre azul (degradado y
+círculos pintados); la derecha sigue el tema claro/oscuro. El medidor de fuerza es una guía visual: la política
+del backend no cambia (``auth._validar_clave``).
 """
 
 from __future__ import annotations
 
-import re
+from PyQt6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                             QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
 
-from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton,
-                             QStackedWidget, QVBoxLayout, QWidget)
-
-from .. import auth, i18n
+from .. import auth, fortaleza, i18n, tema
 from ..i18n import t
 from . import motion, widgets
 from .base import QueryRunner
-
-FUERZA = ("Mínimo 8 caracteres, con letras y números", "Débil", "Aceptable", "Buena", "Fuerte")
-
-
-def _icono_estado(valido: bool) -> QIcon:
-    """Check verde o X roja dibujados (sin emoji ni recursos externos)."""
-    mapa = QPixmap(32, 32)
-    mapa.fill(Qt.GlobalColor.transparent)
-    pintor = QPainter(mapa)
-    pintor.setRenderHint(QPainter.RenderHint.Antialiasing)
-    color = QColor("#10B981" if valido else "#F87171")
-    pintor.setPen(QPen(color, 3.2, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
-    if valido:
-        pintor.drawPolyline(*[QPointF(x, y) for x, y in ((8, 17), (14, 23), (24, 10))])
-    else:
-        pintor.drawLine(10, 10, 22, 22)
-        pintor.drawLine(22, 10, 10, 22)
-    pintor.end()
-    mapa.setDevicePixelRatio(2)
-    return QIcon(mapa)
+from .iconos import icono
 
 
-def _icono_ojo(abierto: bool) -> QIcon:
-    mapa = QPixmap(40, 40)
-    mapa.fill(Qt.GlobalColor.transparent)
-    p = QPainter(mapa)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setPen(QPen(QColor("#8A8A8A"), 2.0, cap=Qt.PenCapStyle.RoundCap))
-    p.drawEllipse(QPointF(20, 20), 10, 6.5)
-    p.setBrush(QColor("#8A8A8A"))
-    p.drawEllipse(QPointF(20, 20), 3.2, 3.2)
-    if not abierto:
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawLine(9, 30, 31, 10)
-    p.end()
-    mapa.setDevicePixelRatio(2)
-    return QIcon(mapa)
+class FondoAcceso(QWidget):
+    """Fondo azul con degradado y círculos decorativos; la tarjeta va encima."""
+
+    def paintEvent(self, _evento) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        g = QLinearGradient(0, 0, self.width(), self.height())
+        g.setColorAt(0.0, QColor("#172554"))
+        g.setColorAt(0.55, QColor("#1D4ED8"))
+        g.setColorAt(1.0, QColor("#3B82F6"))
+        p.fillRect(self.rect(), g)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 18))
+        for x, y, r in ((self.width() * 0.12, self.height() * 0.18, 160),
+                        (self.width() * 0.88, self.height() * 0.12, 110),
+                        (self.width() * 0.78, self.height() * 0.88, 190)):
+            p.drawEllipse(QPointF(x, y), r, r)
+        p.setBrush(QColor(255, 255, 255, 12))
+        p.drawEllipse(QPointF(self.width() * 0.5, self.height() * 0.95), 240, 240)
+        p.end()
 
 
-def _campo(pista: str, clave: bool = False) -> QLineEdit:
-    campo = QLineEdit()
-    campo.setPlaceholderText(pista)
-    campo.setMinimumHeight(38)
-    if clave:
-        campo.setEchoMode(QLineEdit.EchoMode.Password)
-    return campo
+class PanelMarca(QFrame):
+    """Panel izquierdo azul con degradado y círculos translúcidos; el texto va en blanco."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedWidth(340)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(34, 40, 34, 34)
+        lay.setSpacing(10)
+        self.lbl_marca = QLabel(t("GESTIÓN DE INVENTARIO"))
+        self.lbl_marca.setStyleSheet("color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 700; "
+                                     "letter-spacing: 1.5px; background: transparent;")
+        self.lbl_bienvenida = QLabel(t("BIENVENIDO"))
+        self.lbl_bienvenida.setStyleSheet("color: #FFFFFF; font-size: 32px; font-weight: 800; background: transparent;")
+        self.lbl_bienvenida.setWordWrap(True)
+        self.lbl_imagen = QLabel(t("Conteo físico sin red.\nEl PC recibe por Bluetooth y Oracle concilia."))
+        self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 14px; background: transparent;")
+        self.lbl_imagen.setWordWrap(True)
+        self.lbl_pie = QLabel(t("Android · Bluetooth · Oracle"))
+        self.lbl_pie.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 11px; background: transparent;")
+        lay.addStretch(1)
+        lay.addWidget(self.lbl_marca)
+        lay.addWidget(self.lbl_bienvenida)
+        lay.addSpacing(4)
+        lay.addWidget(self.lbl_imagen)
+        lay.addStretch(2)
+        lay.addWidget(self.lbl_pie)
+
+    def paintEvent(self, _evento) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        camino = QPainterPath()
+        r = 18.0
+        ancho, alto = float(self.width()), float(self.height())
+        camino.moveTo(r, 0)
+        camino.lineTo(ancho, 0)
+        camino.lineTo(ancho, alto)
+        camino.lineTo(r, alto)
+        camino.quadTo(0, alto, 0, alto - r)
+        camino.lineTo(0, r)
+        camino.quadTo(0, 0, r, 0)
+        camino.closeSubpath()
+        p.setClipPath(camino)
+        g = QLinearGradient(0, 0, 0, self.height())
+        g.setColorAt(0.0, QColor("#1E40AF"))
+        g.setColorAt(0.55, QColor("#1D4ED8"))
+        g.setColorAt(1.0, QColor("#2563EB"))
+        p.fillPath(camino, g)
+        p.setPen(Qt.PenStyle.NoPen)
+        for x, y, r, alfa in ((self.width() * 1.02, self.height() * 0.18, 120, 26),
+                              (-30, self.height() * 0.62, 90, 22),
+                              (self.width() * 0.92, self.height() * 0.92, 150, 18),
+                              (self.width() * 0.18, -35, 70, 24)):
+            p.setBrush(QColor(255, 255, 255, alfa))
+            p.drawEllipse(QPointF(x, y), r, r)
+        p.end()
+
+
+class MedidorFuerza(QWidget):
+    """Cuatro segmentos, etiqueta de fuerza, reglas con check y aviso de patrón."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("medidorFuerza")
+        self.setAccessibleName(t("Seguridad de la contraseña"))
+        self.puntaje = 0
+        self.resultado = fortaleza.evaluar("")
+        self._segmentos: list[QFrame] = []
+        self._reglas: list[QLabel] = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 2, 0, 2)
+        lay.setSpacing(5)
+        rotulo = QLabel(t("Seguridad de la contraseña"))
+        rotulo.setObjectName("ayuda")
+        lay.addWidget(rotulo)
+        fila = QHBoxLayout()
+        fila.setSpacing(4)
+        for _ in range(4):
+            seg = QFrame()
+            seg.setFixedHeight(5)
+            seg.setMinimumWidth(40)
+            self._segmentos.append(seg)
+            fila.addWidget(seg, 1)
+        self.lbl_etiqueta = QLabel(t("Vacía"))
+        self.lbl_etiqueta.setObjectName("ayuda")
+        fila.addWidget(self.lbl_etiqueta)
+        lay.addLayout(fila)
+        reglas = QGridLayout()
+        reglas.setHorizontalSpacing(14)
+        reglas.setVerticalSpacing(2)
+        for i, (texto, _clave) in enumerate(fortaleza.reglas()):
+            lbl = QLabel(f"○ {t(texto)}")
+            lbl.setObjectName("ayuda")
+            lbl.setWordWrap(True)
+            self._reglas.append(lbl)
+            reglas.addWidget(lbl, i // 2, i % 2)
+        lay.addLayout(reglas)
+        self.lbl_aviso = QLabel("")
+        self.lbl_aviso.setObjectName("errorFormulario")
+        self.lbl_aviso.setWordWrap(True)
+        self.lbl_aviso.hide()
+        lay.addWidget(self.lbl_aviso)
+        self.actualizar("")
+
+    def etiqueta(self) -> str:
+        return self.lbl_etiqueta.text()
+
+    def actualizar(self, clave: str) -> None:
+        resultado = fortaleza.evaluar(clave)
+        self.resultado = resultado
+        self.puntaje = resultado.puntaje
+        c = tema.colores()
+        color = c["error"] if resultado.aviso else c["acento"]
+        for i, seg in enumerate(self._segmentos):
+            activo = (not resultado.vacia) and i < resultado.puntaje
+            seg.setStyleSheet(f"background: {color if activo else c['texto_suave']}; border-radius: 3px;")
+        self.lbl_etiqueta.setText(t(resultado.etiqueta))
+        color_etiqueta = c["texto_suave"] if resultado.vacia else (c["error"] if resultado.aviso else color)
+        self.lbl_etiqueta.setStyleSheet(
+            f"color: {color_etiqueta}; background: transparent; font-weight: 600;")
+        for (texto, cumple), lbl in zip(resultado.reglas, self._reglas):
+            lbl.setText(("✓ " if cumple else "○ ") + t(texto))
+            lbl.setStyleSheet(f"color: {c['texto_suave'] if not cumple else c['acento']}; background: transparent;")
+        self.lbl_aviso.setText(t(resultado.aviso) if resultado.aviso else "")
+        self.lbl_aviso.setVisible(bool(resultado.aviso))
+        self.setAccessibleDescription(
+            f"{t('Seguridad de la contraseña')}: {t(resultado.etiqueta)}"
+            + (f". {t(resultado.aviso)}" if resultado.aviso else ""))
 
 
 class AccesoView(QWidget):
-    """Dos formularios (entrar y crear cuenta) y el de recuperación; la validación corre fuera del hilo de la interfaz."""
+    """Login, registro y recuperación en una tarjeta de dos paneles; la validación corre fuera del hilo de la UI."""
 
     entro = pyqtSignal(object)       # auth.Sesion
-    sin_acceso = pyqtSignal(object)  # auth.CuentaSinAcceso: pendiente o rechazada
+    sin_acceso = pyqtSignal(object)  # auth.CuentaSinAcceso
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._runner = QueryRunner(self)
         self._primero = False
+        self._ya_animado = False
+        self._ajustes = QSettings("GestionInventario", "Acceso")
 
-        marca = QFrame()
-        marca.setObjectName("panelMarca")
-        self._marca_panel = marca
-        en_marca = QVBoxLayout(marca)
-        en_marca.setContentsMargins(40, 40, 40, 40)
-        titulo = QLabel(t("Gestión de inventario"))
-        titulo.setStyleSheet("font-size: 26px; font-weight: 600;")
-        titulo.setWordWrap(True)
-        lema = QLabel(t("Conteo físico con el celular, sin red.\nLos datos llegan por Bluetooth y Oracle los concilia."))
-        lema.setStyleSheet("font-size: 14px;")
-        lema.setWordWrap(True)
-        en_marca.addStretch(1)
-        en_marca.addWidget(titulo)
-        en_marca.addSpacing(8)
-        en_marca.addWidget(lema)
-        en_marca.addStretch(2)
+        # ---------------------------------------------------------- fondo y tarjeta
+        self._fondo = FondoAcceso()
+        self._fondo.setObjectName("fondoAcceso")
+        self._tarjeta = QFrame()
+        self._tarjeta.setObjectName("tarjetaAcceso")
+        self._tarjeta.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._tarjeta.setFixedSize(900, 600)
+        en_tarjeta = QHBoxLayout(self._tarjeta)
+        en_tarjeta.setContentsMargins(0, 0, 0, 0)
+        en_tarjeta.setSpacing(0)
+        self._marca_panel = PanelMarca()
+        self._panel_form = QWidget()
+        self._panel_form.setObjectName("panelFormulario")
+        en_tarjeta.addWidget(self._marca_panel)
+        en_tarjeta.addWidget(self._panel_form, 1)
 
-        # ---- entrar
-        self.txt_usuario = _campo(t("Usuario"))
-        self.txt_clave = _campo(t("Contraseña"), clave=True)
-        self._ojo_abierto = False
-        self._accion_ojo = self.txt_clave.addAction(_icono_ojo(False), QLineEdit.ActionPosition.TrailingPosition)
-        self._accion_ojo.setToolTip(t("Mostrar contraseña"))
-        self._accion_ojo.triggered.connect(self._alternar_clave)
-        self.btn_entrar = QPushButton(t("Entrar"))
-        self.btn_ir_a_registro = QPushButton(t("Crear cuenta"))
-        self.btn_ir_a_olvido = QPushButton(t("¿Olvidaste tu contraseña?"))
-        entrar = self._formulario(t("Iniciar sesión"), t("Entra con tu cuenta del PC."),
-                                  (self.txt_usuario, self.txt_clave), self.btn_entrar, t("¿No tienes cuenta?"),
-                                  self.btn_ir_a_registro, extra=self.btn_ir_a_olvido)
+        en_fondo = QVBoxLayout(self._fondo)
+        en_fondo.setContentsMargins(28, 28, 28, 28)
+        en_fondo.addStretch(1)
+        en_fondo.addWidget(self._tarjeta, 0, Qt.AlignmentFlag.AlignHCenter)
+        en_fondo.addStretch(1)
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("scrollAcceso")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setWidget(self._fondo)
+        raiz = QVBoxLayout(self)
+        raiz.setContentsMargins(0, 0, 0, 0)
+        raiz.addWidget(self._scroll)
+        motion.sombra(self._tarjeta, "#000000", 40, 0, 160)
 
-        # ---- crear cuenta
-        self.txt_nombre = _campo(t("Nombre completo"))
-        self.txt_usuario_nuevo = _campo(t("Usuario (3 a 30: letras, números, punto o guion)"))
-        self.txt_correo = _campo(t("Correo electrónico"))
-        self.txt_clave_nueva = _campo(t("Contraseña"), clave=True)
-        self.txt_confirmacion = _campo(t("Repite la contraseña"), clave=True)
-        self.barra_fuerza = QProgressBar()
-        self.barra_fuerza.setRange(0, 4)
-        self.barra_fuerza.setTextVisible(False)
-        self.barra_fuerza.setFixedHeight(6)
-        self.lbl_fuerza = QLabel(t(FUERZA[0]))
-        self.lbl_fuerza.setObjectName("ayuda")
-
-        self._bloque_admin = QWidget()
-        en_admin = QVBoxLayout(self._bloque_admin)
-        en_admin.setContentsMargins(0, 0, 0, 0)
-        en_admin.setSpacing(6)
-        ayuda_admin = QLabel(t("Solo el Administrador usa pregunta de seguridad. Si eres Inventario, la solicitud va a aprobación."))
-        ayuda_admin.setObjectName("ayuda")
-        ayuda_admin.setWordWrap(True)
-        self.combo_pregunta = QComboBox()
-        self.combo_pregunta.addItem(t("Elige una pregunta…"), "")
-        for pregunta in auth.PREGUNTAS:
-            self.combo_pregunta.addItem(t(pregunta), pregunta)
-        self.txt_respuesta = _campo(t("Respuesta de seguridad"))
-        en_admin.addWidget(ayuda_admin)
-        en_admin.addWidget(self.combo_pregunta)
-        en_admin.addWidget(self.txt_respuesta)
-        self._bloque_admin.hide()
-
-        self.btn_crear = QPushButton(t("Crear cuenta"))
-        self.btn_ir_a_entrar = QPushButton(t("Iniciar sesión"))
-        registro = self._formulario(
-            t("Crear cuenta"),
-            t("La primera cuenta queda como administrador; las demás esperan a que un administrador les asigne el rol."),
-            (self.txt_nombre, self.txt_usuario_nuevo, self.txt_correo, self.txt_clave_nueva, self.barra_fuerza,
-             self.lbl_fuerza, self.txt_confirmacion, self._bloque_admin),
-            self.btn_crear, t("¿Ya tienes cuenta?"), self.btn_ir_a_entrar)
-
-        # ---- contraseña olvidada
-        self.txt_usuario_olvido = _campo(t("Usuario"))
-        self.txt_clave_olvido = _campo(t("Contraseña nueva"), clave=True)
-        self.txt_confirmacion_olvido = _campo(t("Repite la contraseña nueva"), clave=True)
-        self.lbl_pregunta = QLabel("")
-        self.lbl_pregunta.setObjectName("ayuda")
-        self.lbl_pregunta.setWordWrap(True)
-        self.txt_respuesta_olvido = _campo(t("Respuesta de seguridad"))
-        self.txt_respuesta_olvido.hide()
-        self.btn_ver_pregunta = QPushButton(t("Ver pregunta"))
-        self.btn_ver_pregunta.setObjectName("enlace")
-        self.btn_pedir_clave = QPushButton(t("Enviar solicitud"))
-        self.btn_volver = QPushButton(t("Iniciar sesión"))
-        olvido = self._formulario(
-            t("Contraseña nueva"),
-            t("El Administrador responde su pregunta de seguridad. Inventario deja la solicitud para aprobación."),
-            (self.txt_usuario_olvido, self.lbl_pregunta, self.btn_ver_pregunta, self.txt_respuesta_olvido,
-             self.txt_clave_olvido, self.txt_confirmacion_olvido),
-            self.btn_pedir_clave, t("¿Ya la recuerdas?"), self.btn_volver)
-
-        self.formularios = QStackedWidget()
-        self.formularios.addWidget(entrar)
-        self.formularios.addWidget(registro)
-        self.formularios.addWidget(olvido)
+        # ---------------------------------------------------------- páginas
         self.lbl_error = QLabel("")
         self.lbl_error.setObjectName("errorFormulario")
         self.lbl_error.setWordWrap(True)
         self.lbl_error.hide()
 
-        tarjeta = QFrame()
-        tarjeta.setObjectName("card")
-        self._tarjeta = tarjeta
-        tarjeta.setFixedWidth(420)
-        en_tarjeta = QVBoxLayout(tarjeta)
-        en_tarjeta.setContentsMargins(28, 28, 28, 24)
-        en_tarjeta.addWidget(self.formularios)
-        en_tarjeta.addWidget(self.lbl_error)
-        self._marco_tarjeta = QWidget()
-        en_marco = QHBoxLayout(self._marco_tarjeta)
-        en_marco.setContentsMargins(0, 0, 0, 0)
-        en_marco.addWidget(tarjeta, 0, Qt.AlignmentFlag.AlignHCenter)
-        derecha = QVBoxLayout()
-        derecha.addStretch(1)
-        derecha.addWidget(self._marco_tarjeta, 0, Qt.AlignmentFlag.AlignHCenter)
-        derecha.addStretch(1)
+        login = self._construir_login()
+        registro = self._construir_registro()
+        recuperacion = self._construir_recuperacion()
+        self.formularios = QStackedWidget()
+        for pagina in (login, registro, recuperacion):
+            self.formularios.addWidget(pagina)
+        self._scroll_form = QScrollArea()
+        self._scroll_form.setObjectName("scrollAcceso")
+        self._scroll_form.setWidgetResizable(True)
+        self._scroll_form.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_form.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_form.setWidget(self.formularios)
+        for transparente in (self._scroll_form.viewport(), self.formularios):
+            transparente.setAutoFillBackground(False)
+            transparente.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        en_form = QVBoxLayout(self._panel_form)
+        en_form.setContentsMargins(40, 40, 40, 24)
+        en_form.setSpacing(10)
+        en_form.addWidget(self._scroll_form, 1)
+        en_form.addWidget(self.lbl_error)
 
-        raiz = QHBoxLayout(self)
-        raiz.setContentsMargins(0, 0, 0, 0)
-        raiz.setSpacing(0)
-        raiz.addWidget(marca, 2)
-        raiz.addLayout(derecha, 3)
+        self._conectar()
+        self._cargar_recordado()
 
-        self.btn_entrar.clicked.connect(self._entrar)
+    # ------------------------------------------------------------------ construcción de páginas
+    def _pagina(self, titulo: str, subtitulo: str) -> tuple[QWidget, QVBoxLayout]:
+        pagina = QWidget()
+        pagina.setObjectName("paginaAcceso")
+        pagina.setAutoFillBackground(False)
+        lay = QVBoxLayout(pagina)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(9)
+        rotulo = QLabel(t(titulo))
+        rotulo.setObjectName("tituloFormulario")
+        texto = QLabel(t(subtitulo))
+        texto.setObjectName("subtituloFormulario")
+        texto.setWordWrap(True)
+        lay.addWidget(rotulo)
+        lay.addWidget(texto)
+        lay.addSpacing(8)
+        return pagina, lay
+
+    def _campo(self, pista: str, icono_nombre: str, clave: bool = False,
+               con_ojo: bool = False) -> tuple[QFrame, QLineEdit, object | None]:
+        caja = QFrame()
+        caja.setObjectName("campoAcceso")
+        fila = QHBoxLayout(caja)
+        fila.setContentsMargins(12, 0, 8, 0)
+        fila.setSpacing(8)
+        imagen = QLabel()
+        imagen.setPixmap(icono(icono_nombre, color=tema.colores()["texto_suave"], tam=18).pixmap(18, 18))
+        imagen.setFixedSize(18, 18)
+        fila.addWidget(imagen)
+        campo = QLineEdit()
+        campo.setObjectName("campoTexto")
+        campo.setPlaceholderText(t(pista))
+        campo.setMinimumHeight(40)
+        if clave:
+            campo.setEchoMode(QLineEdit.EchoMode.Password)
+        fila.addWidget(campo, 1)
+        accion = None
+        if con_ojo:
+            accion = campo.addAction(icono("ojo", color=tema.colores()["texto_suave"]), QLineEdit.ActionPosition.TrailingPosition)
+            accion.setToolTip(t("Mostrar contraseña"))
+            accion.triggered.connect(lambda _c=False, x=campo, a=accion: self._alternar_clave(x, a))
+        return caja, campo, accion
+
+    def _construir_login(self) -> QWidget:
+        pagina, lay = self._pagina("Iniciar sesión", "Accede con tu cuenta del PC.")
+        lay.insertStretch(0, 1)
+        caja_u, self.txt_usuario, _ = self._campo("Usuario", "usuario")
+        lay.addWidget(caja_u)
+        caja_c, self.txt_clave, self._accion_ojo = self._campo("Contraseña", "candado", clave=True, con_ojo=True)
+        lay.addWidget(caja_c)
         self.txt_clave.returnPressed.connect(self._entrar)
-        self.btn_crear.clicked.connect(self._crear)
+
+        fila = QHBoxLayout()
+        self.chk_recordar = QCheckBox(t("Recordar usuario"))
+        self.btn_ir_a_olvido = QPushButton(t("¿Olvidaste tu contraseña?"))
+        self.btn_ir_a_olvido.setObjectName("enlaceAzul")
+        self.btn_ir_a_olvido.setCursor(Qt.CursorShape.PointingHandCursor)
+        fila.addWidget(self.chk_recordar)
+        fila.addStretch(1)
+        fila.addWidget(self.btn_ir_a_olvido)
+        lay.addLayout(fila)
+
+        self.btn_entrar = QPushButton(t("Entrar"))
+        self.btn_entrar.setObjectName("botonPrincipal")
+        self.btn_entrar.setMinimumHeight(42)
+        lay.addWidget(self.btn_entrar)
+
+        lay.addSpacing(4)
+        linea_izq = QFrame()
+        linea_izq.setObjectName("separadorAcceso")
+        linea_izq.setFixedHeight(1)
+        linea_der = QFrame()
+        linea_der.setObjectName("separadorAcceso")
+        linea_der.setFixedHeight(1)
+        o = QLabel(t("o"))
+        o.setObjectName("oAcceso")
+        o.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fila_o = QHBoxLayout()
+        fila_o.setSpacing(10)
+        fila_o.addWidget(linea_izq, 1)
+        fila_o.addWidget(o)
+        fila_o.addWidget(linea_der, 1)
+        lay.addLayout(fila_o)
+
+        self.btn_ir_a_registro = QPushButton(t("Crear cuenta"))
+        self.btn_ir_a_registro.setObjectName("botonSecundario")
+        self.btn_ir_a_registro.setMinimumHeight(40)
+        lay.addWidget(self.btn_ir_a_registro)
+        pie = QHBoxLayout()
+        pie.addStretch(1)
+        texto = QLabel(t("¿No tienes cuenta?"))
+        texto.setObjectName("ayuda")
+        self.btn_ir_a_registro_pie = QPushButton(t("Crear cuenta"))
+        self.btn_ir_a_registro_pie.setObjectName("enlaceAzul")
+        self.btn_ir_a_registro_pie.setCursor(Qt.CursorShape.PointingHandCursor)
+        pie.addWidget(texto)
+        pie.addWidget(self.btn_ir_a_registro_pie)
+        pie.addStretch(1)
+        lay.addLayout(pie)
+        lay.addStretch(1)
+        return pagina
+
+    def _construir_registro(self) -> QWidget:
+        pagina, lay = self._pagina(
+            "Crear cuenta",
+            "La primera cuenta queda como administrador; las demás esperan a que un administrador les asigne el rol.")
+        caja_u, self.txt_usuario_nuevo, _ = self._campo("Usuario (3 a 30: letras, números, punto o guion)", "usuario")
+        caja_n, self.txt_nombre, _ = self._campo("Nombre completo", "usuario")
+        caja_c, self.txt_correo, _ = self._campo("Correo electrónico", "correo")
+        caja_p, self.txt_clave_nueva, self._accion_ojo_nueva = self._campo("Contraseña", "candado", clave=True, con_ojo=True)
+        caja_pc, self.txt_confirmacion, _ = self._campo("Repite la contraseña", "candado", clave=True)
+        for caja in (caja_u, caja_n, caja_c, caja_p, caja_pc):
+            lay.addWidget(caja)
+        self.medidor = MedidorFuerza()
+        lay.addWidget(self.medidor)
+        self.txt_clave_nueva.textChanged.connect(self.medidor.actualizar)
+
+        self._bloque_admin = QWidget()
+        en_admin = QVBoxLayout(self._bloque_admin)
+        en_admin.setContentsMargins(0, 2, 0, 0)
+        en_admin.setSpacing(6)
+        ayuda = QLabel(t("Solo el Administrador usa pregunta de seguridad. Si eres Inventario, la solicitud va a aprobación."))
+        ayuda.setObjectName("ayuda")
+        ayuda.setWordWrap(True)
+        self.combo_pregunta = QComboBox()
+        self.combo_pregunta.setObjectName("campoCombo")
+        self.combo_pregunta.addItem(t("Elige una pregunta…"), "")
+        for pregunta in auth.PREGUNTAS:
+            self.combo_pregunta.addItem(t(pregunta), pregunta)
+        caja_r, self.txt_respuesta, _ = self._campo("Respuesta de seguridad", "candado")
+        en_admin.addWidget(ayuda)
+        en_admin.addWidget(self.combo_pregunta)
+        en_admin.addWidget(caja_r)
+        self._bloque_admin.hide()
+        lay.addWidget(self._bloque_admin)
+
+        self.btn_crear = QPushButton(t("Crear cuenta"))
+        self.btn_crear.setObjectName("botonPrincipal")
+        self.btn_crear.setMinimumHeight(42)
+        lay.addWidget(self.btn_crear)
         self.txt_confirmacion.returnPressed.connect(self._crear)
+        self.btn_ir_a_entrar = QPushButton(t("Volver a iniciar sesión"))
+        self.btn_ir_a_entrar.setObjectName("enlaceAzul")
+        self.btn_ir_a_entrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        pie = QHBoxLayout()
+        pie.addStretch(1)
+        pie.addWidget(self.btn_ir_a_entrar)
+        pie.addStretch(1)
+        lay.addLayout(pie)
+        lay.addStretch(1)
+        return pagina
+
+    def _construir_recuperacion(self) -> QWidget:
+        pagina, lay = self._pagina(
+            "Recuperar contraseña",
+            "El Administrador responde su pregunta de seguridad. Inventario deja la solicitud para aprobación.")
+        lay.insertStretch(0, 1)
+        caja_u, self.txt_usuario_olvido, _ = self._campo("Usuario", "usuario")
+        lay.addWidget(caja_u)
+        self.lbl_pregunta = QLabel(t("Escribe tu usuario y pulsa Ver pregunta."))
+        self.lbl_pregunta.setObjectName("ayuda")
+        self.lbl_pregunta.setWordWrap(True)
+        lay.addWidget(self.lbl_pregunta)
+        self.btn_ver_pregunta = QPushButton(t("Ver pregunta"))
+        self.btn_ver_pregunta.setObjectName("enlaceAzul")
+        self.btn_ver_pregunta.setCursor(Qt.CursorShape.PointingHandCursor)
+        fila = QHBoxLayout()
+        fila.addStretch(1)
+        fila.addWidget(self.btn_ver_pregunta)
+        lay.addLayout(fila)
+        caja_r, self.txt_respuesta_olvido, _ = self._campo("Respuesta de seguridad", "candado")
+        caja_r.hide()
+        self._caja_respuesta_olvido = caja_r
+        lay.addWidget(caja_r)
+        caja_n, self.txt_clave_olvido, _ = self._campo("Contraseña nueva", "candado", clave=True, con_ojo=True)
+        caja_c, self.txt_confirmacion_olvido, _ = self._campo("Repite la contraseña nueva", "candado", clave=True)
+        lay.addWidget(caja_n)
+        lay.addWidget(caja_c)
+        self.btn_pedir_clave = QPushButton(t("Enviar solicitud"))
+        self.btn_pedir_clave.setObjectName("botonPrincipal")
+        self.btn_pedir_clave.setMinimumHeight(42)
+        lay.addWidget(self.btn_pedir_clave)
+        self.txt_confirmacion_olvido.returnPressed.connect(self._pedir_clave)
+        self.btn_volver = QPushButton(t("Volver a iniciar sesión"))
+        self.btn_volver.setObjectName("enlaceAzul")
+        self.btn_volver.setCursor(Qt.CursorShape.PointingHandCursor)
+        pie = QHBoxLayout()
+        pie.addStretch(1)
+        pie.addWidget(self.btn_volver)
+        pie.addStretch(1)
+        lay.addLayout(pie)
+        lay.addStretch(1)
+        return pagina
+
+    # ------------------------------------------------------------------ señales
+    def _conectar(self) -> None:
+        self.btn_entrar.clicked.connect(self._entrar)
+        self.btn_crear.clicked.connect(self._crear)
         self.btn_ir_a_registro.clicked.connect(self._ir_a_registro)
+        self.btn_ir_a_registro_pie.clicked.connect(self._ir_a_registro)
         self.btn_ir_a_entrar.clicked.connect(lambda: self.mostrar_formulario(0))
         self.btn_ir_a_olvido.clicked.connect(lambda: self.mostrar_formulario(2))
         self.btn_volver.clicked.connect(lambda: self.mostrar_formulario(0))
         self.btn_ver_pregunta.clicked.connect(self._ver_pregunta)
         self.btn_pedir_clave.clicked.connect(self._pedir_clave)
-        self.txt_confirmacion_olvido.returnPressed.connect(self._pedir_clave)
-        self.txt_clave_nueva.textChanged.connect(self._medir_fuerza)
-        self._acciones: dict[QLineEdit, object] = {}
-        self._preparar_validacion(self.txt_usuario, lambda x: (3 <= len(x) <= 30 and bool(re.fullmatch(r"[\w.\-]+", x))) if x else None)
-        self._preparar_validacion(self.txt_clave, lambda x: (len(x) >= 8 and bool(re.search(r"[A-Za-z]", x)) and bool(re.search(r"\d", x))) if x else None)
-        self._preparar_validacion(self.txt_usuario_nuevo, lambda x: (3 <= len(x) <= 30 and bool(re.fullmatch(r"[\w.\-]+", x))) if x else None)
-        self._preparar_validacion(self.txt_correo, lambda x: ("@" in x and "." in x.split("@")[-1]) if x else None)
-        self._preparar_validacion(self.txt_clave_nueva, lambda x: (len(x) >= 8 and bool(re.search(r"[A-Za-z]", x)) and bool(re.search(r"\d", x))) if x else None)
-        self._preparar_validacion(self.txt_confirmacion, lambda x: (x == self.txt_clave_nueva.text() and len(x) >= 8) if x else None)
-        self._ya_animado = False
-        motion.sombra(tarjeta, "#000000", 30, 10, 120)
+
+    # ------------------------------------------------------------------ API
+    def mostrar_formulario(self, indice: int) -> None:
+        """0 = iniciar sesión, 1 = crear cuenta, 2 = contraseña olvidada."""
+        self.formularios.setCurrentIndex(indice)
+        self._scroll_form.verticalScrollBar().setValue(0)
+        self._error("")
+        if indice == 1:
+            self._consultar_primer_admin()
+        QTimer.singleShot(0, self._enfocar)
+
+    def limpiar(self) -> None:
+        for campo in (self.txt_usuario, self.txt_clave, self.txt_nombre, self.txt_usuario_nuevo, self.txt_correo,
+                      self.txt_clave_nueva, self.txt_confirmacion, self.txt_usuario_olvido, self.txt_clave_olvido,
+                      self.txt_confirmacion_olvido, self.txt_respuesta, self.txt_respuesta_olvido):
+            campo.clear()
+        if self.txt_clave.echoMode() == QLineEdit.EchoMode.Normal:
+            self._alternar_clave(self.txt_clave, self._accion_ojo)
+        if self.txt_clave_nueva.echoMode() == QLineEdit.EchoMode.Normal:
+            self._alternar_clave(self.txt_clave_nueva, self._accion_ojo_nueva)
+        self.combo_pregunta.setCurrentIndex(0)
+        self.medidor.actualizar("")
+        self._bloque_admin.hide()
+        self._caja_respuesta_olvido.hide()
+        self.lbl_pregunta.setText(t("Escribe tu usuario y pulsa Ver pregunta."))
+        self._cargar_recordado()
+        self.mostrar_formulario(0)
 
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
@@ -228,110 +487,38 @@ class AccesoView(QWidget):
                 motion.desvanecer(self._marca_panel, 0.0, 1.0, 300)
                 motion.desvanecer(self._tarjeta, 0.0, 1.0, 380)
         QTimer.singleShot(0, self._enfocar)
-        QTimer.singleShot(380, self._enfocar)
 
     def _enfocar(self) -> None:
         if not self.isVisible():
             return
-        campo = {0: self.txt_usuario, 1: self.txt_nombre, 2: self.txt_usuario_olvido}.get(self.formularios.currentIndex())
+        campo = {0: self.txt_usuario, 1: self.txt_usuario_nuevo, 2: self.txt_usuario_olvido}.get(self.formularios.currentIndex())
         if campo is not None:
             campo.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
 
-    def _alternar_clave(self) -> None:
-        self._ojo_abierto = not self._ojo_abierto
-        self.txt_clave.setEchoMode(QLineEdit.EchoMode.Normal if self._ojo_abierto else QLineEdit.EchoMode.Password)
-        self._accion_ojo.setIcon(_icono_ojo(self._ojo_abierto))
-        self._accion_ojo.setToolTip(t("Ocultar contraseña") if self._ojo_abierto else t("Mostrar contraseña"))
-
-    def _formulario(self, titulo: str, ayuda: str, campos, boton: QPushButton, pregunta: str, enlace: QPushButton,
-                    extra: QPushButton | None = None) -> QWidget:
-        pagina = QWidget()
-        pagina.setObjectName("formulario")
-        lay = QVBoxLayout(pagina)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(10)
-        rotulo = QLabel(titulo)
-        rotulo.setObjectName("tituloAcceso")
-        texto = QLabel(t(ayuda))
-        texto.setObjectName("ayuda")
-        texto.setWordWrap(True)
-        lay.addWidget(rotulo)
-        lay.addWidget(texto)
-        lay.addSpacing(6)
-        for campo in campos:
-            lay.addWidget(campo)
-        boton.setObjectName("primario")
-        boton.setMinimumHeight(40)
-        if extra is not None:
-            extra.setObjectName("enlace")
-            extra.setCursor(Qt.CursorShape.PointingHandCursor)
-            lay.addWidget(extra, 0, Qt.AlignmentFlag.AlignRight)
-        lay.addSpacing(4)
-        lay.addWidget(boton)
-        pie = QHBoxLayout()
-        pie.addStretch(1)
-        etiqueta = QLabel(t(pregunta))
-        etiqueta.setObjectName("ayuda")
-        enlace.setObjectName("enlace")
-        enlace.setCursor(Qt.CursorShape.PointingHandCursor)
-        pie.addWidget(etiqueta)
-        pie.addWidget(enlace)
-        pie.addStretch(1)
-        lay.addLayout(pie)
-        lay.addStretch(1)
-        return pagina
-
-    # ------------------------------------------------------------------ validación viva
-    def _preparar_validacion(self, campo: QLineEdit, regla) -> None:
-        accion = campo.addAction(QIcon(), QLineEdit.ActionPosition.TrailingPosition)
-        accion.setVisible(False)
-        self._acciones[campo] = (accion, regla)
-        campo.textChanged.connect(lambda x, c=campo: self._validar(c, x))
-
-    def _validar(self, campo: QLineEdit, texto: str) -> None:
-        accion, regla = self._acciones[campo]
-        estado = regla(texto)
-        if estado is None:
-            accion.setVisible(False)
-            campo.setProperty("valido", False)
-            campo.setProperty("invalido", False)
+    # ------------------------------------------------------------------ recordar usuario
+    def _cargar_recordado(self) -> None:
+        usuario = str(self._ajustes.value("usuario", "") or "")
+        if usuario:
+            self.txt_usuario.setText(usuario)
+            self.chk_recordar.setChecked(True)
         else:
-            accion.setVisible(True)
-            accion.setIcon(_icono_estado(bool(estado)))
-            campo.setProperty("valido", bool(estado))
-            campo.setProperty("invalido", not estado)
-        campo.style().unpolish(campo)
-        campo.style().polish(campo)
+            self.chk_recordar.setChecked(False)
 
-    def _medir_fuerza(self, clave: str) -> None:
-        nivel = auth.fuerza(clave)
-        self.barra_fuerza.setValue(nivel)
-        colores = {0: "#2E2E2E", 1: "#F87171", 2: "#FBBF24", 3: "#34D399", 4: "#10B981"}
-        self.barra_fuerza.setStyleSheet(
-            f"QProgressBar {{ border: none; background: #232323; border-radius: 3px; }}"
-            f"QProgressBar::chunk {{ background: {colores[nivel]}; border-radius: 3px; }}")
-        self.lbl_fuerza.setText(t(FUERZA[nivel]) if clave else t(FUERZA[0]))
-        self.lbl_fuerza.setStyleSheet(f"color: {colores[nivel] if clave else '#8A8A8A'}; background: transparent;")
+    def _guardar_recordado(self) -> None:
+        usuario = self.txt_usuario.text().strip()
+        if self.chk_recordar.isChecked() and usuario:
+            self._ajustes.setValue("usuario", usuario)
+        else:
+            self._ajustes.remove("usuario")
 
-    # ------------------------------------------------------------------ API
-    def mostrar_formulario(self, indice: int) -> None:
-        """0 = iniciar sesión, 1 = crear cuenta, 2 = contraseña olvidada."""
-        self.formularios.setCurrentIndex(indice)
-        self._error("")
-        if indice == 1:
-            self._consultar_primer_admin()
+    # ------------------------------------------------------------------ contraseña visible
+    def _alternar_clave(self, campo: QLineEdit, accion) -> None:
+        visible = campo.echoMode() == QLineEdit.EchoMode.Normal
+        campo.setEchoMode(QLineEdit.EchoMode.Password if visible else QLineEdit.EchoMode.Normal)
+        accion.setIcon(icono("ojo" if visible else "ojo_off", color=tema.colores()["texto_suave"]))
+        accion.setToolTip(t("Mostrar contraseña") if visible else t("Ocultar contraseña"))
 
-    def limpiar(self) -> None:
-        for campo in (self.txt_usuario, self.txt_clave, self.txt_nombre, self.txt_usuario_nuevo, self.txt_correo,
-                      self.txt_clave_nueva, self.txt_confirmacion, self.txt_usuario_olvido, self.txt_clave_olvido,
-                      self.txt_confirmacion_olvido, self.txt_respuesta, self.txt_respuesta_olvido):
-            campo.clear()
-        self.combo_pregunta.setCurrentIndex(0)
-        if self._ojo_abierto:
-            self._alternar_clave()
-        self.mostrar_formulario(0)
-
-    # ------------------------------------------------------------- internos
+    # ------------------------------------------------------------- flujos
     def _error(self, mensaje: str) -> None:
         self.lbl_error.setObjectName("errorFormulario")
         self.lbl_error.setText(mensaje)
@@ -362,20 +549,18 @@ class AccesoView(QWidget):
     def _primer_admin(self, hay: bool) -> None:
         self._primero = not hay
         self._bloque_admin.setVisible(self._primero)
-        if self._primero:
-            self.combo_pregunta.setCurrentIndex(0)
 
     def _entrar(self) -> None:
         if not self.txt_usuario.text().strip() or not self.txt_clave.text():
             self._error(t("Escribe tu usuario y tu contraseña."))
-            motion.sacudir(self._marco_tarjeta, 9)
+            motion.sacudir(self._tarjeta, 9)
             return
         self._lanzar(_entrar_o_estado, self.txt_usuario.text(), self.txt_clave.text())
 
     def _crear(self) -> None:
         if self.txt_clave_nueva.text() != self.txt_confirmacion.text():
             self._error(t("Las contraseñas no coinciden."))
-            motion.sacudir(self._marco_tarjeta, 9)
+            motion.sacudir(self._tarjeta, 9)
             return
         if self._primero and not self.combo_pregunta.currentData():
             self._error(t("Elige una pregunta de seguridad."))
@@ -394,10 +579,10 @@ class AccesoView(QWidget):
     def _mostrar_pregunta(self, pregunta: str | None) -> None:
         if pregunta:
             self.lbl_pregunta.setText(t("Pregunta: {pregunta}", pregunta=t(pregunta)))
-            self.txt_respuesta_olvido.show()
+            self._caja_respuesta_olvido.show()
         else:
             self.lbl_pregunta.setText(t("Esta cuenta no usa pregunta de seguridad: la solicitud se enviará para aprobación."))
-            self.txt_respuesta_olvido.hide()
+            self._caja_respuesta_olvido.hide()
             self.txt_respuesta_olvido.clear()
 
     def _pedir_clave(self) -> None:
@@ -406,20 +591,22 @@ class AccesoView(QWidget):
 
     def _listo(self, resultado) -> None:
         self._ocupado(False)
-        self.limpiar()
         if isinstance(resultado, auth.Sesion):
+            self._guardar_recordado()
+            self.limpiar()
             self.entro.emit(resultado)
-        elif isinstance(resultado, auth.CuentaSinAcceso):
+            return
+        if isinstance(resultado, auth.CuentaSinAcceso):
+            self.limpiar()
             self.sin_acceso.emit(resultado)
-        else:
-            self._aviso(str(resultado))
-            if self.formularios.currentIndex() == 2:
-                self.mostrar_formulario(0)
+            return
+        self.limpiar()
+        self._aviso(str(resultado))
 
     def _fallo(self, mensaje: str) -> None:
         self._ocupado(False)
         self._error(mensaje)
-        motion.sacudir(self._marco_tarjeta, 9)
+        motion.sacudir(self._tarjeta, 9)
 
 
 # Corren fuera del hilo de la interfaz. El estado de la cuenta vuelve como resultado (no como error): los errores
