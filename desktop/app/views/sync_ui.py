@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
     QRadialGradient,
 )
 from PyQt6.QtWidgets import QPushButton, QStyledItemDelegate, QTableWidget, QVBoxLayout, QLabel, QWidget
+from PyQt6 import sip
 
 from .. import tema
 from . import motion, widgets
@@ -1268,6 +1269,9 @@ def entrada_escalonada(piezas: list[QWidget], retardo_ms: int = 70, duracion_ms:
         efecto.setOpacity(0.0)
 
         def arrancar(w=w) -> None:
+            if sip.isdeleted(w):      # la vista se reconstruyó (tema/idioma) antes de que le tocara animarse
+                return
+
             def fin() -> None:
                 w.setGraphicsEffect(None)
 
