@@ -53,7 +53,7 @@ registrar({
     "Se perderá la distribución que armaste y volverá la inicial. Tus datos no se tocan.":
         "Your layout will be lost and the initial one will return. Your data is not touched.",
     "Restaurar": "Restore", "Dashboard restaurado": "Dashboard restored", "Sin actividad registrada.": "No activity recorded.",
-    "con error:": "with error:", "Lecturas por procesar": "Readings to process",
+    "con error:": "with error:",
     "Se perdió la conexión con los datos de los gráficos.": "Chart data could not be loaded.",
 })
 
@@ -402,22 +402,20 @@ class DashboardView(QWidget):
 
     def _valor_kpi(self, clave: str):
         r, b = self._resumen, self._batch
-        if clave in ("avance", "total", "contados", "sin_contar", "coincidentes", "faltantes", "sobrantes", "exactitud"):
+        if clave in ("avance", "contados", "sin_contar", "coincidentes", "faltantes", "sobrantes"):
             if r is None:
                 return None
             return {
                 "avance": (r.avance_pct, fmt_pct, f"{r.contados} {t('de')} {r.skus_totales} {t('SKU')}"),
-                "total": (r.skus_totales, _fmt_entero, f"{r.contados} {t('Contados').lower()}"),
                 "contados": (r.contados, _fmt_entero, f"{t('SKU contados')}: {r.contados}"),
                 "sin_contar": (r.sin_contar, _fmt_entero, f"{r.sin_contar} {t('de')} {r.skus_totales} {t('SKU')}"),
-                "coincidentes": (r.ok, _fmt_entero, f"{r.ok} {t('de')} {r.contados} {t('Contados').lower()}"),
+                "coincidentes": (r.ok, _fmt_entero, f"{fmt_pct(r.exactitud_pct)} · {r.ok} {t('de')} {r.contados} {t('Contados').lower()}"),
                 "faltantes": (r.faltantes, _fmt_entero, ""),
                 "sobrantes": (r.sobrantes, _fmt_entero, ""),
-                "exactitud": (r.exactitud_pct, fmt_pct, f"{r.ok} {t('de')} {r.contados} {t('Contados').lower()}"),
             }[clave]
         if b is None:
             return None
-        return {"con_error": (b.errores, _fmt_entero, ""), "pendientes_sync": (b.pendientes, _fmt_entero, "")}.get(clave)
+        return {"con_error": (b.errores, _fmt_entero, "")}.get(clave)
 
     def _aplicar_datos(self) -> None:
         for clave, tarjeta in self.cards.items():
