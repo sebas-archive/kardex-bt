@@ -135,12 +135,14 @@ QToolButton:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; }
 QToolButton:focus { border: 1px solid #10B981; }
 
 /* Barra lateral: ítem activo con indicador y glow del color primario (sin cambiar la identidad) */
-QPushButton#nav { padding-left: 12px; border-left: 3px solid transparent; }
+QPushButton#nav { padding-left: 15px; }
+/* El foco dibuja 1px por los cuatro lados; el relleno se reduce 1px para que el ítem no cambie de tamaño. */
+QPushButton#nav:focus { padding: 9px 11px 9px 14px; }
 QPushButton#nav:hover { background: rgba(255,255,255,0.07); color: #FFFFFF; }
-QPushButton#nav:checked { border-left: 3px solid transparent; background: rgba(255,255,255,0.10); color: #FFFFFF; }
+QPushButton#nav:checked { background: rgba(255,255,255,0.10); color: #FFFFFF; }
 QPushButton#nav:checked:hover { background: rgba(255,255,255,0.13); }
-QFrame#lateral[contraida="true"] QPushButton#nav { text-align: center; padding-left: 0; border-left: 3px solid transparent; }
-QFrame#lateral[contraida="true"] QPushButton#nav:checked { border-left: 3px solid transparent; }
+QFrame#lateral[contraida="true"] QPushButton#nav { text-align: center; padding: 10px 0; }
+QFrame#lateral[contraida="true"] QPushButton#nav:focus { padding: 9px 0; }
 QFrame#separadorNav { background: rgba(255,255,255,0.07); max-height: 1px; margin: 6px 10px; }
 
 /* Tarjetas con hover rico */

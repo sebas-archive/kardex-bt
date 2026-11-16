@@ -565,6 +565,7 @@ class MainWindow(QMainWindow):
         boton.setObjectName("nav")
         boton.setCheckable(True)
         boton.setCursor(Qt.CursorShape.PointingHandCursor)
+        boton.setFocusPolicy(Qt.FocusPolicy.TabFocus)   # el contorno de foco solo con teclado, no tras un clic
         boton.clicked.connect(lambda _=False, t=title: self.ir_a(t))
         self._grupo.addButton(boton)
         self._nav.addWidget(boton)
