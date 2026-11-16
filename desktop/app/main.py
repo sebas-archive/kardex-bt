@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from typing import Callable
 
-from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -259,6 +259,13 @@ class MainWindow(QMainWindow):
         self.refresh_requested.connect(self.contar_notificaciones)
         if sesion is not None:
             self.iniciar(sesion)
+
+    def area_contenido(self) -> QRect:
+        """El área donde se muestra la sección actual (sin la barra lateral), en coordenadas de la ventana.
+        Los paneles flotantes se centran aquí."""
+        if not hasattr(self, "_centro") or not self._centro.isVisible():
+            return self.rect()
+        return QRect(self._centro.mapTo(self, QPoint(0, 0)), self._centro.size())
 
     def _instalar_atajos(self) -> None:
         """Atajos globales: F5 refresca, Ctrl+B contrae la barra, Ctrl+F busca y Ctrl+1..9 abren secciones."""

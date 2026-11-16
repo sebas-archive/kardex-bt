@@ -158,13 +158,13 @@ def test_archivo_que_no_es_imagen(qtbot, carpeta_fotos):
     esperar(qtbot, lambda: v.lienzo._mensaje == "El archivo no es una imagen válida.")
 
 
-def test_cierra_con_escape_y_boton(qtbot, carpeta_fotos):
+def test_pide_cerrar_con_escape_y_boton(qtbot, carpeta_fotos):
     for cerrar in (lambda v: QTest.keyClick(v, Qt.Key.Key_Escape), lambda v: v.btn_cerrar.click()):
         v = VisorFoto(None, fotos())
         qtbot.addWidget(v)
         v.show()
-        cerrar(v)
-        assert not v.isVisible()
+        with qtbot.waitSignal(v.cerrar_pedido, timeout=1000):
+            cerrar(v)
 
 
 def test_visor_se_pinta_en_ambos_temas_y_en_ingles(qtbot, carpeta_fotos):
