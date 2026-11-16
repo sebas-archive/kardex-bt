@@ -10,7 +10,7 @@ from typing import Callable
 
 from PyQt6.QtCore import QDate, QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel,
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel,
                              QLineEdit, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from .. import dashboard_prefs as prefs
@@ -18,6 +18,7 @@ from ..dashboard_datos import Datos
 from ..i18n import registrar, t
 from ..tema import colores
 from .grafico_personal import GraficoPersonal
+from .selector_fecha import SelectorFecha
 from .isla import isla
 
 registrar({
@@ -340,11 +341,9 @@ class ConfigGrafico(Hoja):
         self.cmb_periodo = QComboBox()
         for p in prefs.PERIODOS:
             self.cmb_periodo.addItem(t(prefs.NOMBRE_PERIODO[p]), p)
-        self.fecha_desde = QDateEdit(QDate.currentDate().addDays(-7))
-        self.fecha_hasta = QDateEdit(QDate.currentDate())
-        for f in (self.fecha_desde, self.fecha_hasta):
-            f.setCalendarPopup(True)
-            f.setDisplayFormat("dd/MM/yyyy")
+        self.fecha_desde = SelectorFecha(QDate.currentDate().addDays(-7))
+        self.fecha_hasta = SelectorFecha(QDate.currentDate())
+        SelectorFecha.vincular(self.fecha_desde, self.fecha_hasta)
         self.fila_fechas = QWidget()
         lf = QHBoxLayout(self.fila_fechas)
         lf.setContentsMargins(0, 0, 0, 0)
