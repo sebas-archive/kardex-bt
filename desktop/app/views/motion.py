@@ -112,6 +112,11 @@ def sin_efecto_en_ancestros(widget: QWidget) -> bool:
     return True
 
 
+# Canales de EfectoMovimiento: quién escribe en cada uno.
+ENTRADA_C, HOVER_C, ARRASTRE_C = 0, 1, 2     # entrada/salida · hover y pulsación · levantar/asentar al arrastrar
+CANALES = 3
+
+
 class EfectoMovimiento(QGraphicsEffect):
     """Un único efecto reutilizable para entrada, hover y pulsación de una tarjeta: opacidad, desplazamiento vertical,
     escala alrededor del centro y una sombra ambiental suave (capas de rectángulos, sin desenfoque costoso).
@@ -123,7 +128,12 @@ class EfectoMovimiento(QGraphicsEffect):
 
     def __init__(self, padre: QWidget, radio: float = 16, color: str = VERDE) -> None:
         super().__init__(padre)
-        self._op, self._dy, self._esc, self._sombra = 1.0, 0.0, 1.0, 0.0
+        # Canales independientes: cada capa de movimiento escribe en el suyo y el dibujo los combina, de modo que dos
+        # animaciones (entrada + hover, hover + arrastre) nunca compiten por la misma propiedad.
+        self._op = 1.0
+        self._dys = [0.0] * CANALES
+        self._escs = [1.0] * CANALES
+        self._sombras = [0.0] * CANALES
         self._radio = radio
         self._color = QColor(color)
 
@@ -134,23 +144,39 @@ class EfectoMovimiento(QGraphicsEffect):
         self._op = max(0.0, min(1.0, v))
         self.update()
 
-    def set_dy(self, v: float) -> None:
-        self._dy = v
+    @property
+    def _dy(self) -> float:
+        return sum(self._dys)
+
+    @property
+    def _esc(self) -> float:
+        total = 1.0
+        for e in self._escs:
+            total *= e
+        return total
+
+    @property
+    def _sombra(self) -> float:
+        return max(self._sombras)
+
+    def set_dy(self, v: float, canal: int = ENTRADA_C) -> None:
+        self._dys[canal] = v
         self.update()
 
-    def set_escala(self, v: float) -> None:
-        self._esc = v
+    def set_escala(self, v: float, canal: int = ENTRADA_C) -> None:
+        self._escs[canal] = v
         self.update()
 
     def sombra(self) -> float:
         return self._sombra
 
-    def set_sombra(self, v: float) -> None:
-        self._sombra = max(0.0, v)
+    def set_sombra(self, v: float, canal: int = ENTRADA_C) -> None:
+        self._sombras[canal] = max(0.0, v)
         self.update()
 
     def en_reposo(self) -> bool:
-        return self._op >= 1.0 and abs(self._dy) < 0.01 and abs(self._esc - 1.0) < 0.0005 and self._sombra <= 0.001
+        return (self._op >= 1.0 and all(abs(d) < 0.01 for d in self._dys)
+                and all(abs(e - 1.0) < 0.0005 for e in self._escs) and all(s <= 0.001 for s in self._sombras))
 
     def boundingRectFor(self, rect: QRectF) -> QRectF:
         return rect.adjusted(-self.PAD, -self.PAD, self.PAD, self.PAD + 10)
@@ -193,9 +219,13 @@ def efecto_movimiento(widget: QWidget, radio: float = 16, color: str = VERDE) ->
     return efecto
 
 
-def soltar_efecto(widget: QWidget, efecto: QGraphicsEffect) -> None:
-    if not sip.isdeleted(widget) and not sip.isdeleted(efecto) and widget.graphicsEffect() is efecto:
-        widget.setGraphicsEffect(None)
+def soltar_efecto(widget: QWidget, efecto: QGraphicsEffect, forzar: bool = False) -> None:
+    """Quita el efecto del widget. Un ``EfectoMovimiento`` que otra capa aún usa (hover, arrastre) se conserva."""
+    if sip.isdeleted(widget) or sip.isdeleted(efecto) or widget.graphicsEffect() is not efecto:
+        return
+    if not forzar and isinstance(efecto, EfectoMovimiento) and not efecto.en_reposo():
+        return
+    widget.setGraphicsEffect(None)
 
 
 def entrar(widget: QWidget, retardo: int = 0, dy: float = 14, escala: float = 1.0, ms_: int = Dur.ENTRADA,
@@ -232,6 +262,9 @@ def entrar(widget: QWidget, retardo: int = 0, dy: float = 14, escala: float = 1.
         if sip.isdeleted(widget) or getattr(widget, "_entrada_tok", None) is not token:
             return
         if not widget.isVisible():                           # se salió de la pantalla antes de que le tocara: no se anima
+            efecto.set_opacidad(1.0)
+            efecto.set_dy(0.0)
+            efecto.set_escala(1.0)
             soltar_efecto(widget, efecto)
             return
         curva = curva_resorte(1.05) if escala < 1.0 else QEasingCurve.Type.OutCubic
@@ -243,13 +276,65 @@ def entrar(widget: QWidget, retardo: int = 0, dy: float = 14, escala: float = 1.
         arrancar()
 
 
+def preparar_entrada(widget: QWidget, radio: float = 16) -> None:
+    """Deja un widget invisible (opacidad 0) a la espera de su ``entrar``: lo usan las baldosas que están fuera de la
+    pantalla y se revelan al desplazarse. Sin animaciones no hace nada (el widget ya está en su estado final)."""
+    if not widgets.ANIMAR:
+        return
+    efecto_movimiento(widget, radio).set_opacidad(0.0)
+
+
+def cancelar_entrada(widget: QWidget) -> None:
+    """Aborta una entrada pendiente o en curso y deja el widget en su estado final (sin efecto, sin opacidad parcial)."""
+    detener(getattr(widget, "_entrada_anim", None))
+    widget._entrada_tok = None                               # type: ignore[attr-defined]
+    efecto = widget.graphicsEffect()
+    if isinstance(efecto, EfectoMovimiento):
+        efecto.set_opacidad(1.0)
+        efecto.set_dy(0.0)
+        efecto.set_escala(1.0)
+        soltar_efecto(widget, efecto)
+
+
+def salir(widget: QWidget, ms_: int = Dur.SALIDA - 60, dy: float = 0.0, escala: float = 0.96, radio: float = 16,
+          al_terminar: Callable[[], None] | None = None) -> None:
+    """Salida de un widget: se funde y se encoge un poco antes de desaparecer. Sin animaciones, ``al_terminar`` ya."""
+    if not widgets.ANIMAR or not widget.isVisible():
+        if al_terminar is not None:
+            al_terminar()
+        return
+    ms_, dy = dur(ms_), desp(dy)
+    detener(getattr(widget, "_entrada_anim", None))
+    token = object()
+    widget._entrada_tok = token                              # type: ignore[attr-defined]
+    efecto = efecto_movimiento(widget, radio)
+    op0, esc0 = efecto.opacidad(), efecto._escs[ENTRADA_C]
+
+    def paso(v: float) -> None:
+        if sip.isdeleted(efecto):
+            return
+        efecto.set_opacidad(op0 * (1 - v))
+        efecto.set_dy(dy * v)
+        efecto.set_escala(esc0 + (escala - esc0) * v)
+
+    def fin() -> None:
+        if getattr(widget, "_entrada_tok", None) is token and al_terminar is not None:
+            al_terminar()
+
+    widget._entrada_anim = animar(widget, 0.0, 1.0, ms_, paso, fin, QEasingCurve.Type.InCubic)   # type: ignore[attr-defined]
+
+
 class InteraccionTarjeta(QObject):
     """Hover y pulsación de una tarjeta, sin mover el layout: elevación ligera con sombra ambiental, compresión al
     pulsar y recuperación tipo spring. El efecto solo existe mientras hay movimiento o el cursor está encima."""
 
-    def __init__(self, tarjeta: QWidget, radio: float = 14, color: str = VERDE, elevacion: float = 3.0) -> None:
+    def __init__(self, tarjeta: QWidget, radio: float = 14, color: str = VERDE, elevacion: float = 3.0,
+                 destino: QWidget | None = None) -> None:
+        """``destino``: el widget que lleva el efecto (por defecto, la propia tarjeta). Una tarjeta dentro de una baldosa
+        deja el efecto a la baldosa: así entrada, hover y arrastre comparten un único ``EfectoMovimiento``."""
         super().__init__(tarjeta)
         self._t, self._radio, self._color, self._elev = tarjeta, radio, color, elevacion
+        self._d = destino if destino is not None else tarjeta
         self._dentro = False
         self._hover = 0.0
         self._pulso = 0.0
@@ -259,21 +344,26 @@ class InteraccionTarjeta(QObject):
         tarjeta.installEventFilter(self)
 
     def _efecto(self) -> EfectoMovimiento | None:
-        actual = self._t.graphicsEffect()
+        actual = self._d.graphicsEffect()
         if actual is None:
-            return efecto_movimiento(self._t, self._radio, self._color)
+            return efecto_movimiento(self._d, self._radio, self._color)
         return actual if isinstance(actual, EfectoMovimiento) else None   # hay otro efecto en curso: no se pisa
 
     def _aplicar(self) -> None:
+        if sip.isdeleted(self._d):
+            return
         efecto = self._efecto()
         if efecto is None:
             return
         if not self._dentro and self._hover <= 0.001 and self._pulso <= 0.001:
-            soltar_efecto(self._t, efecto)
+            efecto.set_dy(0.0, HOVER_C)
+            efecto.set_escala(1.0, HOVER_C)
+            efecto.set_sombra(0.0, HOVER_C)
+            soltar_efecto(self._d, efecto)               # solo si ninguna otra capa (entrada, arrastre) lo usa
             return
-        efecto.set_dy(-self._elev * self._hover)
-        efecto.set_escala(1.0 - 0.018 * self._pulso)    # sin escala en reposo: el texto no se re-muestrea
-        efecto.set_sombra(self._hover)
+        efecto.set_dy(-self._elev * self._hover, HOVER_C)
+        efecto.set_escala(1.0 - 0.018 * self._pulso, HOVER_C)    # sin escala en reposo: el texto no se re-muestrea
+        efecto.set_sombra(self._hover, HOVER_C)
 
     def _hover_a(self, destino: float) -> None:
         detener(self._a_hover)
@@ -310,12 +400,13 @@ class InteraccionTarjeta(QObject):
         return False
 
 
-def hacer_interactiva(tarjeta: QWidget, radio: float = 14, color: str = VERDE) -> InteraccionTarjeta:
-    """Instala (una sola vez) el hover/pulsación premium en una tarjeta."""
+def hacer_interactiva(tarjeta: QWidget, radio: float = 14, color: str = VERDE,
+                      destino: QWidget | None = None) -> InteraccionTarjeta:
+    """Instala (una sola vez) el hover/pulsación premium en una tarjeta (el efecto puede vivir en ``destino``)."""
     previa = getattr(tarjeta, "_interaccion", None)
     if previa is not None:
         return previa
-    tarjeta._interaccion = InteraccionTarjeta(tarjeta, radio, color)  # type: ignore[attr-defined]
+    tarjeta._interaccion = InteraccionTarjeta(tarjeta, radio, color, destino=destino)  # type: ignore[attr-defined]
     return tarjeta._interaccion  # type: ignore[attr-defined]
 
 
@@ -528,11 +619,10 @@ def instalar_scroll_suave(area: QAbstractScrollArea) -> ScrollSuave | None:
     """Instala la rueda con inercia una sola vez por área."""
     if not isinstance(area, (QTableView, QTableWidget)) and type(area).__module__.startswith("pyqtgraph"):
         return None
-    if getattr(area, "_scroll_suave", None) is not None:
-        return area._scroll_suave  # type: ignore[attr-defined]
-    suave = ScrollSuave(area)
-    area._scroll_suave = suave  # type: ignore[attr-defined]
-    return suave
+    previo = area.findChild(ScrollSuave)
+    if previo is not None:
+        return previo
+    return ScrollSuave(area)     # hijo Qt del área: vive y muere con ella (sin referencias cruzadas en Python)
 
 
 class ProgresoScroll(QWidget):

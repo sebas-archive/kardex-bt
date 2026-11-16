@@ -83,6 +83,25 @@ def cruce_tema(ventana: QWidget, aplicar: Callable[[], None], ms: int = 240) -> 
     animar(velo, 1.0, 0.0, ms, velo.poner_alfa, velo.deleteLater, ASENTAR)
 
 
+def cruzar_contenido(widget: QWidget, aplicar: Callable[[], None], ms: int = 260) -> None:
+    """Cambia el contenido de un widget sin salto: congela lo que se ve, aplica el cambio y funde la imagen vieja.
+
+    Es el cruce de ``cruce_tema`` pero sobre cualquier contenedor (distribución del dashboard, categoría del catálogo).
+    Sin animaciones, o con el widget oculto, el cambio es directo."""
+    if not widgets.ANIMAR or not widget.isVisible():
+        aplicar()
+        return
+    velo = _Velo(widget, widget.grab())
+    try:
+        aplicar()
+    except Exception:
+        velo.deleteLater()          # nunca queda una imagen congelada encima si el cambio falla
+        raise
+    velo.setGeometry(widget.rect())
+    velo.raise_()
+    animar(velo, 1.0, 0.0, motion.dur(ms), velo.poner_alfa, velo.deleteLater, ASENTAR)
+
+
 def cambiar_pila(pila, indice: int, distancia: int = 18, ms: int = MEDIO) -> None:
     """``QStackedWidget.setCurrentIndex`` con cruce: la página anterior se desvanece y se desliza al salir."""
     actual = pila.currentIndex()
@@ -188,6 +207,10 @@ def entrada_pagina(pagina: QWidget) -> None:
     No mueve nada (el layout no cambia) ni toca los datos: solo cubre y descubre.
     """
     if not widgets.ANIMAR or not pagina.isVisible():
+        return
+    propia = getattr(pagina, "entrada_motion", None)
+    if callable(propia):          # la página tiene su propia coreografía (Dashboard): no se duplica con velos genéricos
+        propia()
         return
     from PyQt6.QtWidgets import QFrame
     from .. import tema
