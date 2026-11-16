@@ -46,27 +46,52 @@ def test_without_session_the_window_shows_only_the_login(qtbot, puente):
 def test_admin_sidebar_exact_order_and_profile_at_the_footer(qtbot, puente):
     ventana = abrir(qtbot, puente, ANA)
     assert ventana.secciones() == ["Dashboard", "Inventario", "Solicitudes", "Empleados", "Roles y permisos",
-                                   "Auditoría", "Configuración", "Sincronización", "Respaldos", "Notificaciones",
-                                   "Perfil"]
+                                   "Auditoría", "Configuración", "Sincronización", "Respaldos", "Perfil"]
     # Perfil no está en la lista: se abre desde el pie.
     visible = [titulo for titulo, _v, boton, _m, _r in ventana._secciones
                if boton.isVisible() and not boton.property("fuera")]
     assert visible == ["Dashboard", "Inventario", "Solicitudes", "Empleados", "Roles y permisos",
-                       "Auditoría", "Configuración", "Sincronización", "Respaldos", "Notificaciones"]
-    assert not ventana.btn_avisos.isHidden()
+                       "Auditoría", "Configuración", "Sincronización", "Respaldos"]
+    assert not ventana.btn_avisos.isHidden()   # las notificaciones son flotantes: solo la campana
     ventana.btn_cuenta.click()
     assert ventana.seccion_actual() == "Perfil"
 
 
 def test_inventory_sidebar_exact_order(qtbot, puente):
     ventana = abrir(qtbot, puente, LUIS)
-    assert ventana.secciones() == ["Dashboard", "Inventario", "Gráficas", "Sincronización", "Notificaciones", "Perfil"]
+    assert ventana.secciones() == ["Dashboard", "Inventario", "Gráficas", "Sincronización", "Perfil"]
     visible = [titulo for titulo, _v, boton, _m, _r in ventana._secciones
                if boton.isVisible() and not boton.property("fuera")]
-    assert visible == ["Dashboard", "Inventario", "Gráficas", "Sincronización", "Notificaciones"]
+    assert visible == ["Dashboard", "Inventario", "Gráficas", "Sincronización"]
     ventana.ir_a("Solicitudes")
     assert ventana.seccion_actual() == "Dashboard"
     assert not ventana.btn_avisos.isHidden()
+
+
+def test_collapsed_sidebar_survives_a_theme_change(qtbot, puente):
+    """Al reconstruir las vistas (tema o idioma) la barra contraída sigue mostrando solo iconos."""
+    ventana = abrir(qtbot, puente, ANA)
+    ventana.alternar_lateral()
+    assert ventana.lateral_contraida()
+    ventana.cambiar_tema("oscuro")
+    qtbot.wait(200)
+    assert ventana.lateral_contraida()
+    assert all(boton.text() == "" for _t, _v, boton, _m, _r in ventana._secciones)
+
+
+def test_the_footer_text_and_sidebar_labels_are_never_cut(qtbot, puente):
+    """El nombre y el rol del pie caben (o se abrevian con «…») y la barra se ensancha lo que pida la fuente."""
+    larga = Sesion("ana.gomez", "Administrador de Prueba Muy Largo", ADMIN, correo="ana@example.com")
+    ventana = abrir(qtbot, puente, larga)
+    ventana.resize(1300, 800)
+    qtbot.wait(100)
+    for etiqueta in (ventana.lbl_usuario, ventana.lbl_rol):
+        assert etiqueta.fontMetrics().horizontalAdvance(etiqueta.text()) <= etiqueta.width() + 1
+    assert "…" in ventana.lbl_usuario.text() and ventana.lbl_usuario.toolTip() == "Administrador de Prueba Muy Largo"
+    for _t, _v, boton, _m, _r in ventana._secciones:
+        if boton.isVisible():
+            assert boton.fontMetrics().horizontalAdvance(boton.text().strip()) + 60 <= boton.width()
+    assert 230 <= ventana._lateral.width() <= 300
 
 
 def test_no_removed_screens_are_registered(qtbot, puente):

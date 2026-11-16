@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtWidgets import QApplication
 
 from . import motion, widgets
+from .iconos import icono
+from .isla import isla
 
 VERDE, ROJO = "#10B981", "#F87171"
 
@@ -163,7 +165,7 @@ class Drawer(QWidget):
         self.titulo.setObjectName("drawerTitulo")
         cerrar = QToolButton()
         cerrar.setObjectName("cerrarDrawer")
-        cerrar.setText("✕")
+        cerrar.setIcon(icono("x", tam=16))
         cerrar.setToolTip("Cerrar (Esc)")
         cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
         cerrar.clicked.connect(self.cerrar)
@@ -392,9 +394,9 @@ class Confirmacion(QDialog):
     @classmethod
     def pedir(cls, host: QWidget, titulo: str, texto: str, verbo: str = "Confirmar",
               requiere_entendido: bool = False, peligro: bool = True, detalle: str = "") -> bool:
-        dialogo = cls(host, titulo, texto, verbo, requiere_entendido, peligro, detalle)
-        dialogo.exec()
-        return dialogo.resultado
+        """Pide la confirmación en la Isla (arriba, al centro de la ventana) y devuelve la decisión."""
+        descripcion = f"{texto}\n{detalle}" if detalle else texto
+        return isla.confirmar_y_esperar(titulo, descripcion, verbo, "Cancelar", peligro, requiere_entendido)
 
     def resizeEvent(self, evento) -> None:
         self._reubicar()
@@ -547,7 +549,7 @@ class ChipActivo(QFrame):
         etiqueta.setObjectName("chipActivoTexto")
         cerrar = QToolButton()
         cerrar.setObjectName("chipActivoCerrar")
-        cerrar.setText("✕")
+        cerrar.setIcon(icono("x", tam=12))
         cerrar.setToolTip("Quitar filtro")
         cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
         cerrar.clicked.connect(self._quitar)

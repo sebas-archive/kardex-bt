@@ -268,8 +268,11 @@ class EditorFoto(QDialog):
         self.slider.setRange(100, 400)
         self.slider.setValue(100)
 
-        btn_izq = QPushButton(t("Rotar") + " ⟲")
-        btn_der = QPushButton(t("Rotar") + " ⟳")
+        from .iconos import icono
+        btn_izq = QPushButton(" " + t("Rotar"))
+        btn_izq.setIcon(icono("rotate_ccw", tam=16))
+        btn_der = QPushButton(" " + t("Rotar"))
+        btn_der.setIcon(icono("rotate_cw", tam=16))
         btn_izq.clicked.connect(lambda: self.lienzo.girar(False))
         btn_der.clicked.connect(lambda: self.lienzo.girar(True))
         btn_reset = QPushButton(t("Restablecer"))

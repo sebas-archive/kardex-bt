@@ -7,16 +7,23 @@ del backend no cambia (``auth._validar_clave``).
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QApplication, QMenu, QScrollArea, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
-from .. import auth, fortaleza, i18n, isla, tema
+from .. import auth, fortaleza, i18n, tema
 from ..i18n import t
 from . import motion, widgets
 from .base import QueryRunner
 from .iconos import icono
+from .isla import isla
+
+
+# Textos del proceso en la Isla: (mientras trabaja, al terminar bien, al fallar).
+OP_ENTRAR = ("Iniciando sesión…", "Inicio de sesión exitoso", "No se pudo iniciar sesión")
+OP_REGISTRO = ("Registrando usuario…", "Usuario registrado correctamente", "No se pudo crear la cuenta")
+OP_RECUPERAR = ("Enviando solicitud…", "Solicitud enviada", "No se pudo recuperar la contraseña")
 
 
 class FondoAcceso(QWidget):
@@ -43,6 +50,8 @@ class PanelMarca(QFrame):
         super().__init__(parent)
         self.setFixedWidth(360)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Sin fondo propio: la hoja global pintaba un cuadrado que asomaba en las esquinas redondeadas.
+        self.setStyleSheet("PanelMarca { background: transparent; border: none; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(20, 40, 20, 34)
         lay.setSpacing(10)
@@ -57,15 +66,12 @@ class PanelMarca(QFrame):
         self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 12px; background: transparent;")
         self.lbl_imagen.setWordWrap(True)
         self.lbl_imagen.setMaximumWidth(160)
-        self.lbl_pie = QLabel(t("Android · Bluetooth · Oracle"))
-        self.lbl_pie.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 10px; background: transparent;")
         lay.addStretch(1)
         lay.addWidget(self.lbl_marca)
         lay.addWidget(self.lbl_bienvenida)
         lay.addSpacing(4)
         lay.addWidget(self.lbl_imagen)
         lay.addStretch(2)
-        lay.addWidget(self.lbl_pie)
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
@@ -75,58 +81,99 @@ class PanelMarca(QFrame):
 
         # Recorte exterior: esquinas izquierdas redondeadas (la superficie del formulario queda a la derecha).
         recorte = QPainterPath()
-        recorte.moveTo(r, 0)
-        recorte.lineTo(ancho, 0)
-        recorte.lineTo(ancho, alto)
-        recorte.lineTo(r, alto)
-        recorte.quadTo(0, alto, 0, alto - r)
-        recorte.lineTo(0, r)
-        recorte.quadTo(0, 0, r, 0)
-        recorte.closeSubpath()
+        # Rectángulo redondeado circular (mismo radio que la tarjeta); las esquinas derechas quedan fuera del widget.
+        recorte.addRoundedRect(QRectF(0, 0, ancho + r, alto), r, r)
         p.setClipPath(recorte)
 
-        # UN solo path azul con borde derecho curvo de arriba a abajo: 82 % arriba, 50 % al centro, 88 % abajo.
-        azul = QPainterPath()
-        azul.moveTo(r, 0)
-        azul.lineTo(ancho * 0.82, 0)
-        azul.cubicTo(ancho * 0.78, alto * 0.18, ancho * 0.58, alto * 0.38, ancho * 0.50, alto * 0.55)
-        azul.cubicTo(ancho * 0.50, alto * 0.70, ancho * 0.72, alto * 0.84, ancho * 0.88, alto)
-        azul.lineTo(r, alto)
-        azul.quadTo(0, alto, 0, alto - r)
-        azul.lineTo(0, r)
-        azul.quadTo(0, 0, r, 0)
-        azul.closeSubpath()
-        g = QLinearGradient(0, 0, ancho * 0.35, alto)
-        g.setColorAt(0.0, QColor("#172554"))
-        g.setColorAt(0.42, QColor("#1E40AF"))
-        g.setColorAt(1.0, QColor("#2563EB"))
+        # Base: superficie del formulario, para que el panel se funda con el área blanca de la derecha.
         p.setPen(Qt.PenStyle.NoPen)
-        p.fillPath(azul, g)
+        # Empieza pasadas las esquinas redondeadas: el borde antialiasado del recorte dejaría un filo blanco.
+        p.fillRect(QRectF(r, 0, ancho - r, alto), QColor(tema.colores()["tarjeta"]))
 
-        # Lóbulo de superficie arriba a la derecha; el resto de la derecha ya es superficie del formulario.
-        superficie = QColor(tema.colores()["tarjeta"])
-        p.setBrush(superficie)
-        p.drawEllipse(QPointF(ancho + 75, alto * 0.15), 215, 215)
+        # Gran círculo azul (como la referencia): sale por arriba/izquierda y su borde derecho es una curva
+        # convexa continua que se queda dentro del panel; debajo de él se ve la superficie.
+        cx, cy, radio = 40.0, alto * 0.39, 305.0
+        g = QLinearGradient(0, 0, ancho * 0.45, cy + radio)
+        g.setColorAt(0.0, QColor("#052E25"))
+        g.setColorAt(0.55, QColor("#07503F"))
+        g.setColorAt(1.0, QColor("#059669"))
+        p.setBrush(g)
+        p.drawEllipse(QPointF(cx, cy), radio, radio)
 
-        # Círculos DESPUÉS, recortados al rectángulo del panel (el centro-derecha cruza la superficie).
-        p.save()
-        p.setClipPath(recorte)
-        p.setPen(Qt.PenStyle.NoPen)
-        gradiente = QRadialGradient(-52, alto * 0.80, 190)
-        gradiente.setColorAt(0.0, QColor("#3B82F6"))
-        gradiente.setColorAt(1.0, QColor("#1D4ED8"))
+        # Círculo azul parcial desde la esquina inferior izquierda (se solapa con el grande).
+        gradiente = QRadialGradient(40, alto * 0.80, 260)
+        gradiente.setColorAt(0.0, QColor("#10B981"))
+        gradiente.setColorAt(1.0, QColor("#047857"))
         p.setBrush(gradiente)
-        p.drawEllipse(QPointF(ancho * 0.18, alto * 0.85), ancho * 0.42, ancho * 0.42)
+        p.drawEllipse(QPointF(-20, alto * 0.90), 210, 210)
 
-        gradiente = QRadialGradient(ancho * 0.54, alto * 0.70, 220)
-        gradiente.setColorAt(0.0, QColor("#60A5FA"))
-        gradiente.setColorAt(0.65, QColor("#3B82F6"))
-        gradiente.setColorAt(1.0, QColor("#2563EB"))
+        # Esfera azul clara abajo a la derecha, recortada por el borde del panel.
+        esfera = QPointF(222, alto * 0.85)
+        gradiente = QRadialGradient(QPointF(esfera.x() - 45, esfera.y() - 60), 190)
+        gradiente.setColorAt(0.0, QColor("#6EE7B7"))
+        gradiente.setColorAt(0.6, QColor("#10B981"))
+        gradiente.setColorAt(1.0, QColor("#059669"))
         p.setBrush(gradiente)
-        p.drawEllipse(QPointF(ancho * 0.68, alto * 0.95), ancho * 0.48, ancho * 0.48)
-        p.restore()
+        p.drawEllipse(esfera, 130, 130)
         p.end()
 
+
+
+class CasillaAcceso(QCheckBox):
+    """Casilla de verificación: cuadro con borde que se rellena de azul y muestra una palomita al marcarse."""
+
+    LADO = 18
+
+    def __init__(self, texto: str, parent: QWidget | None = None) -> None:
+        super().__init__(texto, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("CasillaAcceso { background: transparent; border: none; }")
+
+    def sizeHint(self) -> QSize:
+        self.ensurePolished()  # la fuente de la hoja de estilos debe estar aplicada antes de medir el texto
+        ancho = self.LADO + 10 + self.fontMetrics().horizontalAdvance(self.text())
+        return QSize(ancho + 12, max(self.LADO, self.fontMetrics().height()) + 6)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def changeEvent(self, evento) -> None:
+        super().changeEvent(evento)
+        if evento.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self.updateGeometry()
+
+    def hitButton(self, _pos) -> bool:
+        return True
+
+    def paintEvent(self, _evento) -> None:
+        c = tema.colores()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        y = (self.height() - self.LADO) / 2
+        caja = QRectF(1, y, self.LADO - 2, self.LADO - 2)
+        if self.isChecked():
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(c["acento"]))
+            p.drawRoundedRect(caja, 5, 5)
+            pluma = QPen(QColor("#FFFFFF"), 2.0)
+            pluma.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pluma.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pluma)
+            p.drawPolyline([QPointF(caja.left() + 4, caja.center().y() + 0.5),
+                            QPointF(caja.left() + 7, caja.center().y() + 3.5),
+                            QPointF(caja.right() - 3.5, caja.top() + 4.5)])
+        else:
+            p.setPen(QPen(QColor(c["borde_fuerte"]), 1.5))
+            p.setBrush(QColor(c["tarjeta"]))
+            p.drawRoundedRect(caja, 5, 5)
+        if self.hasFocus():
+            p.setPen(QPen(QColor(c["acento"]), 1.5))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(caja.adjusted(-2, -2, 2, 2), 7, 7)
+        p.setPen(QColor(c["texto"]))
+        p.drawText(QRectF(self.LADO + 10, 0, self.width() - self.LADO - 10, self.height()),
+                   int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), self.text())
+        p.end()
 
 
 class MedidorFuerza(QWidget):
@@ -212,13 +259,13 @@ class AccesoView(QWidget):
         self._runner = QueryRunner(self)
         self._primero = False
         self._error_actual = ""
-        self._id_isla: int | None = None     # cápsula «cargando» de la operación en curso
-        self._operacion = ""
+        self._op = OP_ENTRAR
+        self._id_proceso: int | None = None
         self._pregunta_actual: str | None = None
         self._pregunta_texto = ""
         self._ajustes = QSettings("GestionInventario", "Acceso")
         self._guest_tema = str(self._ajustes.value("tema_invitado", "claro") or "claro")
-        if self._guest_tema not in ("claro", "oscuro"):
+        if self._guest_tema not in tema.MODOS:
             self._guest_tema = "claro"
         self._guest_idioma = str(self._ajustes.value("idioma_invitado", "es") or "es")
         if self._guest_idioma not in i18n.IDIOMAS:
@@ -351,7 +398,7 @@ class AccesoView(QWidget):
         self.txt_clave.returnPressed.connect(self._entrar)
 
         fila = QHBoxLayout()
-        self.chk_recordar = QCheckBox(t("Recordar usuario"))
+        self.chk_recordar = CasillaAcceso(t("Recordar usuario"))
         self.btn_ir_a_olvido = QPushButton(t("¿Olvidaste tu contraseña?"))
         self.btn_ir_a_olvido.setObjectName("enlaceAzul")
         self.btn_ir_a_olvido.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -490,7 +537,7 @@ class AccesoView(QWidget):
         menu = QMenu(self)
         self._menu_config_acciones: dict[str, dict[str, object]] = {"tema": {}, "idioma": {}}
         apariencia = menu.addMenu(t("Apariencia"))
-        for modo in ("claro", "oscuro"):
+        for modo in ("claro", "sistema", "oscuro"):
             accion = apariencia.addAction(t(tema.NOMBRE_MODO[modo]))
             accion.setCheckable(True)
             accion.setChecked(self._guest_tema == modo)
@@ -510,7 +557,7 @@ class AccesoView(QWidget):
         menu.exec(self.btn_config.mapToGlobal(QPoint(0, self.btn_config.height() + 4)))
 
     def _elegir_tema_invitado(self, modo: str) -> None:
-        if modo not in ("claro", "oscuro"):
+        if modo not in tema.MODOS:
             return
         self._guest_tema = modo
         self._ajustes.setValue("tema_invitado", modo)
@@ -668,17 +715,19 @@ class AccesoView(QWidget):
         accion.setToolTip(t("Mostrar contraseña") if visible else t("Ocultar contraseña"))
 
     # ------------------------------------------------------------- flujos
-    def _error(self, mensaje: str) -> None:
-        self.lbl_error.setObjectName("errorFormulario")
-        self.lbl_error.setText(mensaje)
-        self.lbl_error.setVisible(bool(mensaje))
-        self.lbl_error.setStyleSheet("")
+    def _error(self, mensaje: str, validacion: bool = False) -> None:
+        """Errores y validaciones del formulario van a la Isla; ``""`` cierra el que quedó abierto."""
+        self.lbl_error.setText(mensaje)  # el texto sigue consultable; la etiqueta ya no se muestra
+        if not mensaje:
+            isla.cerrar(clave="acceso-error")
+        elif validacion:
+            isla.advertencia(mensaje, clave="acceso-error")
+        else:
+            isla.error(t(self._op[2]), mensaje, clave="acceso-error")
 
     def _aviso(self, mensaje: str) -> None:
-        self.lbl_error.setObjectName("avisoFormulario")
         self.lbl_error.setText(mensaje)
-        self.lbl_error.setStyleSheet("color: #34D399; background: transparent;")
-        self.lbl_error.show()
+        isla.exito(t(self._op[1]), mensaje)
 
     def _ocupado(self, ocupado: bool) -> None:
         for boton in (self.btn_entrar, self.btn_crear, self.btn_pedir_clave):
@@ -687,22 +736,8 @@ class AccesoView(QWidget):
     def _lanzar(self, operacion, *args) -> None:
         self._error("")
         self._ocupado(True)
-        if self._id_isla is not None:
-            isla.cerrar(self._id_isla)
-        self._operacion = getattr(operacion, "__name__", "")
-        self._id_isla = isla.cargando(self._TEXTO_CARGA.get(self._operacion, "Guardando…"))
+        self._id_proceso = isla.cargando(t(self._op[0]))
         self._runner.run(operacion, self._listo, self._fallo, *args, key="acceso")
-
-    _TEXTO_CARGA = {"_entrar_o_estado": "Iniciando sesión…", "_registrar_o_estado": "Creando cuenta…",
-                    "recuperar": "Guardando…"}
-
-    def _resolver_isla(self, tipo, texto: str, detalle: str = "", **formato) -> None:
-        """Convierte la cápsula «cargando» de esta operación en su resultado (o muestra una nueva)."""
-        id_, self._id_isla = self._id_isla, None
-        if id_ is None:
-            isla.notificar(tipo, texto, detalle, **formato)
-        else:
-            isla.actualizar(id_, tipo, texto, detalle, **formato)
 
     def _ir_a_registro(self) -> None:
         self.mostrar_formulario(1)
@@ -716,22 +751,21 @@ class AccesoView(QWidget):
 
     def _entrar(self) -> None:
         if not self.txt_usuario.text().strip() or not self.txt_clave.text():
-            self._error(t("Escribe tu usuario y tu contraseña."))
-            isla.advertencia("Completa los campos obligatorios", "Escribe tu usuario y tu contraseña.")
+            self._error(t("Escribe tu usuario y tu contraseña."), validacion=True)
             motion.sacudir(self._tarjeta, 9)
             return
+        self._op = OP_ENTRAR
         self._lanzar(_entrar_o_estado, self.txt_usuario.text(), self.txt_clave.text())
 
     def _crear(self) -> None:
         if self.txt_clave_nueva.text() != self.txt_confirmacion.text():
-            self._error(t("Las contraseñas no coinciden."))
-            isla.advertencia("Las contraseñas no coinciden.")
+            self._error(t("Las contraseñas no coinciden."), validacion=True)
             motion.sacudir(self._tarjeta, 9)
             return
         if self._primero and not self.combo_pregunta.currentData():
-            self._error(t("Elige una pregunta de seguridad."))
-            isla.advertencia("Elige una pregunta de seguridad.")
+            self._error(t("Elige una pregunta de seguridad."), validacion=True)
             return
+        self._op = OP_REGISTRO
         self._lanzar(_registrar_o_estado, self.txt_usuario_nuevo.text(), self.txt_nombre.text(),
                      self.txt_clave_nueva.text(), self.txt_confirmacion.text(), self.txt_correo.text(),
                      self.combo_pregunta.currentData() or "", self.txt_respuesta.text())
@@ -739,8 +773,7 @@ class AccesoView(QWidget):
     def _ver_pregunta(self) -> None:
         usuario = self.txt_usuario_olvido.text().strip()
         if not usuario:
-            self._error(t("Escribe tu usuario."))
-            isla.advertencia("Escribe tu usuario.")
+            self._error(t("Escribe tu usuario."), validacion=True)
             return
         self._runner.run(auth.pregunta_de, self._mostrar_pregunta, lambda _m: None, usuario, key="pregunta")
 
@@ -754,44 +787,44 @@ class AccesoView(QWidget):
             self.txt_respuesta_olvido.clear()
 
     def _pedir_clave(self) -> None:
+        self._op = OP_RECUPERAR
         self._lanzar(auth.recuperar, self.txt_usuario_olvido.text(), self.txt_clave_olvido.text(),
                      self.txt_confirmacion_olvido.text(), self.txt_respuesta_olvido.text())
 
+    def _cerrar_proceso(self, tipo: str | None = None, titulo: str = "", descripcion: str = "") -> None:
+        """Termina el «Procesando…» de la Isla: lo transforma en éxito o error, o lo cierra si no hay nada que decir."""
+        id_, self._id_proceso = self._id_proceso, None
+        if id_ is None:
+            if tipo:
+                getattr(isla, tipo)(titulo, descripcion)
+        elif tipo:
+            # Los errores comparten clave con las validaciones: el más reciente sustituye al anterior.
+            isla.actualizar(id_, tipo, titulo, descripcion, **({"clave": "acceso-error"} if tipo == "error" else {}))
+        else:
+            isla.cerrar(id_)
+
     def _listo(self, resultado) -> None:
         self._ocupado(False)
-        registro = self._operacion == "_registrar_o_estado"
         if isinstance(resultado, auth.Sesion):
+            self._cerrar_proceso("exito", t(self._op[1]), t("Bienvenido, {nombre}", nombre=resultado.nombre))
             self._guardar_recordado()
-            self._resolver_isla(isla.NotificationType.SUCCESS, "Cuenta creada correctamente" if registro
-                                else "Bienvenido, {nombre}", nombre=resultado.nombre)
             self.limpiar()
             self.entro.emit(resultado)
             return
         if isinstance(resultado, auth.CuentaSinAcceso):
-            if registro:
-                self._resolver_isla(isla.NotificationType.SUCCESS, "Cuenta creada correctamente",
-                                    "Un administrador debe aprobarla antes de que puedas entrar.")
-            else:
-                self._resolver_isla(isla.NotificationType.WARNING, "Tu cuenta todavía no puede entrar")
+            self._cerrar_proceso()
             self.limpiar()
             self.sin_acceso.emit(resultado)
             return
-        self._resolver_isla(isla.NotificationType.SUCCESS, "Solicitud enviada", str(resultado))
+        self._cerrar_proceso("exito", t(self._op[1]), t(str(resultado)))
         self.limpiar()
-        self._aviso(t(str(resultado)))
+        self.lbl_error.setText(t(str(resultado)))
 
     def _fallo(self, mensaje: str) -> None:
         self._ocupado(False)
         self._error_actual = mensaje
-        if self._operacion == "_registrar_o_estado":
-            self._resolver_isla(isla.NotificationType.ERROR, "No se pudo crear la cuenta", mensaje)
-        elif self._operacion == "_entrar_o_estado" and mensaje == auth.MENSAJE_LOGIN:
-            self._resolver_isla(isla.NotificationType.ERROR, "Credenciales incorrectas", mensaje)
-        elif self._operacion == "_entrar_o_estado":
-            self._resolver_isla(isla.NotificationType.ERROR, "No se pudo iniciar sesión", mensaje)
-        else:
-            self._resolver_isla(isla.NotificationType.ERROR, "No se pudo completar la operación", mensaje)
-        self._error(t(mensaje))
+        self.lbl_error.setText(t(mensaje))
+        self._cerrar_proceso("error", t(self._op[2]), t(mensaje))
         motion.sacudir(self._tarjeta, 9)
 
 

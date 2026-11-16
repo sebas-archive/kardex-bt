@@ -8,7 +8,7 @@ from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
 
-from app import isla
+from app.views.isla import gestor, isla
 from app.models import Lectura
 from app.views import widgets
 from app.views.capas import CapaFlotante, abrir_capa
@@ -173,11 +173,13 @@ def test_visor_abre_desde_la_miniatura_animado(qtbot, host, monkeypatch):
 
 
 def test_la_isla_de_notificaciones_sigue_encima_de_las_capas(qtbot, host):
-    g = isla.instalar(host)
-    isla.info("Hola")
+    isla.instalar(host)
+    isla.info("Hola", duracion_ms=60000)
+    capsula = gestor()._capsula
+    qtbot.waitUntil(capsula.isVisible, timeout=3000)
     panel, capa = abrir_lecturas(qtbot, host)
     hijos = host.children()
-    assert hijos.index(g.widget) > hijos.index(capa)
+    assert hijos.index(capsula) > hijos.index(capa)
 
 
 def test_el_foco_vuelve_a_la_capa_de_abajo(qtbot, host):

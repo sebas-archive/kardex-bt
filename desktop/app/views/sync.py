@@ -40,10 +40,11 @@ from btsync.controller import (
 )
 from btsync.servicio import DETENIDO, PAUSADO, PAUSANDO
 
-from .. import auth, db, isla
+from .. import auth, db
 from ..i18n import registrar, t
 from ..tema import colores
 from .base import QueryRunner, StateBanner
+from .isla import isla
 from .bluetooth_vivo import BarrasTrafico, BotonReintentar, Diagrama
 from .widgets import Indicador, Pasos
 
@@ -481,7 +482,6 @@ class SyncView(QWidget):
         self._accion(db.reprocesar_errores)
 
     def _alta_fallo(self, mensaje: str) -> None:
-        isla.error("No se pudo guardar", mensaje)
         self.btn_alta.setEnabled(True)
         self.banner.show_error(mensaje)
 
@@ -494,25 +494,27 @@ class SyncView(QWidget):
     def _accion(self, operacion) -> None:
         self.btn_procesar.setEnabled(False)
         self.btn_reprocesar.setEnabled(False)
-        id_ = isla.cargando("Sincronizando inventario…")
-        self._runner.run(operacion, lambda r, i=id_: self._accion_lista(r, i), lambda m, i=id_: self._accion_fallo(m, i))
+        self._proceso = isla.cargando(t("Procesando lecturas…"))
+        self._runner.run(operacion, self._accion_lista, self._accion_fallo)
 
-    def _accion_lista(self, _resultado, id_: int | None = None) -> None:
-        if id_ is not None:
-            isla.actualizar(id_, isla.NotificationType.SUCCESS, "Sincronización completada")
+    def _terminar_proceso(self, tipo: str, titulo: str, descripcion: str = "") -> None:
+        id_, self._proceso = getattr(self, "_proceso", None), None
+        if id_ is None:
+            getattr(isla, tipo)(titulo, descripcion)
+        else:
+            isla.actualizar(id_, tipo, titulo, descripcion)
+
+    def _accion_lista(self, _resultado) -> None:
+        self._terminar_proceso("exito", t("Procesamiento completado"))
         self.btn_procesar.setEnabled(True)
         self.btn_reprocesar.setEnabled(True)
         self.refresh()
         self.datos_cambiados.emit()
 
-    def _accion_fallo(self, mensaje: str, id_: int | None = None) -> None:
-        if id_ is not None:
-            isla.actualizar(id_, isla.NotificationType.ERROR, "Error al sincronizar", mensaje)
-        else:
-            isla.error("Error al sincronizar", mensaje)
+    def _accion_fallo(self, mensaje: str) -> None:
+        self._terminar_proceso("error", t("No se pudo procesar"), mensaje)
         self.btn_procesar.setEnabled(True)
         self.btn_reprocesar.setEnabled(True)
-        self.banner.show_error(mensaje)
 
     def _puede_gestionar(self) -> bool:
         return self._sesion is not None and self._sesion.puede("sync", "GESTION")
@@ -532,10 +534,10 @@ class SyncView(QWidget):
             self._remoto.responder(self._sesion, aceptar)
 
     def _fallo_servicio(self, mensaje: str) -> None:
-        isla.error("No se pudo completar la operación", mensaje)
         self.btn_pausar.setEnabled(True)
         self.lbl_aviso.setText(mensaje)
-        self.lbl_aviso.setVisible(bool(mensaje))
+        if mensaje:
+            isla.error(t("No se pudo controlar el servicio Bluetooth"), mensaje)
 
     def _actualizar(self, status: dict) -> None:
         estado, recibidos = status["estado"], status["recibidos"]
@@ -577,8 +579,7 @@ class SyncView(QWidget):
         self.lbl_recibidos.setText(t("Lecturas recibidas: {n}", n=recibidos))
         self.lbl_recibidos.setVisible(estado in (RECIBIENDO, PROCESANDO, PAUSANDO) and recibidos > 0)
         self.lbl_ultima.setText(texto_ultima(status.get("ultima")))
-        self.lbl_aviso.setText(error or "")
-        self.lbl_aviso.setVisible(bool(error))
+        self.lbl_aviso.setText(error or "")  # el error del servicio lo muestra la Isla (estado persistente de Bluetooth)
 
         paso = PASO_DE.get(estado)
         self.pasos.set_actual(self._pasos_texto[paso] if paso is not None else None)

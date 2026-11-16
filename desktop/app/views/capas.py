@@ -173,14 +173,14 @@ class CapaFlotante(QWidget):
             pass
 
     def _subir_isla(self) -> None:
-        # Las notificaciones (isla) siguen por encima de cualquier capa.
-        from .. import isla
-        g = isla.gestor()
-        if g is not None:
-            try:
-                g._subir()
-            except RuntimeError:
-                pass
+        # La cápsula de la Isla (avisos) sigue por encima de cualquier capa.
+        from .isla import gestor
+        capsula = getattr(gestor(), "_capsula", None)
+        try:
+            if capsula is not None and capsula.isVisible():
+                capsula.raise_()
+        except RuntimeError:
+            pass
 
     # ------------------------------------------------------------- animación
     def _detener(self) -> None:

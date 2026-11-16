@@ -6,12 +6,14 @@ Scheduler con el intervalo nuevo. No hay umbrales de ajuste crítico ni purga co
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                              QWidget)
 
-from .. import auth, configuracion, isla
+from .. import auth, configuracion
 from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
+from .isla import isla
 
 registrar({
     "Configuración general": "General settings",
@@ -64,13 +66,16 @@ class ConfiguracionView(QWidget):
         tarjeta = QFrame()
         tarjeta.setObjectName("card")
         cuerpo = QVBoxLayout(tarjeta)
-        cuerpo.setContentsMargins(20, 16, 20, 16)
-        cuerpo.setSpacing(10)
+        cuerpo.setContentsMargins(24, 20, 24, 20)
+        cuerpo.setSpacing(14)
         for titulo, campos in GRUPOS:
             encabezado = QLabel(t(titulo))
             encabezado.setObjectName("seccion")
             cuerpo.addWidget(encabezado)
             forma = QFormLayout()
+            forma.setVerticalSpacing(12)
+            forma.setHorizontalSpacing(16)
+            forma.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             for clave, etiqueta, unidad in campos:
                 editor = QLineEdit()
                 editor.setMaximumWidth(140)
@@ -122,7 +127,7 @@ class ConfiguracionView(QWidget):
         return self._campos[clave]
 
     def banner_texto(self) -> str:
-        return self.lbl_error.text() if not self.lbl_error.isHidden() else self.banner.text()
+        return self.lbl_error.text() or self.banner.text()
 
     # ------------------------------------------------------------- internos
     def _sucio(self) -> bool:
@@ -141,7 +146,7 @@ class ConfiguracionView(QWidget):
     def _guardar(self) -> None:
         if self._sesion is None:
             return
-        self.lbl_error.hide()
+        self.lbl_error.setText("")
         self.btn_guardar.setEnabled(False)
         cambios = {k: e.text() for k, e in self._campos.items()}
         self._runner.run(configuracion.guardar, self._guardado, self._error, self._sesion, cambios)
@@ -149,13 +154,11 @@ class ConfiguracionView(QWidget):
     def _guardado(self, valores: dict[str, str]) -> None:
         self.btn_guardar.setEnabled(True)
         self._mostrar(valores)
-        isla.exito("Datos guardados")
         self.lbl_info.setText(t("Guardado."))
-        self.lbl_info.show()
+        isla.exito(t("Cambios guardados"), t("La configuración se guardó correctamente."))
 
     def _error(self, mensaje: str) -> None:
-        if mensaje:
-            isla.error("No se pudo guardar", mensaje)
         self.btn_guardar.setEnabled(True)
-        self.lbl_error.setText(mensaje)
-        self.lbl_error.setVisible(bool(mensaje))
+        self.lbl_error.setText(mensaje)  # consultable; el aviso se muestra en la Isla
+        if mensaje:
+            isla.error(t("No se pudo guardar la configuración"), mensaje)

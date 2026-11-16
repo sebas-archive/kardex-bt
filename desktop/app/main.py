@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Callable
 
 from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
+from PyQt6.QtGui import QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import auth, configuracion, db, i18n, isla, notificaciones, permisos, tema
+from . import auth, configuracion, db, i18n, notificaciones, permisos, tema
 from .servicio_remoto import ServicioRemoto
 from .views.acceso import AccesoView
 from .views.auditoria import AuditoriaView
@@ -50,6 +50,9 @@ from .views.roles import RolesView
 from .views.solicitudes import SolicitudesView
 from .views.sync import SyncView
 from .views.usuarios import UsuariosView
+from .views.bandeja import HojaNotificaciones, PopoverNotificaciones
+from .views.isla import isla
+from .views import vigilante
 from .views.widgets import Transicion
 
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
@@ -80,9 +83,9 @@ class MainWindow(QMainWindow):
         self._runner = QueryRunner(self)
         self._sesion: auth.Sesion | None = None
         self._secciones: list[tuple[str, QWidget, QPushButton, str, tuple[str, ...] | None]] = []
-        self._oracle_bien: bool | None = None      # último resultado de Oracle (avisa solo al cambiar)
-        self._estado_bt: str | None = None
-        self._id_sync: int | None = None           # cápsula «Sincronizando…» que espera su resultado
+        self._oracle_caido = False
+        self._id_sync: int | None = None   # proceso «Sincronizando…» abierto en la Isla
+        self._bt_antes = ""
         self._sin_leer = 0
         self._colapsada = False
         self._colapso_manual = False
@@ -236,14 +239,20 @@ class MainWindow(QMainWindow):
         self._raiz.addWidget(aplicacion)
         self._raiz.addWidget(self.estado_cuenta)
         self.setCentralWidget(self._raiz)
-        self.isla = isla.instalar(self)
+        isla.instalar(self)   # la Isla vive dentro de la ventana: es el único canal de avisos
+        vigilante.instalar()  # estados vacíos de tablas y diálogos con el mismo acabado
+        # Notificaciones flotantes: la campana abre el panel y «Ver todo» abre la vista extendida (sin pestaña).
+        self.bandeja = PopoverNotificaciones(self)
+        self.hoja_notificaciones = HojaNotificaciones(self)
+        self.bandeja.ver_todo.connect(self.abrir_hoja_notificaciones)
+        self.bandeja.ir_a.connect(self.ir_a)
+        self.bandeja.cambiaron.connect(self.contar_notificaciones)
         self._instalar_atajos()
 
         self.acceso.entro.connect(self.iniciar)
         self.acceso.sin_acceso.connect(self.mostrar_estado_cuenta)
         self.estado_cuenta.volver.connect(self._volver_al_acceso)
         self.btn_salir.clicked.connect(self.cerrar_sesion)
-        self.btn_salir.clicked.connect(lambda: isla.info("Sesión cerrada"))
         self.btn_tema.clicked.connect(self._menu_tema)
         self.btn_cuenta.clicked.connect(self.abrir_perfil)
         self.btn_colapsar.clicked.connect(self._alternar_manual)
@@ -378,9 +387,12 @@ class MainWindow(QMainWindow):
     def iniciar(self, sesion: auth.Sesion) -> None:
         """Entra a la aplicación con esa sesión: aplica sus preferencias y muestra las secciones de su rol."""
         self._sesion = sesion
+        self.bandeja.set_sesion(sesion)
+        vista_avisos = getattr(self, "_vista_avisos", None)
+        if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
+            vista_avisos.set_sesion(sesion)
         self._aplicar_tema_idioma(sesion.tema, sesion.idioma)
-        self.lbl_usuario.setText(sesion.nombre)
-        self.lbl_rol.setText(i18n.t(auth.NOMBRE_ROL[sesion.rol]))
+        self._poner_cuenta(sesion.nombre, i18n.t(auth.NOMBRE_ROL[sesion.rol]))
         self._poner_avatar()
         self._actualizar_boton_tema()
         self.btn_avisos.setVisible(sesion.puede("notificaciones"))
@@ -413,6 +425,14 @@ class MainWindow(QMainWindow):
         for _titulo, vista, _boton, _modulo, _roles in self._secciones:
             if hasattr(vista, "set_sesion"):
                 vista.set_sesion(None)
+        self.bandeja.set_sesion(None)
+        self.hoja_notificaciones.cerrar()
+        vista_avisos = getattr(self, "_vista_avisos", None)
+        if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
+            vista_avisos.set_sesion(None)
+        isla.quitar_estado("oracle")
+        isla.quitar_estado("bluetooth")
+        self._oracle_caido = False
         self.acceso.limpiar()
         self._raiz.setCurrentIndex(0)
         self.sesion_cambiada.emit(None)
@@ -438,7 +458,23 @@ class MainWindow(QMainWindow):
         self.ir_a(i18n.t("Perfil"))
 
     def _abrir_notificaciones(self) -> None:
-        self.ir_a(i18n.t("Notificaciones"))
+        """La campana: abre el panel flotante de notificaciones."""
+        self.bandeja.abrir(self.btn_avisos)
+
+    def abrir_hoja_notificaciones(self) -> None:
+        """«Ver todo»: la vista extendida, flotante sobre la ventana."""
+        if self._sesion is not None and self._sesion.puede("notificaciones"):
+            self.hoja_notificaciones.abrir()
+
+    def registrar_notificaciones(self, vista: QWidget) -> None:
+        """La vista extendida vive en la hoja flotante: sin pestaña, pero con sesión y refresco como las demás."""
+        self._vista_avisos = vista
+        self.hoja_notificaciones.poner(vista)
+        refrescar = getattr(vista, "refresh", None)
+        if callable(refrescar):
+            self.refresh_requested.connect(refrescar)
+        if hasattr(vista, "set_sesion") and self._sesion is not None:
+            vista.set_sesion(self._sesion)
 
     def _drill(self, tipo: str, valor: str) -> None:
         """Clic en una gráfica: lleva a Inventario con el filtro cuando la vista lo permite."""
@@ -458,7 +494,7 @@ class MainWindow(QMainWindow):
     def add_view(self, view: QWidget, title: str, modulo: str, en_barra: bool = True,
                  roles: tuple[str, ...] | None = None, icono_id: str | None = None) -> QPushButton:
         """Registra una sección en la barra lateral y la incluye en el refresco."""
-        boton = QPushButton(f"  {title}")
+        boton = QPushButton("" if self._colapsada else f"  {title}")
         boton.setIcon(icono(icono_id or title))
         boton.setToolTip(title)
         boton.setObjectName("nav")
@@ -503,8 +539,12 @@ class MainWindow(QMainWindow):
 
     def ir_a(self, titulo: str) -> None:
         """Abre una sección. Las que el rol no puede consultar no se abren."""
+        if titulo == i18n.t("Notificaciones"):
+            self.abrir_hoja_notificaciones()
+            return
         if titulo not in self.secciones():
             return
+        self.hoja_notificaciones.cerrar()
         indice = next(i for i, s in enumerate(self._secciones) if s[0] == titulo)
         anterior = self.paginas.currentWidget()
         if anterior is not None and self.isVisible():
@@ -532,24 +572,29 @@ class MainWindow(QMainWindow):
     def conectar_servicio(self, remoto: ServicioRemoto) -> None:
         """Refleja el estado del servicio Bluetooth en el encabezado y avisa cuando termina una sincronización."""
         remoto.status_changed.connect(self._estado_bluetooth)
-        remoto.listo.connect(lambda: self._sync_lista(self._texto_listo(remoto.status())))
-        remoto.fallo.connect(lambda mensaje: isla.error("No se pudo completar la operación", mensaje))
+        remoto.listo.connect(lambda: self._sync_listo(remoto.status()))
         self._estado_bluetooth(remoto.status())
 
     def tras_restaurar(self) -> None:
         self.cerrar_sesion()
         self.avisar(i18n.t("Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras."), "info")
 
-    TIPOS_AVISO = {"ok": isla.NotificationType.SUCCESS, "error": isla.NotificationType.ERROR,
-                   "info": isla.NotificationType.INFO, "warning": isla.NotificationType.WARNING,
-                   "advertencia": isla.NotificationType.WARNING}
+    TIPO_ISLA = {"ok": "exito", "error": "error", "info": "info", "aviso": "advertencia", "warning": "advertencia"}
 
     def avisar(self, texto: str, tipo: str = "ok", duracion_ms: int | None = None) -> None:
-        """Aviso breve en la isla de la parte superior (``tipo``: ok, error, info o warning)."""
-        self.isla.notificar(self.TIPOS_AVISO.get(tipo, isla.NotificationType.INFO), texto, duracion_ms=duracion_ms)
+        """Comunica algo a la persona por la Isla (arriba al centro). ``tipo``: ok, error, info o aviso."""
+        getattr(isla, self.TIPO_ISLA.get(tipo, "info"))(texto, duracion_ms=duracion_ms)
 
     def avisos_visibles(self) -> list[str]:
-        return self.isla.textos()
+        return isla.textos()
+
+    def _sync_listo(self, status: dict) -> None:
+        texto = self._texto_listo(status)
+        if self._id_sync is not None:
+            isla.actualizar(self._id_sync, "exito", texto)
+            self._id_sync = None
+        else:
+            isla.exito(texto)
 
     @staticmethod
     def _texto_listo(status: dict) -> str:
@@ -560,6 +605,7 @@ class MainWindow(QMainWindow):
 
     def _poner_chip(self, chip: QLabel, texto: str, estado: str) -> None:
         chip.setText(texto)
+        chip.setMinimumWidth(chip.sizeHint().width() + 4)   # el texto del chip nunca se recorta
         chip.setProperty("estado", estado)
         chip.style().unpolish(chip)
         chip.style().polish(chip)
@@ -572,46 +618,34 @@ class MainWindow(QMainWindow):
             "LISTO": ("listo", "ok"), "ERROR": ("error", "error"), "PAUSANDO": ("pausando", "activo"),
             "PAUSADO": ("en pausa", ""), "DETENIDO": ("servicio detenido", "error"),
         }
-        texto, estado = textos.get(status["estado"], (status["estado"].lower(), ""))
-        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), estado)
-        self._avisar_bluetooth(status)
+        estado = status["estado"]
+        texto, tono = textos.get(estado, (estado.lower(), ""))
+        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), tono)
+        self._avisar_bluetooth(estado, status)
 
-    def _avisar_bluetooth(self, status: dict) -> None:
-        """Un aviso por cambio real del servicio: conexión, recepción (carga → resultado) y caídas."""
-        nuevo, antes = status["estado"], self._estado_bt
-        self._estado_bt = nuevo
-        if antes is None or nuevo == antes or self._sesion is None:
+    def _avisar_bluetooth(self, estado: str, status: dict) -> None:
+        """Bluetooth en la Isla: los estados que duran son persistentes y solo cambian cuando cambia la condición."""
+        antes, self._bt_antes = self._bt_antes, estado
+        if self._sesion is None:
             return
-        activos = ("CONECTADO", "RECIBIENDO", "PROCESANDO")
-        if nuevo in ("RECIBIENDO", "PROCESANDO") and self._id_sync is None:
-            self._id_sync = isla.cargando("Sincronizando inventario…")
-        elif nuevo == "CONECTADO" and antes not in activos:
-            isla.info("Bluetooth: celular conectado")
-        elif nuevo == "ERROR":
-            detalle = str(status.get("ultimo_error") or "")
-            if self._id_sync is not None:
-                isla.actualizar(self._id_sync, isla.NotificationType.ERROR, "Error al sincronizar", detalle)
-                self._id_sync = None
-            else:
-                isla.error("Error al sincronizar", detalle)
-        elif nuevo == "DETENIDO":
-            self._cerrar_sync()
-            isla.error("Bluetooth desconectado")
-        elif antes in activos and nuevo in ("IDLE", "ESPERANDO_EMPAREJAMIENTO"):
-            self._cerrar_sync()
-            isla.advertencia("Bluetooth desconectado")
-
-    def _cerrar_sync(self) -> None:
-        if self._id_sync is not None:
-            isla.cerrar(self._id_sync)
-            self._id_sync = None
-
-    def _sync_lista(self, texto: str) -> None:
-        if self._id_sync is not None:
-            isla.actualizar(self._id_sync, isla.NotificationType.SUCCESS, texto)
-            self._id_sync = None
+        if estado == "ERROR":
+            isla.estado("bluetooth", "error", i18n.t("Error en el servicio Bluetooth"), status.get("ultimo_error") or "")
+        elif estado == "DETENIDO":
+            isla.estado("bluetooth", "advertencia", i18n.t("Servicio Bluetooth detenido"),
+                        i18n.t("Los teléfonos no podrán enviar lecturas."))
+        elif estado == "PAUSADO":
+            isla.estado("bluetooth", "info", i18n.t("Servicio Bluetooth en pausa"))
         else:
-            self.avisar(texto)
+            isla.quitar_estado("bluetooth")
+        if estado in ("RECIBIENDO", "PROCESANDO") and self._id_sync is None:
+            self._id_sync = isla.cargando(i18n.t("Sincronizando inventario"), i18n.t("Recibiendo lecturas del teléfono…"))
+        elif estado == "ERROR" and self._id_sync is not None:
+            isla.actualizar(self._id_sync, "error", i18n.t("Error en la sincronización"), status.get("ultimo_error") or "")
+            self._id_sync = None
+        if estado == "CONECTADO" and antes != "CONECTADO":
+            isla.info(i18n.t("Celular conectado"), i18n.t("Listo para recibir el conteo."), clave="bt-conexion")
+        elif antes in ("CONECTADO", "RECIBIENDO") and estado in ("IDLE", "ESPERANDO_EMPAREJAMIENTO"):
+            isla.advertencia(i18n.t("Celular desconectado"), clave="bt-conexion")
 
     # ------------------------------------------------------------------ Oracle y encabezado
     def comprobar_oracle(self) -> None:
@@ -620,21 +654,21 @@ class MainWindow(QMainWindow):
         self._runner.run(_ping, self._oracle_ok, self._oracle_fallo, key="oracle")
 
     def _oracle_ok(self, _valor) -> None:
-        if self._oracle_bien is False:
-            isla.exito("Conexión con Oracle restablecida")
-        self._oracle_bien = True
         self._poner_chip(self.chip_oracle, i18n.t("Oracle: conectado"), "ok")
         ahora = datetime.now()
         self.lbl_actualizado.setText(i18n.t("Actualizado {hora}", hora=f"{ahora:%H:%M:%S}"))
         self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
         self.banner.clear()
+        if self._oracle_caido:
+            self._oracle_caido = False
+            isla.quitar_estado("oracle")
+            isla.exito(i18n.t("Oracle conectado"), i18n.t("La conexión se restableció."))
 
     def _oracle_fallo(self, mensaje: str) -> None:
-        if self._oracle_bien is not False:     # el sondeo corre cada pocos segundos: solo se avisa al perderla
-            isla.error("Error de conexión con Oracle", mensaje)
-        self._oracle_bien = False
         self._poner_chip(self.chip_oracle, i18n.t("Oracle: sin conexión"), "error")
-        self.banner.show_error(mensaje)
+        self.banner.registrar(i18n.t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
+        self._oracle_caido = True
+        isla.estado("oracle", "error", i18n.t("Oracle sin conexión"), mensaje)
 
     # ------------------------------------------------------------------ lateral
     def _alternar_manual(self) -> None:
@@ -642,12 +676,38 @@ class MainWindow(QMainWindow):
         self._auto_colapsada = False
         self.alternar_lateral()
 
+    TEXTO_CUENTA_MAX = 116   # ancho máximo del texto del pie; más allá se abrevia con «…»
+    RESTO_PIE = 184          # lo que ocupan en el pie el avatar, los botones y los márgenes
+
+    def _poner_cuenta(self, nombre: str, rol: str) -> None:
+        """Nombre y rol en el pie: si no caben ni con el ancho máximo de la barra, se abrevian con «…» (y tooltip)."""
+        for etiqueta, texto in ((self.lbl_usuario, nombre), (self.lbl_rol, rol)):
+            etiqueta.ensurePolished()
+            elidido = QFontMetrics(etiqueta.font()).elidedText(texto, Qt.TextElideMode.ElideRight, self.TEXTO_CUENTA_MAX)
+            etiqueta.setText(elidido)
+            etiqueta.setToolTip(texto if elidido != texto else "")
+        self._ajustar_lateral()
+
+    def _ancho_lateral(self) -> int:
+        """El ancho que necesita la barra con la fuente real del sistema: nunca menos que el original ni más de 300."""
+        ancho = ANCHO_LATERAL
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.ensurePolished()
+            texto = QFontMetrics(boton.font()).horizontalAdvance(boton.toolTip() or boton.text().strip())
+            ancho = max(ancho, texto + 12 + 3 + 20 + 12 + 20 + 16)      # relleno + borde + icono + hueco + márgenes + holgura
+        for etiqueta in (self.lbl_usuario, self.lbl_rol):
+            etiqueta.ensurePolished()
+            ancho = max(ancho, QFontMetrics(etiqueta.font()).horizontalAdvance(etiqueta.text()) + self.RESTO_PIE)
+        return min(300, ancho)
+
+    def _ajustar_lateral(self) -> None:
+        self._lateral.setFixedWidth(ANCHO_LATERAL_CONTRAIDA if self._colapsada else self._ancho_lateral())
+
     def alternar_lateral(self) -> None:
         self._colapsada = not self._colapsada
         c = self._colapsada
-        destino = ANCHO_LATERAL_CONTRAIDA if c else ANCHO_LATERAL
         self._aplicar_lateral(c)
-        self._lateral.setFixedWidth(destino)
+        self._ajustar_lateral()
         QTimer.singleShot(0, self._centrar_contenido)
 
     def _aplicar_lateral(self, c: bool) -> None:
@@ -695,6 +755,8 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         if self._registrar_vistas is not None:
             self._registrar_vistas()
+        self._aplicar_lateral(self._colapsada)
+        self._ajustar_lateral()
         if self._sesion is not None:
             self.iniciar(self._sesion)
             titulo = next((t for t, _v, _b, modulo, _r in self._secciones if modulo == actual), None)
@@ -717,6 +779,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_raiz"):
             return
         self._centrar_contenido()
+        self.lbl_actualizado.setVisible(self.width() >= 1000)   # en ventanas estrechas el encabezado prioriza lo esencial
         if not self._colapso_manual and self._raiz.currentIndex() == 1:
             if self.width() < 1060 and not self._colapsada:
                 self._auto_colapsada = True
@@ -764,7 +827,7 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
         ventana.add_view(configuracion_vista, i18n.t("Configuración"), "configuracion", icono_id="Configuración")
         ventana.add_view(sync, i18n.t("Sincronización"), "sync", icono_id="Sincronización")
         ventana.add_view(respaldos, i18n.t("Respaldos"), "respaldos", icono_id="Respaldos")
-        ventana.add_view(avisos, i18n.t("Notificaciones"), "notificaciones", icono_id="Notificaciones")
+        ventana.registrar_notificaciones(avisos)   # flotante: se abre desde la campana, sin pestaña
         ventana.add_view(perfil, i18n.t("Perfil"), "perfil", en_barra=False, icono_id="Perfil")
 
         perfil.cerrar_sesion.connect(ventana.cerrar_sesion)
