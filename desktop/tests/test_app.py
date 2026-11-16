@@ -357,3 +357,40 @@ def test_access_gear_changes_theme_and_language_only_for_the_current_app_run(qtb
         ajustes.clear()
         tema_mod.aplicar(QApplication.instance(), "sistema")
         i18n.set_idioma("es")
+
+
+def _graficas_con_el_tema_vigente(ventana) -> bool:
+    from app.views.charts import ChartsView
+    vistas = ventana.findChildren(ChartsView)
+    return bool(vistas) and all(v._color == tema.colores() for v in vistas)
+
+
+def test_charts_follow_the_account_theme_chosen_at_login(qtbot, puente):
+    """El acceso arranca en claro (tema de invitado) y las vistas se crean así; al entrar con una cuenta en
+    oscuro, las gráficas (que guardan sus colores al construirse) se rehacen en vez de quedarse en claro."""
+    ventana = build_window(puente, auto_refresh_ms=0)
+    ventana.comprobar_oracle = lambda: None
+    ventana.contar_notificaciones = lambda: None
+    qtbot.addWidget(ventana)
+    ventana.show()
+    assert not tema.es_oscuro() and _graficas_con_el_tema_vigente(ventana)
+    ventana.iniciar(Sesion("ana.gomez", "Ana Gómez", ADMIN, correo="ana@example.com", tema="oscuro"))
+    assert tema.es_oscuro()
+    qtbot.waitUntil(lambda: _graficas_con_el_tema_vigente(ventana), timeout=3000)
+    tema.aplicar(QApplication.instance(), "sistema")
+
+
+def test_charts_follow_the_system_scheme_when_it_changes(qtbot, puente, monkeypatch):
+    """Con «Sistema» elegido, si el SO pasa de oscuro a claro las gráficas se actualizan solas."""
+    ventana = abrir(qtbot, puente, ANA)
+    monkeypatch.setattr(tema, "_esquema_qt", lambda app: None)
+    portal = {"esquema": "oscuro"}
+    monkeypatch.setattr(tema, "_esquema_portal", lambda: portal["esquema"])
+    ventana.cambiar_tema("sistema")
+    qtbot.waitUntil(lambda: _graficas_con_el_tema_vigente(ventana), timeout=3000)
+    assert tema.es_oscuro()
+    portal["esquema"] = "claro"
+    ventana.esquema_del_sistema_cambio()
+    qtbot.waitUntil(lambda: _graficas_con_el_tema_vigente(ventana), timeout=3000)
+    assert not tema.es_oscuro()
+    tema.aplicar(QApplication.instance(), "sistema")
