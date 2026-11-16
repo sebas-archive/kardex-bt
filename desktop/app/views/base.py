@@ -304,6 +304,11 @@ QFrame#lienzo QLineEdit[invalido="true"] { border: 1px solid #F87171; }
 QFrame#lienzo QLineEdit[valido="true"] { border: 1px solid #10B981; }
 QComboBox QAbstractItemView { background: #111111; border: 1px solid #2E2E2E; border-radius: 8px; padding: 4px;
                               selection-background-color: #10261F; selection-color: #EDEDED; outline: none; }
+QComboBox { combobox-popup: 0; }
+QComboBox QAbstractItemView::item { min-height: 28px; padding: 4px 10px; margin: 1px 2px; border-radius: 6px;
+                                    color: #EDEDED; background: transparent; }
+QComboBox QAbstractItemView::item:hover { background: #1C1C1C; color: #EDEDED; }
+QComboBox QAbstractItemView::item:selected { background: #10261F; color: #34D399; }
 QCheckBox, QRadioButton { background: transparent; }
 QRadioButton { color: #CFCFCF; spacing: 8px; }
 QRadioButton::indicator { width: 16px; height: 16px; border-radius: 9px; border: 1px solid #4A4A4A; background: #111111; }
