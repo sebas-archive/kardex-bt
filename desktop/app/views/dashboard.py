@@ -13,6 +13,7 @@ import copy
 import time
 from functools import partial
 
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
@@ -312,10 +313,10 @@ class DashboardView(QWidget):
         item = prefs.nuevo(clave)
         self._items.append(item)
         self.rejilla.agregar(self._baldosa(item))
-        self._aplicar_datos()
         self._persistir()
         if self._precisa_datos(item):
             self.refresh()
+        self._aplicar_datos()
         return item
 
     def quitar_widget(self, id_: str) -> None:
@@ -323,7 +324,10 @@ class DashboardView(QWidget):
         if item is None:
             return
         self._items.remove(item)
-        self.cards.pop(item.clave, None) if item.definicion.tipo == prefs.KPI else None
+        if item.definicion.tipo == prefs.KPI:
+            self.cards.pop(item.clave, None)
+        elif item.definicion.tipo == prefs.PANEL:
+            self._etiquetas.pop(item.clave, None)       # Qt borra el QLabel: una referencia muerta rompe _aplicar_datos
         self._graficos.pop(id_, None)
         self._marcos.pop(id_, None)
         self.rejilla.quitar(id_)
@@ -455,12 +459,16 @@ class DashboardView(QWidget):
         return {"con_error": (b.errores, _fmt_entero, "")}.get(clave)
 
     def _aplicar_datos(self) -> None:
+        for clave in [c for c, k in self.cards.items() if sip.isdeleted(k)]:
+            del self.cards[clave]
         for clave, tarjeta in self.cards.items():
             v = self._valor_kpi(clave)
             if v is None:
                 continue
             tarjeta.set_valor(v[0], v[1])
             tarjeta.set_detalle(v[2])
+        for clave in [c for c, e in self._etiquetas.items() if sip.isdeleted(e)]:
+            del self._etiquetas[clave]
         b = self._batch
         lbl_batch = self._etiquetas.get("batch")
         if b is not None and lbl_batch is not None:
