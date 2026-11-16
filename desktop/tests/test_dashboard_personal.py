@@ -261,6 +261,39 @@ def test_actividad_reciente_se_desplaza_cuando_hay_muchas_entradas(qtbot):
     assert len(v._etiquetas["actividad_reciente"].text().splitlines()) == 40 and zona.verticalScrollBar().maximum() > 0
 
 
+def test_la_medida_propia_se_guarda_se_limita_y_sobrevive_a_recargar():
+    d = prefs.POR_CLAVE["avance"]
+    assert prefs.limitar_medidas(d, 9, 5000) == (prefs.COLS_MAX, prefs.LIMITES_ALTO["kpi"][1])
+    assert prefs.limitar_medidas(d, 1, 3) == (1, prefs.LIMITES_ALTO["kpi"][0])
+    assert prefs.limitar_medidas(prefs.POR_CLAVE["batch"], 1, 0) == (2, 0)        # un panel no admite ancho pequeño
+    it = prefs.nuevo("dif_categoria")
+    it.cols, it.alto = 3, 456
+    [vuelto] = prefs.normalizar(prefs.de_json(prefs.a_json([it])))
+    assert (vuelto.cols, vuelto.alto) == (3, 456)
+    assert prefs.de_json('{"items": [{"clave": "avance", "cols": "x", "alto": null}]}')[0].cols == 0   # dañado: tamaño S/M/L
+
+
+def test_redimensionar_con_el_asa_ajusta_columnas_y_alto_y_se_guarda(qtbot):
+    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtTest import QTest
+    v = vista(qtbot, ANA)
+    v.set_edicion(True)
+    g = next(i for i in v.items() if i.clave == "dif_categoria")
+    b = v.rejilla.baldosa(g.id)
+    ov = b._edicion
+    ancho0, alto0 = b.width(), b.height()
+    ini = QPoint(ov.width() - 10, ov.height() - 10)                  # dentro del asa
+    QTest.mousePress(ov, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ini)
+    QTest.mouseMove(ov, ini + QPoint(-300, 80))
+    QTest.mouseRelease(ov, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ini + QPoint(-300, 80))
+    assert b.height() == alto0 + 80 and b.width() < ancho0                   # alto libre, ancho por columnas
+    assert (g.cols, g.alto) == (b.cols, b.alto) and g.cols and g.alto
+    guardado = next(i for i in prefs.cargar("ana.gomez", ANA) if i.id == g.id)
+    assert (guardado.cols, guardado.alto) == (g.cols, g.alto)
+    v.cambiar_tam(g.id, "L")                                                 # un tamaño S/M/L descarta la medida propia
+    assert (g.cols, g.alto) == (0, 0) and v.rejilla.baldosa(g.id).height() == 366
+
+
 def test_cada_usuario_tiene_su_propio_dashboard(qtbot):
     a = vista(qtbot, ANA)
     a.agregar_widget("sin_contar")
