@@ -83,6 +83,8 @@ data class SincronizarUi(
     val pendientes: Int = 0,
     /** Cualquier operador puede cambiar el PC; no hay roles de supervisión en el teléfono. */
     val puedeCambiarPc: Boolean = true,
+    /** La app se abrió sin sesión: solo se comprueba la conexión con el PC y después sigue el acceso. */
+    val soloConectar: Boolean = false,
 )
 
 private enum class Fase { REPOSO, RADAR, PROGRESO, LISTO, OCUPADO, ERROR }
@@ -103,6 +105,8 @@ private fun SincronizarUi.textos(): Pair<String, String> = when (val e = estado)
             Textos.t("En el PC pulsa «Iniciar sincronización». Aparece como {pc}.", "pc" to PcConnector.NOMBRE_PC)
         pcDireccion == null -> Textos.t("Elige el PC") to
             Textos.t("Solo la primera vez hay que buscarlo; después conecta solo, sin claves ni códigos.")
+        soloConectar -> Textos.t("Conecta con el PC") to
+            Textos.t("Antes de iniciar sesión o registrarte, el teléfono debe estar conectado con el PC.")
         pendientes > 0 -> Textos.t("Listo para sincronizar") to
             Textos.n(pendientes, "{n} lectura por enviar.", "{n} lecturas por enviar.")
         else -> Textos.t("Listo para sincronizar") to
@@ -114,7 +118,8 @@ private fun SincronizarUi.textos(): Pair<String, String> = when (val e = estado)
         Textos.t("{n} de {m} confirmadas por el PC.", "n" to enviadas, "m" to porEnviar)
     is SyncEstado.Reintentando -> Textos.t("Reintentando…") to
         Textos.t("Se cortó la conexión. Intento {i} de 3.", "i" to e.intento)
-    is SyncEstado.Listo -> Textos.t("¡Listo!") to buildString {
+    is SyncEstado.Listo -> if (soloConectar) Textos.t("¡Conectado!") to Textos.t("PC conectado. Ahora puedes iniciar sesión o registrarte.")
+    else Textos.t("¡Listo!") to buildString {
         append(Textos.n(e.aceptados, "{n} lectura aceptada", "{n} lecturas aceptadas"))
         if (e.rechazados > 0) append(Textos.t(", {n} líneas reenviadas", "n" to e.rechazados))
         if (e.pendientes > 0) append(Textos.t(". Quedan {n} sin enviar: vuelve a sincronizar.", "n" to e.pendientes))
@@ -152,12 +157,12 @@ fun SincronizarScreen(
     val enCurso = fase == Fase.RADAR && ui.estado != null || fase == Fase.PROGRESO
     val (titulo, detalle) = ui.textos()
     Pantalla(
-        titulo = Textos.t("Sincronizar"), subtitulo = Textos.t("Bluetooth · sin wifi"), alVolver = alVolver,
+        titulo = Textos.t(if (ui.soloConectar) "Conectar con el PC" else "Sincronizar"), subtitulo = Textos.t("Bluetooth · sin wifi"), alVolver = alVolver,
         barraInferior = {
             Button(onClick = alSincronizar, enabled = !enCurso && ui.pcDireccion != null, modifier = Modifier.fillMaxWidth().height(56.dp)) {
                 Icon(Iconos.Sincronizar, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(Textos.t(if (enCurso) "Sincronizando…" else "Sincronizar ahora"))
+                Text(Textos.t(if (ui.soloConectar) (if (enCurso) "Conectando…" else "Conectar") else if (enCurso) "Sincronizando…" else "Sincronizar ahora"))
             }
         },
     ) {
