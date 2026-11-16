@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import (QDate, QEasingCurve, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation,
                           pyqtSignal)
-from PyQt6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPixmap
+from PyQt6.QtGui import QBrush, QColor, QFont, QKeyEvent, QLinearGradient, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QDateEdit, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .. import tema
@@ -259,10 +259,14 @@ class _Rejilla(QWidget):
         f = QFont(self.font())
         f.setPixelSize(11)
         f.setWeight(QFont.Weight.DemiBold)
+        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.8)
         p.setFont(f)
-        p.setPen(QColor(c["texto_suave"]))
         for col, nombre in enumerate(DIAS.get(idioma(), DIAS["es"])):
-            p.drawText(QRectF(col * w, 0, w, ALTO_CABECERA), int(Qt.AlignmentFlag.AlignCenter), nombre)
+            # Sábado y domingo en el acento: da ritmo a la semana y orienta de un vistazo.
+            p.setPen(_alfa(c["acento"], 0.85) if col >= 5 else QColor(c["texto_suave"]))
+            p.drawText(QRectF(col * w, 0, w, ALTO_CABECERA - 4), int(Qt.AlignmentFlag.AlignCenter), nombre.upper())
+        p.setPen(QPen(_alfa(c["borde"], 0.9), 1))
+        p.drawLine(QPointF(4, ALTO_CABECERA - 2.5), QPointF(self.width() - 4, ALTO_CABECERA - 2.5))
         p.setClipRect(QRectF(0, ALTO_CABECERA, self.width(), self.height() - ALTO_CABECERA))
         if self._viejo is not None and self._t < 1.0:
             t = self._t
@@ -283,8 +287,9 @@ class _Rejilla(QWidget):
             r = self.rect_celda(i).translated(dx, 0)
             en_mes = d.month() == self._mes.month()
             activa = self.habilitada(d)
-            diametro = min(r.width(), r.height()) - 4
-            disco = QRectF(r.center().x() - diametro / 2, r.center().y() - diametro / 2, diametro, diametro)
+            lado = min(r.width(), r.height()) - 6
+            disco = QRectF(r.center().x() - lado / 2, r.center().y() - lado / 2, lado, lado)
+            radio = lado * 0.32                                   # cuadrado redondeado, no círculo
             seleccionada = d == self._sel
             if not seleccionada:
                 a = self._alfa_hover.get(i, 0.0)
@@ -292,31 +297,40 @@ class _Rejilla(QWidget):
                     a = max(a, 1.0)
                 if a > 0.004 and activa:
                     p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(_alfa(c["texto"], 0.09 * a))
-                    p.drawEllipse(disco)
+                    p.setBrush(_alfa(c["acento"], 0.12 * a))
+                    p.drawRoundedRect(disco, radio, radio)
             color = QColor(c["texto"])
             fuente.setWeight(QFont.Weight.Normal)
             if seleccionada:
                 k = 0.62 + 0.38 * self._sel_t
-                centro = disco.center()
-                m = QRectF(0, 0, diametro * k, diametro * k)
-                m.moveCenter(centro)
+                m = QRectF(0, 0, lado * k, lado * k)
+                m.moveCenter(disco.center())
+                rm = radio * k
+                alfa = 1.0 if en_mes else 0.85
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(_alfa(c["acento"], 1.0 if en_mes else 0.85))
-                p.drawEllipse(m)
+                halo = m.adjusted(-2.5, -1.5, 2.5, 3.5)           # brillo suave debajo
+                p.setBrush(_alfa(c["acento"], 0.22 * alfa * self._sel_t))
+                p.drawRoundedRect(halo, rm + 2, rm + 2)
+                grad = QLinearGradient(m.topLeft(), m.bottomRight())
+                grad.setColorAt(0.0, _alfa(QColor(c["acento"]).lighter(112).name(), alfa))
+                grad.setColorAt(1.0, _alfa(QColor(c["acento"]).darker(112).name(), alfa))
+                p.setBrush(QBrush(grad))
+                p.drawRoundedRect(m, rm, rm)
                 color = QColor(c["acento_texto"])
-                fuente.setWeight(QFont.Weight.DemiBold)
+                fuente.setWeight(QFont.Weight.Bold)
             elif d == self._hoy and activa:
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.setPen(_alfa(c["acento"], 0.9 if en_mes else 0.5))
-                p.drawEllipse(disco.adjusted(1, 1, -1, -1))
+                p.setPen(QPen(_alfa(c["acento"], 0.9 if en_mes else 0.5), 1.5))
+                p.setBrush(_alfa(c["acento"], 0.07))
+                p.drawRoundedRect(disco.adjusted(1, 1, -1, -1), radio, radio)
                 color = QColor(c["acento"])
                 fuente.setWeight(QFont.Weight.DemiBold)
             if not seleccionada:
                 if not activa:
                     color = _alfa(c["texto_suave"], 0.38)
                 elif not en_mes:
-                    color = _alfa(c["texto_suave"], 0.62)
+                    color = _alfa(c["texto_suave"], 0.55)
+                elif i % COLUMNAS >= 5 and d != self._hoy:
+                    color = _alfa(c["texto"], 0.78)               # fin de semana, un punto más suave
             p.setFont(fuente)
             p.setPen(color)
             p.drawText(r, int(Qt.AlignmentFlag.AlignCenter), str(d.day()))
@@ -337,15 +351,15 @@ class _Calendario(QWidget):
         self._min, self._max = minimo, maximo
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet(f"""
-            QLabel#calMes {{ background: transparent; color: {c['texto_fuerte']}; font-size: 15px; }}
-            QPushButton#calNav {{ background: transparent; border: none; border-radius: 15px; min-width: 30px;
-                max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; }}
-            QPushButton#calNav:hover {{ background: {c['tarjeta_alt']}; }}
+            QLabel#calMes {{ background: transparent; color: {c['texto_fuerte']}; font-size: 17px; }}
+            QPushButton#calNav {{ background: transparent; border: 1px solid {c['borde']}; border-radius: 10px;
+                min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; }}
+            QPushButton#calNav:hover {{ background: {c['tarjeta_alt']}; border-color: {c['acento']}; }}
             QPushButton#calNav:pressed {{ background: {c['borde']}; }}
-            QPushButton#calNav:disabled {{ background: transparent; }}
-            QPushButton#calHoy {{ background: transparent; border: none; color: {c['acento']}; font-size: 13px;
-                font-weight: 600; padding: 5px 10px; border-radius: 9px; }}
-            QPushButton#calHoy:hover {{ background: {c['tarjeta_alt']}; }}""")
+            QPushButton#calNav:disabled {{ background: transparent; border-color: transparent; }}
+            QPushButton#calHoy {{ background: {self._acento_suave(0.12)}; border: none; color: {c['acento']};
+                font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 13px; }}
+            QPushButton#calHoy:hover {{ background: {self._acento_suave(0.22)}; }}""")
         self.rejilla = _Rejilla(seleccion, minimo, maximo)
         self.btn_ant = QPushButton()
         self.btn_sig = QPushButton()
@@ -384,6 +398,10 @@ class _Calendario(QWidget):
         self.rejilla.mes_cambiado.connect(self._poner_titulo)
         self.rejilla.elegida.connect(self._elegida)
         self._poner_titulo(self.rejilla.mes())
+
+    def _acento_suave(self, a: float) -> str:
+        q = QColor(self._c["acento"])
+        return f"rgba({q.red()}, {q.green()}, {q.blue()}, {int(a * 255)})"
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
