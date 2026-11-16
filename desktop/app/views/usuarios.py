@@ -12,7 +12,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                              QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import auth
+from .. import auth, isla
 from ..i18n import t
 from . import components
 from .base import QueryRunner, StateBanner
@@ -191,9 +191,14 @@ class UsuariosView(QWidget):
         self.btn_estado.setToolTip(t("El Administrador no se puede suspender.") if es_admin else "")
 
     def _accion(self, operacion, *args) -> None:
-        self._runner.run(operacion, lambda _: self.refresh(), self._fallo, self._sesion, *args)
+        self._runner.run(operacion, self._guardado, self._fallo, self._sesion, *args)
+
+    def _guardado(self, _resultado) -> None:
+        isla.exito("Cambios guardados")
+        self.refresh()
 
     def _fallo(self, mensaje: str) -> None:
+        isla.error("No se pudo completar la operación", mensaje)
         self._error = mensaje
         self.refresh()
 

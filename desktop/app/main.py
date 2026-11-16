@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import auth, configuracion, db, i18n, notificaciones, permisos, tema
+from . import auth, configuracion, db, i18n, isla, notificaciones, permisos, tema
 from .servicio_remoto import ServicioRemoto
 from .views.acceso import AccesoView
 from .views.auditoria import AuditoriaView
@@ -50,7 +50,7 @@ from .views.roles import RolesView
 from .views.solicitudes import SolicitudesView
 from .views.sync import SyncView
 from .views.usuarios import UsuariosView
-from .views.widgets import Aviso, Transicion
+from .views.widgets import Transicion
 
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
 ANCHO_MAXIMO_CONTENIDO = 1440
@@ -80,7 +80,9 @@ class MainWindow(QMainWindow):
         self._runner = QueryRunner(self)
         self._sesion: auth.Sesion | None = None
         self._secciones: list[tuple[str, QWidget, QPushButton, str, tuple[str, ...] | None]] = []
-        self._avisos: list[Aviso] = []
+        self._oracle_bien: bool | None = None      # último resultado de Oracle (avisa solo al cambiar)
+        self._estado_bt: str | None = None
+        self._id_sync: int | None = None           # cápsula «Sincronizando…» que espera su resultado
         self._sin_leer = 0
         self._colapsada = False
         self._colapso_manual = False
@@ -234,12 +236,14 @@ class MainWindow(QMainWindow):
         self._raiz.addWidget(aplicacion)
         self._raiz.addWidget(self.estado_cuenta)
         self.setCentralWidget(self._raiz)
+        self.isla = isla.instalar(self)
         self._instalar_atajos()
 
         self.acceso.entro.connect(self.iniciar)
         self.acceso.sin_acceso.connect(self.mostrar_estado_cuenta)
         self.estado_cuenta.volver.connect(self._volver_al_acceso)
         self.btn_salir.clicked.connect(self.cerrar_sesion)
+        self.btn_salir.clicked.connect(lambda: isla.info("Sesión cerrada"))
         self.btn_tema.clicked.connect(self._menu_tema)
         self.btn_cuenta.clicked.connect(self.abrir_perfil)
         self.btn_colapsar.clicked.connect(self._alternar_manual)
@@ -521,40 +525,24 @@ class MainWindow(QMainWindow):
     def conectar_servicio(self, remoto: ServicioRemoto) -> None:
         """Refleja el estado del servicio Bluetooth en el encabezado y avisa cuando termina una sincronización."""
         remoto.status_changed.connect(self._estado_bluetooth)
-        remoto.listo.connect(lambda: self.avisar(self._texto_listo(remoto.status())))
+        remoto.listo.connect(lambda: self._sync_lista(self._texto_listo(remoto.status())))
+        remoto.fallo.connect(lambda mensaje: isla.error("No se pudo completar la operación", mensaje))
         self._estado_bluetooth(remoto.status())
 
     def tras_restaurar(self) -> None:
         self.cerrar_sesion()
         self.avisar(i18n.t("Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras."), "info")
 
-    def avisar(self, texto: str, tipo: str = "ok", duracion_ms: int = 4200) -> None:
-        """Aviso flotante que sube desde la esquina inferior derecha y se apila."""
-        self._avisos = [a for a in self._avisos if self._vivo(a)]
-        aviso = Aviso(texto, tipo, self)
-        aviso.cerrado.connect(self._reacomodar_avisos)
-        ocupados = sum(a.height() + 10 for a in self._avisos)
-        aviso.mostrar(self.height() - aviso.height() - 24 - ocupados, duracion_ms)
-        self._avisos.append(aviso)
+    TIPOS_AVISO = {"ok": isla.NotificationType.SUCCESS, "error": isla.NotificationType.ERROR,
+                   "info": isla.NotificationType.INFO, "warning": isla.NotificationType.WARNING,
+                   "advertencia": isla.NotificationType.WARNING}
 
-    def _reacomodar_avisos(self, _aviso=None) -> None:
-        self._avisos = [a for a in self._avisos if self._vivo(a)]
-        ocupados = 0
-        for aviso in reversed(self._avisos):
-            destino = self.height() - aviso.height() - 24 - ocupados
-            if abs(aviso.y() - destino) > 1:
-                aviso.move(aviso.x(), destino)
-            ocupados += aviso.height() + 10
+    def avisar(self, texto: str, tipo: str = "ok", duracion_ms: int | None = None) -> None:
+        """Aviso breve en la isla de la parte superior (``tipo``: ok, error, info o warning)."""
+        self.isla.notificar(self.TIPOS_AVISO.get(tipo, isla.NotificationType.INFO), texto, duracion_ms=duracion_ms)
 
     def avisos_visibles(self) -> list[str]:
-        return [a.texto for a in self._avisos if self._vivo(a)]
-
-    @staticmethod
-    def _vivo(aviso: Aviso) -> bool:
-        try:
-            return not aviso.isHidden()
-        except RuntimeError:
-            return False
+        return self.isla.textos()
 
     @staticmethod
     def _texto_listo(status: dict) -> str:
@@ -579,6 +567,44 @@ class MainWindow(QMainWindow):
         }
         texto, estado = textos.get(status["estado"], (status["estado"].lower(), ""))
         self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), estado)
+        self._avisar_bluetooth(status)
+
+    def _avisar_bluetooth(self, status: dict) -> None:
+        """Un aviso por cambio real del servicio: conexión, recepción (carga → resultado) y caídas."""
+        nuevo, antes = status["estado"], self._estado_bt
+        self._estado_bt = nuevo
+        if antes is None or nuevo == antes or self._sesion is None:
+            return
+        activos = ("CONECTADO", "RECIBIENDO", "PROCESANDO")
+        if nuevo in ("RECIBIENDO", "PROCESANDO") and self._id_sync is None:
+            self._id_sync = isla.cargando("Sincronizando inventario…")
+        elif nuevo == "CONECTADO" and antes not in activos:
+            isla.info("Bluetooth: celular conectado")
+        elif nuevo == "ERROR":
+            detalle = str(status.get("ultimo_error") or "")
+            if self._id_sync is not None:
+                isla.actualizar(self._id_sync, isla.NotificationType.ERROR, "Error al sincronizar", detalle)
+                self._id_sync = None
+            else:
+                isla.error("Error al sincronizar", detalle)
+        elif nuevo == "DETENIDO":
+            self._cerrar_sync()
+            isla.error("Bluetooth desconectado")
+        elif antes in activos and nuevo in ("IDLE", "ESPERANDO_EMPAREJAMIENTO"):
+            self._cerrar_sync()
+            isla.advertencia("Bluetooth desconectado")
+
+    def _cerrar_sync(self) -> None:
+        if self._id_sync is not None:
+            isla.cerrar(self._id_sync)
+            self._id_sync = None
+
+    def _sync_lista(self, texto: str) -> None:
+        if self._id_sync is not None:
+            isla.actualizar(self._id_sync, isla.NotificationType.SUCCESS, texto)
+            self._id_sync = None
+        else:
+            self.avisar(texto)
 
     # ------------------------------------------------------------------ Oracle y encabezado
     def comprobar_oracle(self) -> None:
@@ -587,6 +613,9 @@ class MainWindow(QMainWindow):
         self._runner.run(_ping, self._oracle_ok, self._oracle_fallo, key="oracle")
 
     def _oracle_ok(self, _valor) -> None:
+        if self._oracle_bien is False:
+            isla.exito("Conexión con Oracle restablecida")
+        self._oracle_bien = True
         self._poner_chip(self.chip_oracle, i18n.t("Oracle: conectado"), "ok")
         ahora = datetime.now()
         self.lbl_actualizado.setText(i18n.t("Actualizado {hora}", hora=f"{ahora:%H:%M:%S}"))
@@ -594,6 +623,9 @@ class MainWindow(QMainWindow):
         self.banner.clear()
 
     def _oracle_fallo(self, mensaje: str) -> None:
+        if self._oracle_bien is not False:     # el sondeo corre cada pocos segundos: solo se avisa al perderla
+            isla.error("Error de conexión con Oracle", mensaje)
+        self._oracle_bien = False
         self._poner_chip(self.chip_oracle, i18n.t("Oracle: sin conexión"), "error")
         self.banner.show_error(mensaje)
 

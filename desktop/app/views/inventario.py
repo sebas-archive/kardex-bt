@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import auth, db
+from .. import auth, db, isla
 from ..i18n import registrar, t
 from ..models import Lectura, fmt_num
 from ..tema import colores
@@ -274,4 +274,9 @@ class InventarioView(QWidget):
     def _elegir_archivo(self) -> None:
         ruta, _ = QFileDialog.getSaveFileName(self, t("Exportar inventario"), "inventario.csv", "CSV (*.csv)")
         if ruta:
-            self.exportar_csv(ruta)
+            try:
+                self.exportar_csv(ruta)
+            except OSError as exc:
+                isla.error("No se pudo exportar", str(exc))
+                return
+            isla.exito("Inventario exportado", Path(ruta).name)

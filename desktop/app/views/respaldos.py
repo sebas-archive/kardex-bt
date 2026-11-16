@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButto
 
 from btsync.respaldo import respaldos_dir
 
-from .. import auth, respaldos
+from .. import auth, isla, respaldos
 from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
 
@@ -233,6 +233,19 @@ class RespaldosView(QWidget):
     def _habilitar(self) -> None:
         self.btn_restaurar.setEnabled(self._elegido() is not None)
 
+    _id_isla: int | None = None
+
+    def _resolver_isla(self, tipo, texto: str = "", detalle: str = "") -> None:
+        """Convierte la cápsula «cargando» en su resultado; sin tipo, solo la cierra (el aviso final lo da la ventana)."""
+        id_, self._id_isla = self._id_isla, None
+        if id_ is None:
+            if tipo is not None:
+                isla.notificar(tipo, texto, detalle)
+        elif tipo is None:
+            isla.cerrar(id_)
+        else:
+            isla.actualizar(id_, tipo, texto, detalle)
+
     def _avisar(self, error: str = "", info: str = "") -> None:
         self.lbl_error.setText(error)
         self.lbl_error.setVisible(bool(error))
@@ -248,12 +261,14 @@ class RespaldosView(QWidget):
         if self._sesion is None:
             return
         self._avisar(info=t("Creando respaldo…"))
+        self._id_isla = isla.cargando("Creando respaldo…")
         self._ocupado(True)
         self._runner.run(respaldos.crear, self._creado, self._fallo, self._sesion)
 
     def _creado(self, r) -> None:
         self._ocupado(False)
         self._avisar(info=t("Respaldo creado: {archivo}", archivo=r.archivo))
+        self._resolver_isla(isla.NotificationType.SUCCESS, "Respaldo creado", r.archivo)
         self.refresh()
 
     def _restaurar(self) -> None:
@@ -261,12 +276,14 @@ class RespaldosView(QWidget):
         if self._sesion is None or archivo is None or not self._confirmar(archivo):
             return
         self._avisar(info=t("Restaurando… (se pausa el servicio Bluetooth)"))
+        self._id_isla = isla.cargando("Restaurando respaldo…")
         self._ocupado(True)
         self._runner.run(respaldos.restaurar, self._restaurado, self._fallo, self._sesion, archivo)
 
     def _restaurado(self, _r) -> None:
         self._ocupado(False)
         self._avisar()
+        self._resolver_isla(None)
         self.restaurado.emit()
 
     def _guardar_auto(self) -> None:
@@ -280,7 +297,9 @@ class RespaldosView(QWidget):
         self._ocupado(False)
         self._mostrar_auto(valores)
         self._avisar(info=t("Respaldo automático guardado."))
+        isla.exito("Respaldo automático guardado")
 
     def _fallo(self, mensaje: str) -> None:
         self._ocupado(False)
         self._avisar(error=mensaje)
+        self._resolver_isla(isla.NotificationType.ERROR, "No se pudo completar la operación", mensaje)

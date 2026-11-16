@@ -12,7 +12,7 @@ from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, 
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QApplication, QMenu, QScrollArea, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
-from .. import auth, fortaleza, i18n, tema
+from .. import auth, fortaleza, i18n, isla, tema
 from ..i18n import t
 from . import motion, widgets
 from .base import QueryRunner
@@ -212,6 +212,8 @@ class AccesoView(QWidget):
         self._runner = QueryRunner(self)
         self._primero = False
         self._error_actual = ""
+        self._id_isla: int | None = None     # cápsula «cargando» de la operación en curso
+        self._operacion = ""
         self._pregunta_actual: str | None = None
         self._pregunta_texto = ""
         self._ajustes = QSettings("GestionInventario", "Acceso")
@@ -685,7 +687,22 @@ class AccesoView(QWidget):
     def _lanzar(self, operacion, *args) -> None:
         self._error("")
         self._ocupado(True)
+        if self._id_isla is not None:
+            isla.cerrar(self._id_isla)
+        self._operacion = getattr(operacion, "__name__", "")
+        self._id_isla = isla.cargando(self._TEXTO_CARGA.get(self._operacion, "Guardando…"))
         self._runner.run(operacion, self._listo, self._fallo, *args, key="acceso")
+
+    _TEXTO_CARGA = {"_entrar_o_estado": "Iniciando sesión…", "_registrar_o_estado": "Creando cuenta…",
+                    "recuperar": "Guardando…"}
+
+    def _resolver_isla(self, tipo, texto: str, detalle: str = "", **formato) -> None:
+        """Convierte la cápsula «cargando» de esta operación en su resultado (o muestra una nueva)."""
+        id_, self._id_isla = self._id_isla, None
+        if id_ is None:
+            isla.notificar(tipo, texto, detalle, **formato)
+        else:
+            isla.actualizar(id_, tipo, texto, detalle, **formato)
 
     def _ir_a_registro(self) -> None:
         self.mostrar_formulario(1)
@@ -700,6 +717,7 @@ class AccesoView(QWidget):
     def _entrar(self) -> None:
         if not self.txt_usuario.text().strip() or not self.txt_clave.text():
             self._error(t("Escribe tu usuario y tu contraseña."))
+            isla.advertencia("Completa los campos obligatorios", "Escribe tu usuario y tu contraseña.")
             motion.sacudir(self._tarjeta, 9)
             return
         self._lanzar(_entrar_o_estado, self.txt_usuario.text(), self.txt_clave.text())
@@ -707,10 +725,12 @@ class AccesoView(QWidget):
     def _crear(self) -> None:
         if self.txt_clave_nueva.text() != self.txt_confirmacion.text():
             self._error(t("Las contraseñas no coinciden."))
+            isla.advertencia("Las contraseñas no coinciden.")
             motion.sacudir(self._tarjeta, 9)
             return
         if self._primero and not self.combo_pregunta.currentData():
             self._error(t("Elige una pregunta de seguridad."))
+            isla.advertencia("Elige una pregunta de seguridad.")
             return
         self._lanzar(_registrar_o_estado, self.txt_usuario_nuevo.text(), self.txt_nombre.text(),
                      self.txt_clave_nueva.text(), self.txt_confirmacion.text(), self.txt_correo.text(),
@@ -720,6 +740,7 @@ class AccesoView(QWidget):
         usuario = self.txt_usuario_olvido.text().strip()
         if not usuario:
             self._error(t("Escribe tu usuario."))
+            isla.advertencia("Escribe tu usuario.")
             return
         self._runner.run(auth.pregunta_de, self._mostrar_pregunta, lambda _m: None, usuario, key="pregunta")
 
@@ -738,21 +759,38 @@ class AccesoView(QWidget):
 
     def _listo(self, resultado) -> None:
         self._ocupado(False)
+        registro = self._operacion == "_registrar_o_estado"
         if isinstance(resultado, auth.Sesion):
             self._guardar_recordado()
+            self._resolver_isla(isla.NotificationType.SUCCESS, "Cuenta creada correctamente" if registro
+                                else "Bienvenido, {nombre}", nombre=resultado.nombre)
             self.limpiar()
             self.entro.emit(resultado)
             return
         if isinstance(resultado, auth.CuentaSinAcceso):
+            if registro:
+                self._resolver_isla(isla.NotificationType.SUCCESS, "Cuenta creada correctamente",
+                                    "Un administrador debe aprobarla antes de que puedas entrar.")
+            else:
+                self._resolver_isla(isla.NotificationType.WARNING, "Tu cuenta todavía no puede entrar")
             self.limpiar()
             self.sin_acceso.emit(resultado)
             return
+        self._resolver_isla(isla.NotificationType.SUCCESS, "Solicitud enviada", str(resultado))
         self.limpiar()
         self._aviso(t(str(resultado)))
 
     def _fallo(self, mensaje: str) -> None:
         self._ocupado(False)
         self._error_actual = mensaje
+        if self._operacion == "_registrar_o_estado":
+            self._resolver_isla(isla.NotificationType.ERROR, "No se pudo crear la cuenta", mensaje)
+        elif self._operacion == "_entrar_o_estado" and mensaje == auth.MENSAJE_LOGIN:
+            self._resolver_isla(isla.NotificationType.ERROR, "Credenciales incorrectas", mensaje)
+        elif self._operacion == "_entrar_o_estado":
+            self._resolver_isla(isla.NotificationType.ERROR, "No se pudo iniciar sesión", mensaje)
+        else:
+            self._resolver_isla(isla.NotificationType.ERROR, "No se pudo completar la operación", mensaje)
         self._error(t(mensaje))
         motion.sacudir(self._tarjeta, 9)
 

@@ -15,7 +15,7 @@ from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                              QWidget)
 
-from .. import auth, configuracion, i18n
+from .. import auth, configuracion, i18n, isla
 from ..i18n import t
 from ..tema import NOMBRE_MODO
 from . import components
@@ -228,12 +228,14 @@ class PerfilView(QWidget):
 
     def _clave_lista(self, mensaje: str) -> None:
         self.btn_cambiar.setEnabled(True)
+        isla.exito(str(mensaje))
         self._resultado(str(mensaje), True)
         for campo in (self.txt_actual, self.txt_nueva, self.txt_confirmacion):
             campo.clear()
 
     def _clave_fallo(self, mensaje: str) -> None:
         self.btn_cambiar.setEnabled(True)
+        isla.error("No se pudo guardar", mensaje)
         self._resultado(mensaje, False)
 
     def _resultado(self, mensaje: str, ok: bool) -> None:
@@ -291,9 +293,11 @@ class PerfilView(QWidget):
         self.btn_foto.setText(t("Cambiar foto"))
         self.btn_quitar_foto.setEnabled(True)
         self.foto_cambiada.emit(ruta)
+        isla.exito("Foto actualizada")
         self._aviso_foto(t("Foto de perfil actualizada."), False)
 
     def _foto_fallo(self, mensaje: str) -> None:
+        isla.error("No se pudo guardar", mensaje)
         self._aviso_foto(mensaje, True)
 
     def _quitar_foto(self) -> None:
@@ -313,6 +317,7 @@ class PerfilView(QWidget):
         self.btn_foto.setText(t("Poner foto"))
         self.btn_quitar_foto.setEnabled(False)
         self.foto_cambiada.emit(None)
+        isla.exito("Foto eliminada")
         self._aviso_foto(t("Se volverá a mostrar tu inicial."), False)
 
     def _aviso_foto(self, mensaje: str, error: bool) -> None:
@@ -353,5 +358,6 @@ class PerfilView(QWidget):
         combo.setCurrentIndex(max(0, combo.findData(anterior)))
         combo.blockSignals(False)
         self.lbl_pref.setObjectName("errorFormulario")
+        isla.error("No se pudo guardar la preferencia.", mensaje)
         self.lbl_pref.setText(t("No se pudo guardar la preferencia.") + f" {mensaje}")
         self.lbl_pref.show()
