@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PyQt6.QtCore import QAbstractAnimation, QEasingCurve, QEvent, QObject, QPointF, QRectF, Qt, QTimer, QVariantAnimation
+from PyQt6 import sip
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractScrollArea,
@@ -55,10 +56,21 @@ def opacidad(widget: QWidget) -> tuple[QGraphicsOpacityEffect, bool]:
 
 def desvanecer(widget: QWidget, desde: float, hasta: float, ms: int = NORMAL,
                fin_cb: Callable[[], None] | None = None) -> QVariantAnimation | None:
-    """Funde un widget entre dos opacidades (sin tocar su visibilidad)."""
+    """Funde un widget entre dos opacidades (sin tocar su visibilidad).
+
+    Un fundido que termina en opacidad plena quita su efecto: dejarlo puesto anidaba efectos con los de los hijos
+    (p. ej. las cifras de una tarjeta KPI) y Qt los dibujaba en blanco.
+    """
     efecto, _ = opacidad(widget)
     efecto.setOpacity(desde)
-    return animar(widget, desde, hasta, ms, efecto.setOpacity, fin_cb)
+
+    def fin() -> None:
+        if hasta >= 1.0 and not sip.isdeleted(widget) and widget.graphicsEffect() is efecto:
+            widget.setGraphicsEffect(None)
+        if fin_cb is not None:
+            fin_cb()
+
+    return animar(widget, desde, hasta, ms, efecto.setOpacity, fin)
 
 
 def sombra(widget: QWidget, color: str = "#000000", blur: int = 0, dy: int = 0, alpha: int = 0) -> QGraphicsDropShadowEffect:
