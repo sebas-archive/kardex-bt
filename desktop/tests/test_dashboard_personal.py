@@ -249,6 +249,18 @@ def test_quitar_un_panel_no_deja_una_etiqueta_muerta_que_rompa_el_siguiente_widg
     assert [i.clave for i in prefs.cargar("ana.gomez", ANA)].count("avance_categoria") == 1
 
 
+def test_actividad_reciente_se_desplaza_cuando_hay_muchas_entradas(qtbot):
+    from types import SimpleNamespace
+    from PyQt6.QtWidgets import QScrollArea
+    v = vista(qtbot, ANA)
+    v.agregar_widget("actividad_reciente")
+    v._crudo = {"auditoria": [SimpleNamespace(fecha=datetime(2026, 11, 16, 8, 0), nombre=f"P{i}", accion=f"A{i}")
+                              for i in range(40)]}
+    v._aplicar_datos()
+    zona = next(s for s in v.findChildren(QScrollArea) if s.objectName() == "desplazableTransparente")
+    assert len(v._etiquetas["actividad_reciente"].text().splitlines()) == 40 and zona.verticalScrollBar().maximum() > 0
+
+
 def test_cada_usuario_tiene_su_propio_dashboard(qtbot):
     a = vista(qtbot, ANA)
     a.agregar_widget("sin_contar")

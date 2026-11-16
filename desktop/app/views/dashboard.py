@@ -70,6 +70,7 @@ FUENTES_SERIES = {"avance_categoria", "lecturas_categoria", "danados", "contados
 FUENTES_ACTIVIDAD = {"operador", "operador_tiempo"}
 
 
+ENTRADAS_ACTIVIDAD = 40   # el panel «Actividad reciente» se desplaza: no hace falta cortar en seis
 INTENTOS = 3        # un fallo suelto de Oracle (p. ej. ORA-12516 al abrir conexiones seguidas) no deja el widget vacío
 ESPERA_REINTENTO = 0.4
 
@@ -94,7 +95,7 @@ def _cargar(series: bool, actividad: bool, sesion_audit):
     if sesion_audit is not None:
         from .. import auditoria
         try:
-            extra["auditoria"] = auditoria.listar(sesion_audit)[:8]
+            extra["auditoria"] = auditoria.listar(sesion_audit)[:ENTRADAS_ACTIVIDAD]
         except Exception:      # sin permiso o sin tabla: el panel simplemente queda sin entradas
             extra["auditoria"] = []
     return (_con_reintentos(db.fetch_resumen), _con_reintentos(db.fetch_estado_batch),
@@ -411,7 +412,17 @@ class DashboardView(QWidget):
             etiqueta.setTextFormat(Qt.TextFormat.PlainText)
             etiqueta.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             self._etiquetas[d.clave] = etiqueta
-            marco = _Marco(t(d.nombre), etiqueta)
+            cuerpo: QWidget = etiqueta
+            if d.clave == "actividad_reciente":     # una lista larga: se desplaza dentro de la tarjeta
+                cuerpo = QScrollArea()
+                cuerpo.setObjectName("desplazableTransparente")
+                cuerpo.setWidgetResizable(True)
+                cuerpo.setFrameShape(QFrame.Shape.NoFrame)
+                cuerpo.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                cuerpo.setStyleSheet("QScrollArea#desplazableTransparente, QScrollArea#desplazableTransparente > QWidget > QWidget"
+                                     " { background: transparent; }")
+                cuerpo.setWidget(etiqueta)
+            marco = _Marco(t(d.nombre), cuerpo)
             self._marcos[item.id] = marco
             contenido = marco
         else:
@@ -421,7 +432,7 @@ class DashboardView(QWidget):
             marco = _Marco(item.opciones.get("titulo") or t(d.nombre), grafico)
             self._marcos[item.id] = marco
             contenido = marco
-        b = Baldosa(item.id, d.tipo, item.tam, contenido)
+        b = Baldosa(item.id, "lista" if d.clave == "actividad_reciente" else d.tipo, item.tam, contenido)
         b.menu_pedido.connect(self._menu)
         b.quitar.connect(self.quitar_widget)
         return b
@@ -485,7 +496,7 @@ class DashboardView(QWidget):
         entradas = self._crudo.get("auditoria")
         lbl_actividad = self._etiquetas.get("actividad_reciente")
         if entradas is not None and lbl_actividad is not None:
-            lbl_actividad.setText("\n".join(f"{e.fecha:%d/%m %H:%M} · {e.nombre} · {e.accion}" for e in entradas[:6])
+            lbl_actividad.setText("\n".join(f"{e.fecha:%d/%m %H:%M} · {e.nombre} · {e.accion}" for e in entradas)
                                        or t("Sin actividad registrada."))
         for item in self._items:
             if item.definicion.tipo == prefs.GRAFICO:
