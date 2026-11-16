@@ -34,7 +34,8 @@ class CapaFlotante(QWidget):
 
     def __init__(self, ventana: QWidget, panel: QWidget, *, area: str = "contenido",
                  tamano: Callable[[QRect], QSize] | None = None, oscuridad: float = 0.30, radio: int = 18,
-                 origen: QRect | None = None, cerrar_al_clic: bool = True) -> None:
+                 origen: QRect | None = None, cerrar_al_clic: bool = True,
+                 posicion: Callable[[QSize, QRect], QRect] | None = None, sombra: tuple[int, float] = (SOMBRA, 1.0)) -> None:
         super().__init__(ventana)
         self._ventana = ventana
         self.panel = panel
@@ -44,6 +45,8 @@ class CapaFlotante(QWidget):
         self._radio = radio
         self._origen = origen
         self._cerrar_al_clic = cerrar_al_clic
+        self._sombra_px, self._sombra_k = sombra     # (radio, intensidad): los popovers llevan una sombra más corta y suave
+        self._posicion = posicion          # (tamaño del panel, ventana) -> rectángulo: para popovers anclados a un campo
         self._estado = "nueva"             # nueva -> abriendo -> abierta -> cerrando -> cerrada
         self._p = 0.0                      # presencia 0..1 (velo, sombra y panel)
         self._foto = QPixmap()
@@ -80,10 +83,14 @@ class CapaFlotante(QWidget):
             tam = self._tamano(area)
         else:
             tam = QSize(min(1080, int(area.width() * 0.92)), min(720, int(area.height() * 0.90)))
-        w = max(320, min(tam.width(), self._ventana.width() - 16))
-        h = max(240, min(tam.height(), self._ventana.height() - 16))
+        minimo = (160, 120) if self._posicion is not None else (320, 240)
+        w = max(minimo[0], min(tam.width(), self._ventana.width() - 16))
+        h = max(minimo[1], min(tam.height(), self._ventana.height() - 16))
         r = QRect(0, 0, w, h)
-        r.moveCenter(area.center())
+        if self._posicion is not None:
+            r = QRect(self._posicion(QSize(w, h), self._ventana.rect()))
+        else:
+            r.moveCenter(area.center())
         # Siempre dentro de la ventana.
         limites = self._ventana.rect().adjusted(8, 8, -8, -8)
         r.moveLeft(max(limites.left(), min(r.left(), limites.right() - r.width() + 1)))
@@ -196,11 +203,13 @@ class CapaFlotante(QWidget):
 
     # ------------------------------------------------------------- pintura
     def _sombra(self, p: QPainter, r: QRectF, k: float) -> None:
-        for i in range(SOMBRA, 0, -3):
+        px = self._sombra_px
+        dy = max(3, px // 4)
+        for i in range(px, 0, -2 if px < 24 else -3):
             ruta = QPainterPath()
-            caja = r.adjusted(-i, -i + 10, i, i + 10)
+            caja = r.adjusted(-i, -i + dy, i, i + dy)
             ruta.addRoundedRect(caja, self._radio + i, self._radio + i)
-            p.fillPath(ruta, QColor(0, 0, 0, int(30 * k * (1 - i / SOMBRA) ** 2)))
+            p.fillPath(ruta, QColor(0, 0, 0, int(30 * self._sombra_k * k * (1 - i / px) ** 2)))
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)

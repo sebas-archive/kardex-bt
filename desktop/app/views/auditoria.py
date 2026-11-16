@@ -5,12 +5,13 @@ from __future__ import annotations
 from datetime import date
 
 from PyQt6.QtCore import QDate
-from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDateEdit, QHBoxLayout, QLabel, QLineEdit, QTableWidget,
+from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel, QLineEdit, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import auditoria, auth
 from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
+from .selector_fecha import SelectorFecha
 
 registrar({
     "Quién hizo qué y cuándo: cuentas, permisos, inicios de sesión y la operación diaria.":
@@ -47,11 +48,9 @@ class AuditoriaView(QWidget):
         self.combo_usuario, self.combo_modulo = QComboBox(), QComboBox()
         self.combo_usuario.addItem(t("Todos los usuarios"), None)
         self.combo_modulo.addItem(t("Todos los módulos"), None)
-        self.fecha_desde, self.fecha_hasta = QDateEdit(), QDateEdit()
-        for editor, dias in ((self.fecha_desde, 30), (self.fecha_hasta, 0)):
-            editor.setCalendarPopup(True)
-            editor.setDisplayFormat("dd/MM/yyyy")
-            editor.setDate(QDate.currentDate().addDays(-dias))
+        self.fecha_desde = SelectorFecha(QDate.currentDate().addDays(-30))
+        self.fecha_hasta = SelectorFecha(QDate.currentDate())
+        SelectorFecha.vincular(self.fecha_desde, self.fecha_hasta)     # «Desde» no puede pasar de «Hasta»
         self.txt_buscar = QLineEdit()
         self.txt_buscar.setPlaceholderText(t("Buscar en la acción o el detalle"))
         filtros = QHBoxLayout()
