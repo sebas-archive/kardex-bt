@@ -237,6 +237,10 @@ def test_access_two_panel_card_and_strength_meter(qtbot):
     assert vista._tarjeta.objectName() == "tarjetaAcceso"
     assert vista._marca_panel.isVisible() and vista._panel_form.isVisible()
     assert vista.chk_recordar.text() == "Recordar usuario"
+    assert not hasattr(vista, "btn_ir_a_registro_pie")   # no se repite la llamada en el pie
+    vista.resize(1920, 1011)
+    qtbot.wait(30)
+    assert vista._marca_panel.isVisible() and vista._marca_panel.width() >= 300
     vista.txt_clave_nueva.setText("ClaveSegura#2026")
     assert vista.medidor.puntaje == 4
     assert "Fuerte" in vista.medidor.etiqueta()

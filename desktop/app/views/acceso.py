@@ -10,7 +10,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                             QScrollArea, QStackedWidget, QVBoxLayout, QWidget)
+                             QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
 
 from .. import auth, fortaleza, i18n, tema
 from ..i18n import t
@@ -196,10 +196,16 @@ class AccesoView(QWidget):
         en_tarjeta.setContentsMargins(0, 0, 0, 0)
         en_tarjeta.setSpacing(0)
         self._marca_panel = PanelMarca()
+        self._marca_panel.setMinimumWidth(340)
+        self._marca_panel.setMaximumWidth(340)
+        self._marca_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self._marca_panel.setVisible(True)
         self._panel_form = QWidget()
         self._panel_form.setObjectName("panelFormulario")
-        en_tarjeta.addWidget(self._marca_panel)
+        en_tarjeta.addWidget(self._marca_panel, 0)
         en_tarjeta.addWidget(self._panel_form, 1)
+        en_tarjeta.setStretch(0, 0)
+        en_tarjeta.setStretch(1, 1)
 
         en_fondo = QVBoxLayout(self._fondo)
         en_fondo.setContentsMargins(28, 28, 28, 28)
@@ -210,6 +216,7 @@ class AccesoView(QWidget):
         self._scroll.setObjectName("scrollAcceso")
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setWidget(self._fondo)
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(0, 0, 0, 0)
@@ -334,17 +341,6 @@ class AccesoView(QWidget):
         self.btn_ir_a_registro.setObjectName("botonSecundario")
         self.btn_ir_a_registro.setMinimumHeight(40)
         lay.addWidget(self.btn_ir_a_registro)
-        pie = QHBoxLayout()
-        pie.addStretch(1)
-        texto = QLabel(t("¿No tienes cuenta?"))
-        texto.setObjectName("ayuda")
-        self.btn_ir_a_registro_pie = QPushButton(t("Crear cuenta"))
-        self.btn_ir_a_registro_pie.setObjectName("enlaceAzul")
-        self.btn_ir_a_registro_pie.setCursor(Qt.CursorShape.PointingHandCursor)
-        pie.addWidget(texto)
-        pie.addWidget(self.btn_ir_a_registro_pie)
-        pie.addStretch(1)
-        lay.addLayout(pie)
         lay.addStretch(1)
         return pagina
 
@@ -445,7 +441,6 @@ class AccesoView(QWidget):
         self.btn_entrar.clicked.connect(self._entrar)
         self.btn_crear.clicked.connect(self._crear)
         self.btn_ir_a_registro.clicked.connect(self._ir_a_registro)
-        self.btn_ir_a_registro_pie.clicked.connect(self._ir_a_registro)
         self.btn_ir_a_entrar.clicked.connect(lambda: self.mostrar_formulario(0))
         self.btn_ir_a_olvido.clicked.connect(lambda: self.mostrar_formulario(2))
         self.btn_volver.clicked.connect(lambda: self.mostrar_formulario(0))
@@ -479,8 +474,16 @@ class AccesoView(QWidget):
         self._cargar_recordado()
         self.mostrar_formulario(0)
 
+    def resizeEvent(self, evento) -> None:
+        super().resizeEvent(evento)
+        if hasattr(self, "_tarjeta"):
+            ancho = max(760, min(900, self.width() - 56))
+            self._tarjeta.setFixedWidth(ancho)
+
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
+        if hasattr(self, "_tarjeta"):
+            self._tarjeta.setFixedWidth(max(760, min(900, self.width() - 56)))
         if not self._ya_animado:
             self._ya_animado = True
             if widgets.ANIMAR:
