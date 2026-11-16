@@ -1,4 +1,7 @@
-"""Rejilla del dashboard personalizable: baldosas de tres tamaños, modo edición y reordenar arrastrando.
+"""Rejilla del dashboard personalizable: baldosas con tamaño S/M/L o medida propia, modo edición y reordenar arrastrando.
+
+La medida propia sale del asa de la esquina inferior derecha (modo edición): el ancho salta de columna en columna y
+el alto es libre entre un mínimo y un máximo por tipo (``dashboard_prefs.LIMITES_ALTO``).
 
 ``colocar`` es la parte pura (qué rectángulo le toca a cada baldosa); ``RejillaPersonal`` la usa para colocar los
 widgets, animarlos al cambiar de sitio y mover una baldosa mientras se arrastra, mostrando dónde caería. Los demás
@@ -11,6 +14,7 @@ from PyQt6.QtCore import QEasingCurve, QPoint, QSize, QPointF, QPropertyAnimatio
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QFrame, QScrollArea, QToolButton, QWidget
 
+from .. import dashboard_prefs as prefs
 from ..tema import colores
 from . import widgets
 from .iconos import icono
@@ -25,11 +29,17 @@ def columnas(ancho: float) -> int:
     return 4 if ancho >= 880 else 2
 
 
-def span(tam: str, cols: int) -> int:
+def span(tam: str, cols: int, propias: int = 0) -> int:
+    """Columnas que ocupa: las propias (si se redimensionó con el asa) o las del tamaño S/M/L."""
+    if propias:
+        return min(cols, propias)
     return min(cols, {"S": 1, "M": 2, "L": cols}.get(tam, 1))
 
 
-def alto_de(tipo: str, tam: str) -> int:
+def alto_de(tipo: str, tam: str, propio: int = 0) -> int:
+    if propio:
+        bajo, alto = prefs.LIMITES_ALTO.get(tipo, prefs.LIMITES_ALTO["grafico"])
+        return max(bajo, min(propio, alto))
     if tipo == "kpi":
         return ALTO_KPI
     if tipo == "panel":
@@ -65,11 +75,18 @@ def colocar(especificaciones: list[tuple[int, int]], ancho: float, cols: int) ->
 class _Edicion(QWidget):
     """Capa del modo edición: contorno punteado, asa de arrastre y captura del ratón para mover la baldosa."""
 
+    ASA = 30    # lado de la zona de redimensión, en la esquina inferior derecha
+
     def __init__(self, baldosa: "Baldosa") -> None:
         super().__init__(baldosa)
         self._b = baldosa
+        self._redimensionando = False
+        self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.hide()
+
+    def _en_asa(self, pos) -> bool:
+        return self._b.rejilla().redimensionable and pos.x() >= self.width() - self.ASA and pos.y() >= self.height() - self.ASA
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
@@ -89,21 +106,41 @@ class _Edicion(QWidget):
         for dx in (-6, 0, 6):
             for dy in (-3, 3):
                 p.drawEllipse(QPointF(cx + dx, cy + dy - 6), 1.5, 1.5)
+        if self._b.rejilla().redimensionable:       # asa: tres rayas diagonales en la esquina inferior derecha
+            p.setPen(QPen(acento, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            x1, y1 = caja.right() - 6, caja.bottom() - 6
+            for k in (4, 9, 14):
+                p.drawLine(QPointF(x1, y1 - k), QPointF(x1 - k, y1))
         p.end()
 
     def mousePressEvent(self, evento) -> None:
         if evento.button() == Qt.MouseButton.LeftButton:
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            self._b.rejilla()._arrastre_inicio(self._b, evento.globalPosition())
+            if self._en_asa(evento.position()):
+                self._redimensionando = True
+                self._b.rejilla()._redim_inicio(self._b, evento.globalPosition())
+            else:
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                self._b.rejilla()._arrastre_inicio(self._b, evento.globalPosition())
         evento.accept()
 
     def mouseMoveEvent(self, evento) -> None:
-        self._b.rejilla()._arrastre_mover(evento.globalPosition())
+        if self._redimensionando:
+            self._b.rejilla()._redim_mover(evento.globalPosition())
+        elif evento.buttons() & Qt.MouseButton.LeftButton:
+            self._b.rejilla()._arrastre_mover(evento.globalPosition())
+        else:
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor if self._en_asa(evento.position())
+                           else Qt.CursorShape.OpenHandCursor)
         evento.accept()
 
     def mouseReleaseEvent(self, evento) -> None:
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self._b.rejilla()._arrastre_fin()
+        if self._redimensionando:
+            self._redimensionando = False
+            self._b.rejilla()._redim_fin()
+        else:
+            self._b.rejilla()._arrastre_fin()
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor if self._en_asa(evento.position())
+                       else Qt.CursorShape.OpenHandCursor)
         evento.accept()
 
 
@@ -113,9 +150,12 @@ class Baldosa(QFrame):
     menu_pedido = pyqtSignal(str)
     quitar = pyqtSignal(str)
 
-    def __init__(self, id_: str, tipo: str, tam: str, contenido: QWidget) -> None:
+    def __init__(self, id_: str, tipo: str, tam: str, contenido: QWidget, cols: int = 0, alto: int = 0,
+                 cols_min: int = 1) -> None:
         super().__init__()
         self.id, self.tipo, self.tam = id_, tipo, tam
+        self.cols, self.alto = cols, alto       # medida propia (0 = la del tamaño S/M/L)
+        self.cols_min = cols_min
         self.contenido = contenido
         contenido.setParent(self)
         self.setObjectName("baldosa")
@@ -174,12 +214,15 @@ class RejillaPersonal(QWidget):
     """Contenedor de baldosas con colocación automática, animación y arrastrar y soltar."""
 
     orden_cambiado = pyqtSignal(list)    # ids en el nuevo orden
+    medidas_cambiadas = pyqtSignal(str, int, int)   # (id, columnas, alto): se soltó el asa de redimensión
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._baldosas: list[Baldosa] = []
         self._edicion = False
         self._arr: dict | None = None
+        self._redim: dict | None = None
+        self.redimensionable = False      # con asa de redimensión (solo donde se guardan las medidas propias)
         self._marcador = QFrame(self)
         self._marcador.setObjectName("marcadorDestino")
         self._marcador.hide()
@@ -237,7 +280,7 @@ class RejillaPersonal(QWidget):
 
     def _spec(self, orden: list[Baldosa]) -> list[tuple[int, int]]:
         cols = self._cols()
-        return [(span(b.tam, cols), alto_de(b.tipo, b.tam)) for b in orden]
+        return [(span(b.tam, cols, b.cols), alto_de(b.tipo, b.tam, b.alto)) for b in orden]
 
     def recolocar(self, animar: bool = True) -> None:
         rects, total = colocar(self._spec(self._baldosas), self.width(), self._cols())
@@ -268,11 +311,47 @@ class RejillaPersonal(QWidget):
         super().resizeEvent(evento)
         self.recolocar(animar=False)
 
-    def cambiar_tam(self, id_: str, tam: str) -> None:
+    def cambiar_tam(self, id_: str, tam: str, reiniciar: bool = False) -> None:
+        """Pone un tamaño S/M/L. Al cambiar de tamaño (o con ``reiniciar``) se descarta la medida propia."""
         b = self.baldosa(id_)
-        if b is not None and b.tam != tam:
+        if b is not None and (b.tam != tam or reiniciar):
             b.tam = tam
+            b.cols = b.alto = 0
             self.recolocar(animar=True)
+
+    def poner_medidas(self, id_: str, cols: int, alto: int) -> None:
+        b = self.baldosa(id_)
+        if b is not None and (b.cols, b.alto) != (cols, alto):
+            b.cols, b.alto = cols, alto
+            self.recolocar(animar=True)
+
+    # ------------------------------------------------------------------ redimensionar con el asa
+    def _redim_inicio(self, b: Baldosa, global_pos: QPointF) -> None:
+        b.raise_()
+        if b._anim is not None:
+            b._anim.stop()
+            b._anim = None
+        self._redim = {"b": b, "g": global_pos, "ancho": b.width(), "alto": b.height()}
+
+    def _redim_mover(self, global_pos: QPointF) -> None:
+        r = getattr(self, "_redim", None)
+        if not r:
+            return
+        b: Baldosa = r["b"]
+        cols = self._cols()
+        ancho_col = (self.width() - GAP * (cols - 1)) / cols
+        dx, dy = global_pos.x() - r["g"].x(), global_pos.y() - r["g"].y()
+        ocupa = round((r["ancho"] + dx + GAP) / (ancho_col + GAP))     # el ancho salta de columna en columna
+        b.cols = max(min(b.cols_min, cols), min(ocupa, cols))
+        bajo, alto_max = prefs.LIMITES_ALTO.get(b.tipo, prefs.LIMITES_ALTO["grafico"])
+        b.alto = max(bajo, min(round(r["alto"] + dy), alto_max))          # el alto es libre al píxel
+        self.recolocar(animar=False)
+
+    def _redim_fin(self) -> None:
+        r = getattr(self, "_redim", None)
+        self._redim = None
+        if r:
+            self.medidas_cambiadas.emit(r["b"].id, r["b"].cols, r["b"].alto)
 
     def mover(self, id_: str, indice: int) -> None:
         """Pone una baldosa en otra posición (lo que hace soltar tras arrastrar; también sirve sin ratón)."""

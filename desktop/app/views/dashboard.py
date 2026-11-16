@@ -46,8 +46,8 @@ registrar({
     "Último procesamiento": "Last run", "lecturas procesadas": "readings processed", "con error": "with error",
     "pendientes": "pending",
     "Personalizar dashboard": "Customize dashboard", "Restaurar predeterminado": "Restore default",
-    "Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o configurar.":
-        "Drag to reorder. Use ⋯ to resize or configure.",
+    "Arrastra para reordenar y la esquina ◢ para cambiar el tamaño. Usa ⋯ para configurar.":
+        "Drag to reorder and the ◢ corner to resize. Use ⋯ to configure.",
     "Configurar gráfico…": "Configure chart…", "Cambiar tipo": "Change type", "Cambiar período": "Change period",
     "Tamaño": "Size", "Actualizar información": "Refresh data", "Duplicar gráfico": "Duplicate chart",
     "Eliminar del dashboard": "Remove from dashboard", "Personalizado…": "Custom…",
@@ -187,7 +187,7 @@ class DashboardView(QWidget):
         fila = QHBoxLayout(self.barra_edicion)
         fila.setContentsMargins(14, 8, 8, 8)
         fila.setSpacing(8)
-        pista = QLabel(t("Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o configurar."))
+        pista = QLabel(t("Arrastra para reordenar y la esquina ◢ para cambiar el tamaño. Usa ⋯ para configurar."))
         pista.setObjectName("ayuda")
         self.btn_agregar = QPushButton(" " + t("Agregar widget"))
         self.btn_restaurar = QPushButton(" " + t("Restaurar predeterminado"))
@@ -208,7 +208,9 @@ class DashboardView(QWidget):
         self.btn_listo.clicked.connect(lambda: self.set_edicion(False))
 
         self.rejilla = RejillaPersonal()
+        self.rejilla.redimensionable = True
         self.rejilla.orden_cambiado.connect(self._orden_cambiado)
+        self.rejilla.medidas_cambiadas.connect(self._medidas_cambiadas)
         self._contenido = QWidget()
         raiz = QVBoxLayout(self._contenido)
         raiz.setContentsMargins(4, 4, 4, 16)
@@ -336,11 +338,32 @@ class DashboardView(QWidget):
 
     def cambiar_tam(self, id_: str, tam: str) -> None:
         item = self.item(id_)
-        if item is None or tam not in item.definicion.tams or item.tam == tam:
+        if item is None or tam not in item.definicion.tams or (item.tam == tam and not self._propia(item)):
             return
         item.tam = tam
-        self.rejilla.cambiar_tam(id_, tam)
+        item.cols = item.alto = 0
+        self.rejilla.cambiar_tam(id_, tam, reiniciar=True)
         self._persistir()
+
+    @staticmethod
+    def _propia(item: prefs.Item) -> bool:
+        """El widget tiene una medida propia (se redimensionó con el asa) en vez de un tamaño S/M/L."""
+        return bool(item.cols or item.alto)
+
+    def poner_medidas(self, id_: str, cols: int, alto: int) -> None:
+        """Medida propia: ``cols`` columnas y ``alto`` px (0 = la del tamaño); se ajusta a lo razonable para el widget."""
+        item = self.item(id_)
+        if item is None:
+            return
+        item.cols, item.alto = prefs.limitar_medidas(item.definicion, cols, alto)
+        self.rejilla.poner_medidas(id_, item.cols, item.alto)
+        self._persistir()
+
+    def _medidas_cambiadas(self, id_: str, cols: int, alto: int) -> None:
+        item = self.item(id_)
+        if item is not None:
+            item.cols, item.alto = cols, alto
+            self._persistir()
 
     def mover_widget(self, id_: str, indice: int) -> None:
         self.rejilla.mover(id_, indice)
@@ -359,7 +382,7 @@ class DashboardView(QWidget):
         item = self.item(id_)
         if item is None or item.definicion.unico:
             return None
-        copia = prefs.Item(item.clave, item.tam, copy.deepcopy(item.opciones))
+        copia = prefs.Item(item.clave, item.tam, copy.deepcopy(item.opciones), cols=item.cols, alto=item.alto)
         self._items.insert(self._items.index(item) + 1, copia)
         self._reconstruir()
         self._persistir()
@@ -432,7 +455,7 @@ class DashboardView(QWidget):
             marco = _Marco(item.opciones.get("titulo") or t(d.nombre), grafico)
             self._marcos[item.id] = marco
             contenido = marco
-        b = Baldosa(item.id, "lista" if d.clave == "actividad_reciente" else d.tipo, item.tam, contenido)
+        b = Baldosa(item.id, prefs.tipo_baldosa(d), item.tam, contenido, item.cols, item.alto, prefs.cols_min(d))
         b.menu_pedido.connect(self._menu)
         b.quitar.connect(self.quitar_widget)
         return b
@@ -551,7 +574,12 @@ class DashboardView(QWidget):
         for x in d.tams:
             a = tam.addAction(t(prefs.NOMBRE_TAMANO[x]), lambda v=x: self.cambiar_tam(id_, v))
             a.setCheckable(True)
-            a.setChecked(item.tam == x)
+            a.setChecked(item.tam == x and not self._propia(item))
+        if self._propia(item):
+            a = tam.addAction(t("Personalizado"))
+            a.setCheckable(True)
+            a.setChecked(True)
+            a.setEnabled(False)
         if d.tipo == prefs.GRAFICO:
             m.addAction(t("Actualizar información"), self.refresh)
             m.addAction(t("Duplicar gráfico"), lambda: self.duplicar_widget(id_))
@@ -598,8 +626,9 @@ class DashboardView(QWidget):
         cambia_fuente = clave != item.clave
         item.clave = clave
         item.opciones = opciones
-        if tam in item.definicion.tams:
+        if tam in item.definicion.tams and tam != item.tam:      # elegir otro S/M/L descarta la medida propia
             item.tam = tam
+            item.cols = item.alto = 0
         if cambia_fuente:
             self._reconstruir()
             self.refresh()
