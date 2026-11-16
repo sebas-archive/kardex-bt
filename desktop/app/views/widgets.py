@@ -17,7 +17,23 @@ from PyQt6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
 from .. import tema
 from .. import i18n
 
-ANIMAR = os.environ.get("APP_SIN_ANIMACIONES") != "1"
+def _sistema_pide_menos_movimiento() -> bool:
+    """«Reducir movimiento» del escritorio (GNOME/Cinnamon: ``enable-animations`` = false). Sin gsettings, no aplica."""
+    if os.environ.get("APP_SIN_ANIMACIONES") == "0":
+        return False   # forzado a mano (pruebas del movimiento real)
+    import shutil
+    import subprocess
+    if shutil.which("gsettings") is None:
+        return False
+    try:
+        salida = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "enable-animations"],
+                                capture_output=True, text=True, timeout=0.6).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return salida == "false"
+
+
+ANIMAR = os.environ.get("APP_SIN_ANIMACIONES") != "1" and not _sistema_pide_menos_movimiento()
 
 # Paleta (la misma familia de colores de la app del celular). ``refrescar_paleta`` la pone al día con el tema.
 VERDE, VERDE_OSCURO = "#10B981", "#0B8A62"
