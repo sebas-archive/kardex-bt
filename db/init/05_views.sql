@@ -59,14 +59,35 @@ SELECT r.id_conteo,
  GROUP BY r.id_conteo, NVL(r.operador, '(sin operador)'), TRUNC(CAST(r.fecha_captura AS DATE), 'HH24');
 
 -- Estado del staging y ultima corrida del batch que proceso algo.
+-- NUEVOS y DESCARTADOS son los dos estados del flujo "Nuevo SKU" del escritorio; ninguno es error.
 CREATE OR REPLACE VIEW v_estado_batch AS
 SELECT (SELECT COUNT(*) FROM captura_transito WHERE estado = 'PENDIENTE')  AS pendientes,
        (SELECT COUNT(*) FROM captura_transito WHERE estado = 'PROCESANDO') AS procesando,
        (SELECT COUNT(*) FROM captura_transito WHERE estado = 'PROCESADO')  AS procesados,
        (SELECT COUNT(*) FROM captura_transito WHERE estado = 'ERROR')      AS errores,
+       (SELECT COUNT(*) FROM captura_transito WHERE estado = 'NUEVO_SKU')  AS nuevos,
+       (SELECT COUNT(*) FROM captura_transito WHERE estado = 'DESCARTADO') AS descartados,
        (SELECT MAX(fin) KEEP (DENSE_RANK LAST ORDER BY id) FROM log_batch)  AS ultimo_run,
        (SELECT MAX(origen) KEEP (DENSE_RANK LAST ORDER BY id) FROM log_batch) AS ultimo_origen
   FROM dual;
+
+-- Lecturas de un SKU que no esta en el catalogo: esperan la decision del Administrador
+-- ("Crear y procesar" o "No crear"). Mismos campos del REC que v_errores_captura, ya desescapados.
+CREATE OR REPLACE VIEW v_nuevos_sku AS
+SELECT t.id_transito,
+       t.uuid_dispositivo,
+       t.seq,
+       UTL_URL.UNESCAPE(REGEXP_SUBSTR(t.datos_raw, '([^|]*)(\||$)', 1, 5, NULL, 1), 'UTF-8') AS sku,
+       UTL_URL.UNESCAPE(REGEXP_SUBSTR(t.datos_raw, '([^|]*)(\||$)', 1, 6, NULL, 1), 'UTF-8') AS cantidad,
+       UTL_URL.UNESCAPE(REGEXP_SUBSTR(t.datos_raw, '([^|]*)(\||$)', 1, 7, NULL, 1), 'UTF-8') AS operador,
+       CASE WHEN REGEXP_LIKE(REGEXP_SUBSTR(t.datos_raw, '([^|]*)(\||$)', 1, 3, NULL, 1), '^[0-9]{1,15}$')
+            THEN TIMESTAMP '1970-01-01 00:00:00'
+                 + NUMTODSINTERVAL(TO_NUMBER(REGEXP_SUBSTR(t.datos_raw, '([^|]*)(\||$)', 1, 3, NULL, 1)) / 1000, 'SECOND')
+       END AS fecha_captura,
+       t.fecha_recepcion,
+       t.mensaje_error
+  FROM captura_transito t
+ WHERE t.estado = 'NUEVO_SKU';
 
 -- Lecturas rechazadas por el batch, con los campos del REC ya separados y decodificados.
 -- La pantalla Sincronizacion la usa para mostrar el motivo y para el alta de SKU desconocido.
