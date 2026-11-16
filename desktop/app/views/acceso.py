@@ -112,6 +112,54 @@ class PanelMarca(QFrame):
 
 
 
+class CasillaAcceso(QCheckBox):
+    """Casilla de verificación: cuadro con borde que se rellena de azul y muestra una palomita al marcarse."""
+
+    LADO = 18
+
+    def __init__(self, texto: str, parent: QWidget | None = None) -> None:
+        super().__init__(texto, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("CasillaAcceso { background: transparent; border: none; }")
+
+    def sizeHint(self) -> QSize:
+        ancho = self.LADO + 10 + self.fontMetrics().horizontalAdvance(self.text())
+        return QSize(ancho + 4, max(self.LADO, self.fontMetrics().height()) + 6)
+
+    def hitButton(self, _pos) -> bool:
+        return True
+
+    def paintEvent(self, _evento) -> None:
+        c = tema.colores()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        y = (self.height() - self.LADO) / 2
+        caja = QRectF(1, y, self.LADO - 2, self.LADO - 2)
+        if self.isChecked():
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#2563EB"))
+            p.drawRoundedRect(caja, 5, 5)
+            pluma = QPen(QColor("#FFFFFF"), 2.0)
+            pluma.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pluma.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pluma)
+            p.drawPolyline([QPointF(caja.left() + 4, caja.center().y() + 0.5),
+                            QPointF(caja.left() + 7, caja.center().y() + 3.5),
+                            QPointF(caja.right() - 3.5, caja.top() + 4.5)])
+        else:
+            p.setPen(QPen(QColor(c["borde_fuerte"]), 1.5))
+            p.setBrush(QColor(c["tarjeta"]))
+            p.drawRoundedRect(caja, 5, 5)
+        if self.hasFocus():
+            p.setPen(QPen(QColor("#2563EB"), 1.5))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(caja.adjusted(-2, -2, 2, 2), 7, 7)
+        p.setPen(QColor(c["texto"]))
+        p.drawText(QRectF(self.LADO + 10, 0, self.width() - self.LADO - 10, self.height()),
+                   int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), self.text())
+        p.end()
+
+
 class MedidorFuerza(QWidget):
     """Cuatro segmentos, etiqueta de fuerza, reglas con check y aviso de patrón."""
 
@@ -332,7 +380,7 @@ class AccesoView(QWidget):
         self.txt_clave.returnPressed.connect(self._entrar)
 
         fila = QHBoxLayout()
-        self.chk_recordar = QCheckBox(t("Recordar usuario"))
+        self.chk_recordar = CasillaAcceso(t("Recordar usuario"))
         self.btn_ir_a_olvido = QPushButton(t("¿Olvidaste tu contraseña?"))
         self.btn_ir_a_olvido.setObjectName("enlaceAzul")
         self.btn_ir_a_olvido.setCursor(Qt.CursorShape.PointingHandCursor)
