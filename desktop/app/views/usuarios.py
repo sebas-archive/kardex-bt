@@ -12,10 +12,11 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                              QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import auth, isla
+from .. import auth
 from ..i18n import t
 from . import components
 from .base import QueryRunner, StateBanner
+from .isla import isla
 from .foto import icono_avatar
 from .solicitudes import pedir_motivo
 
@@ -121,7 +122,7 @@ class UsuariosView(QWidget):
         return salida
 
     def restablecer(self, usuario: str, nueva: str) -> None:
-        self._accion(auth.restablecer_clave, usuario, nueva)
+        self._accion(auth.restablecer_clave, usuario, nueva, exito=t("Contraseña restablecida"))
 
     # ------------------------------------------------------------- internos
     def _elegido(self) -> auth.Usuario | None:
@@ -190,15 +191,14 @@ class UsuariosView(QWidget):
         self.btn_telefono.setEnabled(movil and u.telefono)
         self.btn_estado.setToolTip(t("El Administrador no se puede suspender.") if es_admin else "")
 
-    def _accion(self, operacion, *args) -> None:
-        self._runner.run(operacion, self._guardado, self._fallo, self._sesion, *args)
-
-    def _guardado(self, _resultado) -> None:
-        isla.exito("Cambios guardados")
-        self.refresh()
+    def _accion(self, operacion, *args, exito: str = "") -> None:
+        def listo(_resultado) -> None:
+            if exito:
+                isla.exito(exito)
+            self.refresh()
+        self._runner.run(operacion, listo, self._fallo, self._sesion, *args)
 
     def _fallo(self, mensaje: str) -> None:
-        isla.error("No se pudo completar la operación", mensaje)
         self._error = mensaje
         self.refresh()
 
@@ -206,18 +206,19 @@ class UsuariosView(QWidget):
         # Con un solo Administrador, las cuentas del PC solo pueden ser Inventario y las del móvil Operador:
         # no hay un rol de destino distinto. Se deja el botón bloqueado y se explica.
         self.banner.show_empty(t("No hay otro rol disponible para esta cuenta."))
+        isla.info(t("No hay otro rol disponible para esta cuenta."))
 
     def _cambiar_estado(self) -> None:
         u = self._elegido()
         if u is None:
             return
         if u.estado == auth.SUSPENDIDO:
-            self._accion(auth.reactivar, u.usuario)
+            self._accion(auth.reactivar, u.usuario, exito=t("Cuenta reactivada"))
             return
         motivo = pedir_motivo(self, "Suspender cuenta",
                               f"¿Por qué suspendes la cuenta de {u.nombre}? (lo verá al intentar entrar)")
         if motivo is not None:
-            self._accion(auth.suspender, u.usuario, motivo)
+            self._accion(auth.suspender, u.usuario, motivo, exito=t("Cuenta suspendida"))
 
     def _desvincular(self) -> None:
         u = self._elegido()
@@ -227,7 +228,7 @@ class UsuariosView(QWidget):
                                              t("La cuenta quedará libre para el próximo teléfono que sincronice."),
                                              t("Desvincular")):
             return
-        self._accion(auth.desvincular_telefono, u.usuario)
+        self._accion(auth.desvincular_telefono, u.usuario, exito=t("Teléfono desvinculado"))
 
     def _pedir_clave(self) -> None:
         u = self._elegido()

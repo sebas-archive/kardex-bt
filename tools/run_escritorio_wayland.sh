@@ -69,6 +69,7 @@ docker run -d --rm --name app-wayland --network inventario-bt_default \
   -e PYTHONPATH=/work/server:/work/desktop \
   -e HOME=/tmp \
   -e XDG_CACHE_HOME=/tmp/.cache \
+  -e XDG_CONFIG_HOME=/work/config \
   -e FOTOS_DIR=/work/fotos \
   -e RESPALDOS_DIR=/work/respaldos \
   -v "$RAIZ":/work \

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
 from ..i18n import t
 from ..workers import QueryWorker
+from .isla import isla
 
 ESTILO = """
 QMainWindow, QWidget { background: #0A0A0A; color: #EDEDED; font-size: 13px; }
@@ -39,8 +40,8 @@ QFrame#pieCuenta QLabel, QFrame#pieCuenta QWidget { background: transparent; }
 QPushButton#cuenta { border: none; background: transparent; text-align: left; border-radius: 8px; }
 QPushButton#cuenta:hover { background: rgba(255,255,255,0.06); }
 QFrame#pieCuenta QLabel#avatar { background: #10B981; color: #04130E; border-radius: 18px; font-weight: 700; font-size: 14px; }
-QLabel#usuarioNombre { font-weight: 600; color: #FFFFFF; }
-QLabel#usuarioRol { color: #8A8A8A; font-size: 12px; }
+QLabel#usuarioNombre { font-weight: 600; font-size: 12px; color: #FFFFFF; }
+QLabel#usuarioRol { color: #8A8A8A; font-size: 11px; }
 
 /* Lienzo principal encajado en el marco */
 QFrame#lienzo { background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; }
@@ -132,12 +133,10 @@ QToolButton:focus { border: 1px solid #10B981; }
 /* Barra lateral: ítem activo con indicador y glow del color primario (sin cambiar la identidad) */
 QPushButton#nav { padding-left: 12px; border-left: 3px solid transparent; }
 QPushButton#nav:hover { background: rgba(255,255,255,0.07); color: #FFFFFF; }
-QPushButton#nav:checked { border-left: 3px solid #10B981;
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16,185,129,0.16), stop:1 rgba(16,185,129,0.02));
-    color: #FFFFFF; }
-QPushButton#nav:checked:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16,185,129,0.22), stop:1 rgba(16,185,129,0.03)); }
+QPushButton#nav:checked { border-left: 3px solid transparent; background: rgba(255,255,255,0.10); color: #FFFFFF; }
+QPushButton#nav:checked:hover { background: rgba(255,255,255,0.13); }
 QFrame#lateral[contraida="true"] QPushButton#nav { text-align: center; padding-left: 0; border-left: 3px solid transparent; }
-QFrame#lateral[contraida="true"] QPushButton#nav:checked { border-left: 3px solid #10B981; }
+QFrame#lateral[contraida="true"] QPushButton#nav:checked { border-left: 3px solid transparent; }
 QFrame#separadorNav { background: rgba(255,255,255,0.07); max-height: 1px; margin: 6px 10px; }
 
 /* Tarjetas con hover rico */
@@ -158,7 +157,7 @@ QToolButton#cerrarDrawer:hover { background: #2A2A2A; color: #FFFFFF; }
 QLabel#datoDrawer { color: #EDEDED; font-weight: 600; background: transparent; }
 
 /* Modal de confirmación */
-QFrame#modalCaja { background: #121212; border: 1px solid #333333; border-radius: 14px; }
+QFrame#modalCaja { background: #121212; border: 1px solid #333333; border-radius: 16px; }
 QLabel#modalTitulo { font-size: 18px; font-weight: 600; color: #FFFFFF; background: transparent; }
 QLabel#modalTexto { color: #CFCFCF; font-size: 13px; background: transparent; }
 QCheckBox { color: #CFCFCF; spacing: 8px; }
@@ -185,11 +184,6 @@ QLabel#ayudaCategoria { color: #10B981; font-size: 11px; font-weight: 700; lette
 QLabel#ayudaAtajo { color: #EDEDED; font-size: 13px; background: transparent; }
 QLabel#ayudaTecla { background: #1C1C1C; border: 1px solid #383838; border-radius: 6px; padding: 2px 8px;
     color: #CFCFCF; font-family: "DejaVu Sans Mono"; font-size: 11px; min-width: 42px; }
-
-/* Toasts */
-QPushButton#accionToast { background: #10B981; color: #04130E; border: none; border-radius: 6px; padding: 4px 10px;
-    font-size: 11px; font-weight: 600; }
-QPushButton#accionToast:hover { background: #34D399; }
 
 /* Chips de filtros activos */
 QFrame#chipActivo { background: #132A22; border: 1px solid #2F6B57; border-radius: 13px; }
@@ -242,20 +236,157 @@ QFrame#campoAcceso QLabel { background: transparent; }
 QLineEdit#campoTexto { border: none; background: transparent; padding: 7px 0; font-size: 13px; }
 QLineEdit#campoTexto:focus { border: none; }
 QComboBox#campoCombo { background: #0F0F0F; border: 1px solid #2E2E2E; border-radius: 10px; padding: 8px 10px; }
-QPushButton#botonPrincipal { background: #2563EB; color: #F8FAFC; border: none; border-radius: 10px;
+QPushButton#botonPrincipal { background: #10B981; color: #04130E; border: none; border-radius: 10px;
                              padding: 11px 18px; font-weight: 700; }
-QPushButton#botonPrincipal:hover { background: #1D4ED8; }
-QPushButton#botonPrincipal:disabled { background: #1E3A5F; color: #8A8A8A; }
-QPushButton#botonSecundario { background: transparent; color: #3B82F6; border: 1px solid #2563EB;
+QPushButton#botonPrincipal:hover { background: #34D399; }
+QPushButton#botonPrincipal:disabled { background: #1E3A32; color: #8A8A8A; }
+QPushButton#botonSecundario { background: transparent; color: #10B981; border: 1px solid #10B981;
                               border-radius: 10px; padding: 9px 16px; font-weight: 600; }
-QPushButton#botonSecundario:hover { background: rgba(37, 99, 235, 0.12); }
-QPushButton#enlaceAzul { border: none; background: transparent; color: #3B82F6; font-weight: 600; padding: 2px; }
-QPushButton#enlaceAzul:hover { color: #2563EB; }
+QPushButton#botonSecundario:hover { background: rgba(16, 185, 129, 0.12); }
+QPushButton#enlaceAzul { border: none; background: transparent; color: #10B981; font-weight: 600; padding: 2px; }
+QPushButton#enlaceAzul:hover { color: #34D399; }
 QLabel#oAcceso { color: #8A8A8A; background: transparent; }
 QFrame#separadorAcceso { background: #2E2E2E; max-height: 1px; }
 QScrollArea#scrollAcceso { background: transparent; border: none; }
 QWidget#paginaAcceso { background: transparent; }
 
+
+/* ======================================================================================================
+   Refinamiento visual. Tokens: radio 8 (controles) y 12 (tarjetas); alto de control ~34; espacios 4/8/12/16/24.
+   Solo usa los colores ya definidos arriba; la barra lateral queda fuera (todo va acotado al lienzo o a popups). */
+QToolTip { background: #1A1A1A; color: #EDEDED; border: 1px solid #333333; border-radius: 6px; padding: 5px 8px;
+           font-size: 12px; }
+
+/* Jerarquía tipográfica */
+QLabel#tituloPagina { font-size: 22px; font-weight: 700; }
+QLabel#seccion { font-size: 14px; font-weight: 600; }
+QLabel#cardTitulo { color: #8A8A8A; font-size: 12px; font-weight: 500; }
+QLabel#cardValor { font-size: 28px; font-weight: 600; }
+QLabel#subtitulo, QLabel#ayuda { color: #8A8A8A; font-size: 12px; }
+QLabel#estadoVistaTexto { color: #8A8A8A; font-size: 12px; background: transparent; padding: 18px 0; }
+QFrame#estadoVista { background: transparent; border: none; }
+
+/* Tarjetas */
+QFrame#lienzo QFrame#card { background: #111111; border: 1px solid #232323; border-radius: 14px; }
+
+/* Botones: un solo lenguaje (alto uniforme, hover, presionado, deshabilitado y foco) */
+QFrame#lienzo QPushButton { min-height: 18px; padding: 7px 16px; border-radius: 9px; border: 1px solid #2E2E2E;
+                            background: #111111; font-weight: 600; }
+QFrame#lienzo QPushButton:hover { background: #1C1C1C; border-color: #3A3A3A; }
+QFrame#lienzo QPushButton:pressed { background: #232323; }
+QFrame#lienzo QPushButton:disabled { color: #6E6E6E; background: #161616; border-color: #232323; }
+QFrame#lienzo QPushButton:focus { border: 1px solid #10B981; }
+QFrame#lienzo QPushButton#primario { background: #10B981; color: #04130E; border: 1px solid #10B981; }
+QFrame#lienzo QPushButton#primario:hover { background: #34D399; border-color: #34D399; }
+QFrame#lienzo QPushButton#primario:pressed { background: #10B981; }
+QFrame#lienzo QPushButton#primario:disabled { background: #1E3A32; color: #6E6E6E; border-color: #1E3A32; }
+QFrame#lienzo QPushButton#peligro { color: #F87171; background: transparent; border: 1px solid #7A2A24; }
+QFrame#lienzo QPushButton#peligro:hover { background: #3A1512; }
+QFrame#lienzo QPushButton#peligro:disabled { color: #6E6E6E; border-color: #232323; background: transparent; }
+QFrame#lienzo QPushButton#enlace { border: none; background: transparent; color: #34D399; padding: 4px 8px;
+                                   min-height: 0; }
+QFrame#lienzo QPushButton#enlace:hover { color: #6EE7B7; background: transparent; }
+
+/* Campos: misma altura, borde suave y foco visible */
+QFrame#lienzo QLineEdit, QFrame#lienzo QComboBox, QFrame#lienzo QSpinBox, QFrame#lienzo QDoubleSpinBox,
+QFrame#lienzo QDateEdit { min-height: 18px; padding: 7px 12px; border: 1px solid #2E2E2E; border-radius: 9px;
+                          background: #111111; selection-background-color: #10B981; selection-color: #04130E; }
+QFrame#lienzo QLineEdit:hover, QFrame#lienzo QComboBox:hover, QFrame#lienzo QSpinBox:hover { border-color: #3A3A3A; }
+QFrame#lienzo QLineEdit:focus, QFrame#lienzo QComboBox:focus, QFrame#lienzo QSpinBox:focus,
+QFrame#lienzo QDateEdit:focus { border: 1px solid #10B981; padding: 7px 12px; }
+QFrame#lienzo QLineEdit:disabled, QFrame#lienzo QComboBox:disabled, QFrame#lienzo QSpinBox:disabled {
+    color: #6E6E6E; background: #161616; border-color: #232323; }
+QFrame#lienzo QLineEdit[invalido="true"] { border: 1px solid #F87171; }
+QFrame#lienzo QLineEdit[valido="true"] { border: 1px solid #10B981; }
+QComboBox QAbstractItemView { background: #111111; border: 1px solid #2E2E2E; border-radius: 8px; padding: 4px;
+                              selection-background-color: #10261F; selection-color: #EDEDED; outline: none; }
+QCheckBox, QRadioButton { background: transparent; }
+QRadioButton { color: #CFCFCF; spacing: 8px; }
+QRadioButton::indicator { width: 16px; height: 16px; border-radius: 9px; border: 1px solid #4A4A4A; background: #111111; }
+QRadioButton::indicator:checked { border: 5px solid #10B981; background: #111111; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #10B981; }
+
+/* Tablas: sin rejilla, filas con separador fino, encabezado discreto alineado a la izquierda */
+QFrame#lienzo QTableView, QFrame#lienzo QTableWidget { background: #111111; border: 1px solid #232323; border-radius: 14px;
+                                                       gridline-color: transparent; outline: none; }
+QTableView::item, QTableWidget::item { padding: 0 10px; border: none; border-bottom: 1px solid #1C1C1C; }
+QTableView::item:hover, QTableWidget::item:hover { background: rgba(255,255,255,0.035); }
+QTableView::item:selected, QTableWidget::item:selected { background: #10261F; color: #FFFFFF; }
+QHeaderView { background: transparent; qproperty-defaultAlignment: AlignLeft; }
+QHeaderView::section { background: #0F0F0F; color: #8A8A8A; font-size: 11px; font-weight: 700; padding: 10px 10px;
+                       border: none; border-bottom: 1px solid #232323; }
+QTableView QLabel#insignia, QTableWidget QLabel#insignia { margin: 9px 12px; }
+QTableView QComboBox, QTableWidget QComboBox { margin: 4px 8px; min-height: 16px; padding: 4px 10px; }
+QTableCornerButton::section { background: #0F0F0F; border: none; }
+
+/* Barras de desplazamiento finas */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: #2E2E2E; border-radius: 4px; }
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: #4A4A4A; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+/* Menús */
+QMenu { background: #1A1A1A; border: 1px solid #333333; border-radius: 10px; padding: 6px; }
+QMenu::item { padding: 7px 18px 7px 14px; border-radius: 6px; color: #EDEDED; margin: 1px 0; }
+QMenu::item:selected { background: #133A2C; color: #FFFFFF; }
+QMenu::item:disabled { color: #6E6E6E; }
+QMenu::separator { height: 1px; background: #2E2E2E; margin: 5px 8px; }
+
+/* Diálogos internos */
+QDialog { background: #121212; }
+QDialog QLabel { background: transparent; }
+QDialogButtonBox QPushButton { min-width: 84px; }
+QProgressBar { border: none; background: #232323; border-radius: 4px; max-height: 8px; text-align: center; }
+QProgressBar::chunk { background: #10B981; border-radius: 4px; }
+
+/* Personalización del dashboard */
+QFrame#baldosa, QWidget#hojaPanel { background: transparent; border: none; }
+QScrollArea#hojaScroll, QScrollArea#hojaScroll > QWidget > QWidget { background: transparent; }
+QFrame#barraEdicion { background: #111111; border: 1px solid #232323; border-radius: 14px; }
+QFrame#barraEdicion QLabel { background: transparent; }
+QToolButton#baldosaMenu { background: rgba(255,255,255,0.08); color: #A3A3A3; border: none; border-radius: 11px;
+    min-width: 24px; max-width: 24px; min-height: 22px; max-height: 22px; padding: 0; font-size: 14px; font-weight: 700; }
+QToolButton#baldosaMenu:hover { background: rgba(255,255,255,0.16); color: #FFFFFF; }
+QToolButton#baldosaQuitar { background: #F87171; color: #04130E; border: none; border-radius: 11px;
+    min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; padding: 0; font-size: 15px; font-weight: 700; }
+QToolButton#baldosaQuitar:hover { background: #7A2A24; color: #FFFFFF; }
+QFrame#marcadorDestino { background: rgba(255,255,255,0.05); border: 2px dashed #2F6B57; border-radius: 14px; }
+QFrame#itemCatalogo { background: #0F0F0F; border: 1px solid #232323; border-radius: 12px; }
+QFrame#itemCatalogo QLabel { background: transparent; }
+QPushButton#categoriaCatalogo { text-align: left; padding: 8px 12px; border: none; background: transparent; color: #A3A3A3; }
+QPushButton#categoriaCatalogo:hover { background: rgba(255,255,255,0.06); color: #FFFFFF; }
+QPushButton#categoriaCatalogo:checked { background: #10261F; color: #34D399; }
+QToolButton#tipoGrafico { background: transparent; border: 1px solid #2E2E2E; border-radius: 10px; padding: 0; }
+QToolButton#tipoGrafico:hover { border-color: #4A4A4A; background: transparent; }
+QToolButton#tipoGrafico:checked { border: 2px solid #10B981; background: #10261F; }
+QFrame#modalCaja QDateEdit, QFrame#modalCaja QSpinBox, QFrame#modalCaja QLineEdit, QFrame#modalCaja QComboBox {
+    min-height: 18px; padding: 6px 10px; border: 1px solid #2E2E2E; border-radius: 8px; background: #111111; }
+QFrame#modalCaja QLineEdit:focus, QFrame#modalCaja QComboBox:focus, QFrame#modalCaja QSpinBox:focus,
+QFrame#modalCaja QDateEdit:focus { border: 1px solid #10B981; }
+
+/* Acabado común: estado vacío de tablas, deslizadores y diálogos */
+QLabel#tablaVacia { color: #8A8A8A; background: transparent; font-size: 12px; }
+QSlider::groove:horizontal { height: 4px; background: #232323; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #10B981; border-radius: 2px; }
+QSlider::handle:horizontal { width: 14px; height: 14px; margin: -6px 0; border-radius: 8px; background: #10B981;
+                             border: 2px solid #111111; }
+QSlider::handle:horizontal:hover { background: #34D399; }
+QDialog QLabel { color: #CFCFCF; }
+QDialog QPushButton { min-width: 88px; }
+QInputDialog QLineEdit { min-width: 280px; }
+
+/* Perfil */
+QWidget#filaIcono { background: transparent; }
+QLabel#perfilNombre { font-size: 20px; font-weight: 700; background: transparent; }
+QLabel#tituloTarjeta { font-size: 15px; font-weight: 700; background: transparent; }
+QFrame#separadorSuave { background: #232323; border: none; }
+QFrame#lienzo QFrame#segmentado { background: #0F0F0F; border: 1px solid #232323; border-radius: 12px; }
+QFrame#lienzo QFrame#segmentado QPushButton#segmento { border: 1px solid transparent; background: transparent; border-radius: 9px;
+    padding: 7px 12px; color: #A3A3A3; font-weight: 600; min-height: 18px; }
+QFrame#lienzo QFrame#segmentado QPushButton#segmento:hover { color: #FFFFFF; background: rgba(255,255,255,0.05); }
+QFrame#lienzo QFrame#segmentado QPushButton#segmento:checked { background: #1C1C1C; color: #FFFFFF; border: 1px solid #2E2E2E; }
 """
 
 
@@ -281,7 +412,18 @@ def estilo() -> str:
             ruta = carpeta / f"{nombre}.png"
             imagen.save(str(ruta))
             _FLECHAS[nombre] = ruta.as_posix()
+        palomita = QPixmap(16, 16)
+        palomita.fill(Qt.GlobalColor.transparent)
+        pintor = QPainter(palomita)
+        pintor.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pintor.setPen(QPen(QColor("#04130E"), 2.0, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        pintor.drawPolyline(QPointF(3.8, 8.4), QPointF(6.7, 11.2), QPointF(12.2, 4.8))
+        pintor.end()
+        ruta = carpeta / "palomita.png"
+        palomita.save(str(ruta))
+        _FLECHAS["palomita"] = ruta.as_posix()
     return ESTILO + f"""
+QCheckBox::indicator:checked {{ image: url({_FLECHAS["palomita"]}); }}
 QComboBox::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 14px; height: 14px; margin-right: 8px; }}
 QSpinBox::up-arrow {{ image: url({_FLECHAS["arriba"]}); width: 10px; height: 10px; }}
 QSpinBox::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 10px; height: 10px; }}
@@ -377,42 +519,53 @@ class QueryRunner(QObject):
 
 
 class StateBanner(QFrame):
-    """Aviso de estado de una vista: «Cargando…», «Sin datos» o un error de BD con «Reintentar»."""
+    """Estado de una vista: «Cargando…» o «Sin datos» en una línea discreta; los errores de BD van a la Isla con un
+    botón «Reintentar» (``retry``)."""
 
     retry = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setObjectName("aviso")
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 8, 12, 8)
+        self.setObjectName("estadoVista")
+        self._clave = f"consulta-{id(self)}"
+        self._con_error = False
         self._label = QLabel()
-        self._label.setWordWrap(True)
-        self.btn_reintentar = QPushButton(t("Reintentar"))
-        self.btn_reintentar.clicked.connect(self.retry)
+        self._label.setObjectName("estadoVistaTexto")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 6, 0, 6)
         lay.addWidget(self._label, 1)
-        lay.addWidget(self.btn_reintentar)
+        self.btn_reintentar = QPushButton(t("Reintentar"), self)
+        self.btn_reintentar.clicked.connect(self.retry)
+        self.btn_reintentar.hide()
         self.hide()
 
     def text(self) -> str:
         return self._label.text()
 
-    def _mostrar(self, texto: str, error: bool) -> None:
+    def registrar(self, texto: str) -> None:
+        """Guarda el texto del estado sin mostrarlo (quien lo llama ya lo comunicó por la Isla)."""
         self._label.setText(texto)
-        self.setProperty("error", error)
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.btn_reintentar.setVisible(error)
+
+    def _linea(self, texto: str) -> None:
+        self._label.setText(texto)
         self.show()
 
     def show_loading(self) -> None:
-        self._mostrar(t("Cargando…"), False)
+        self._linea(t("Cargando…"))
 
     def show_empty(self, texto: str = "Sin datos") -> None:
-        self._mostrar(t(texto), False)
+        self._linea(t(texto))
 
     def show_error(self, mensaje: str) -> None:
-        self._mostrar(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje), True)
+        self._label.setText(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
+        self.hide()
+        self._con_error = True
+        isla.error(t("No se pudo consultar la base de datos"), mensaje, clave=self._clave,
+                   accion=(t("Reintentar"), self.retry.emit))
 
     def clear(self) -> None:
         self.hide()
+        if self._con_error:
+            self._con_error = False
+            isla.cerrar(clave=self._clave)

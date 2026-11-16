@@ -27,12 +27,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .. import auth, db, isla
+from .. import auth, db
 from ..i18n import registrar, t
 from ..models import Lectura, fmt_num
 from ..tema import colores
 from .base import QueryRunner, StateBanner
 from .capas import abrir_capa
+from .isla import isla
 from .lecturas import DetalleLecturas
 
 registrar({

@@ -9,9 +9,10 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHeaderView, QLabel, QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
-from .. import auth, isla, permisos
+from .. import auth, permisos
 from ..i18n import t
 from .base import QueryRunner, StateBanner
+from .isla import isla
 
 
 class RolesView(QWidget):
@@ -37,6 +38,9 @@ class RolesView(QWidget):
         self.tabla.verticalHeader().hide()
         self.tabla.verticalHeader().setDefaultSectionSize(40)
         self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for columna in range(1, 1 + len(auth.ROLES)):   # cada rol con ancho fijo: el selector no se recorta
+            self.tabla.horizontalHeader().setSectionResizeMode(columna, QHeaderView.ResizeMode.Fixed)
+            self.tabla.setColumnWidth(columna, 190)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(4, 4, 4, 4)
@@ -90,9 +94,9 @@ class RolesView(QWidget):
     def _guardar(self, rol: str, modulo: str, nivel: str) -> None:
         # Si falla (p. ej. sin permiso), se muestra el error y se vuelve a leer la matriz para no mentir en pantalla.
         self.banner.clear()
-        self._runner.run(permisos.guardar, lambda _: isla.exito("Cambios guardados"), self._fallo, self._sesion, rol, modulo, nivel, key="guardarPermiso")
+        self._runner.run(permisos.guardar, lambda _: isla.exito(t("Permiso actualizado")), self._fallo,
+                         self._sesion, rol, modulo, nivel, key="guardarPermiso")
 
     def _fallo(self, mensaje: str) -> None:
-        isla.error("No se pudo guardar", mensaje)
         self._error = t("No se pudo guardar el cambio. Se volvió a leer la matriz.") + f" {mensaje}"
         self.refresh()

@@ -10,7 +10,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDialog, QLabel, QPushButton,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import auth, isla
+from .. import auth
 from ..i18n import t
 from .base import QueryRunner, StateBanner
 
@@ -192,14 +192,9 @@ class SolicitudesView(QWidget):
 
     def _con(self, usuario: auth.Usuario | None, operacion, *extra) -> None:
         if usuario is not None:
-            self._runner.run(operacion, self._resuelta, self._fallo, self._sesion, usuario.usuario, *extra)
-
-    def _resuelta(self, _resultado) -> None:
-        isla.exito("Solicitud resuelta")
-        self.refresh()
+            self._runner.run(operacion, lambda _: self.refresh(), self._fallo, self._sesion, usuario.usuario, *extra)
 
     def _fallo(self, mensaje: str) -> None:
-        isla.error("No se pudo completar la operación", mensaje)
         self._error = mensaje
         self.refresh()
 

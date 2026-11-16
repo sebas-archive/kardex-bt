@@ -70,6 +70,7 @@ services:
       PYTHONUNBUFFERED: "1"         # el arranque llega al instante a logs/app.log y a `docker compose logs app`
       HOME: /tmp                    # el usuario 1000 no tiene HOME: sin esto Qt/fontconfig se quejan
       XDG_CACHE_HOME: /tmp/.cache
+      XDG_CONFIG_HOME: /work/config   # QSettings (usuario recordado, tema, idioma) sobrevive a recrear el contenedor
       DISPLAY: ${DISPLAY:-:0}
       XAUTHORITY: /tmp/.Xauthority-host
       BT_TRANSPORT: ${BT_TRANSPORT:-bluez}
