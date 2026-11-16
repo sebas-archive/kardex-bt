@@ -9,14 +9,14 @@ import math
 
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QCursor, QFont
 from PyQt6.QtWidgets import (QSizePolicy,
     QComboBox,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -24,12 +24,16 @@ from PyQt6.QtWidgets import (QSizePolicy,
 )
 
 from .. import auth, db
+from .. import graficas_prefs as prefs
+from ..dashboard_prefs import NOMBRE_TAMANO
 from ..i18n import registrar, t
 from ..models import fmt_num, fmt_pct
 from ..tema import colores
 from . import widgets
 from .base import QueryRunner, StateBanner
 from .graficas_interactivas import HoverBarras, HoverLinea
+from .iconos import icono
+from .rejilla_personal import Baldosa, RejillaPersonal
 from .widgets import Dona
 
 registrar({
@@ -50,6 +54,17 @@ registrar({
     "Con error": "With error",
     "Sin datos": "No data",
     "Haz clic en una categoría para filtrar el inventario.": "Click a category to filter the inventory.",
+    "Personalizar gráficas": "Customize charts",
+    "Añadir gráfica": "Add chart",
+    "Restaurar predeterminado": "Restore default",
+    "Listo": "Done",
+    "Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o quitar la gráfica.":
+        "Drag to reorder. Use ⋯ to resize or remove a chart.",
+    "Quitar de Gráficas": "Remove from Charts",
+    "Tamaño": "Size",
+    "No hay gráficas. Pulsa «Personalizar gráficas» y luego «Añadir gráfica».":
+        "No charts. Press “Customize charts” and then “Add chart”.",
+    "Ya están todas las gráficas": "All charts are already shown",
 })
 
 ROJO, AMBAR, GRIS = "#F04438", "#F79009", "#98A2B3"
@@ -131,11 +146,8 @@ class ChartsView(QWidget):
         self.plots: dict[str, pg.PlotWidget] = {}
         self.dona = Dona({"contados": self._color["acento"], "pendientes": self._color["texto_suave"]},
                          {"contados": t("Contados"), "pendientes": t("Pendientes")})
-        rejilla = QGridLayout()
-        rejilla.setSpacing(12)
-        orden = (("avance", 0, 0), ("dona", 0, 1), ("hora", 1, 0), ("top", 1, 1),
-                 ("danados", 2, 0), ("batch", 2, 1))
-        for chart_id, fila, columna in orden:
+        self._marcos: dict[str, QFrame] = {}
+        for chart_id in prefs.IDS:
             marco = QFrame()
             marco.setObjectName("card")
             lay = QVBoxLayout(marco)
@@ -162,7 +174,7 @@ class ChartsView(QWidget):
                 plot.getAxis("bottom").setTickFont(FUENTE_CHICA)
                 lay.addWidget(plot)
                 self.plots[chart_id] = plot
-            rejilla.addWidget(marco, fila, columna)
+            self._marcos[chart_id] = marco
 
         self._contenido = QWidget()
         raiz = QVBoxLayout(self._contenido)
@@ -172,8 +184,46 @@ class ChartsView(QWidget):
         raiz.addWidget(self.banner)
         pista = QLabel(t("Haz clic en una categoría para filtrar el inventario."))
         pista.setObjectName("ayuda")
-        raiz.addWidget(pista)
-        raiz.addLayout(rejilla)
+        self.btn_personalizar = QPushButton(" " + t("Personalizar gráficas"))
+        self.btn_personalizar.setIcon(icono("sliders", tam=16))
+        self.btn_personalizar.setCursor(Qt.CursorShape.PointingHandCursor)
+        encabezado = QHBoxLayout()
+        encabezado.addWidget(pista, 1)
+        encabezado.addWidget(self.btn_personalizar)
+        raiz.addLayout(encabezado)
+
+        self.barra_edicion = QFrame()
+        self.barra_edicion.setObjectName("barraEdicion")
+        fila = QHBoxLayout(self.barra_edicion)
+        fila.setContentsMargins(14, 8, 8, 8)
+        fila.setSpacing(8)
+        ayuda_edicion = QLabel(t("Arrastra para reordenar. Usa ⋯ para cambiar el tamaño o quitar la gráfica."))
+        ayuda_edicion.setObjectName("ayuda")
+        self.btn_agregar = QPushButton(" " + t("Añadir gráfica"))
+        self.btn_restaurar = QPushButton(" " + t("Restaurar predeterminado"))
+        self.btn_listo = QPushButton(" " + t("Listo"))
+        self.btn_listo.setObjectName("primario")
+        self.btn_agregar.setIcon(icono("plus", tam=16))
+        self.btn_restaurar.setIcon(icono("rotate_ccw", tam=16))
+        self.btn_listo.setIcon(icono("check", color="#04130E", tam=16))
+        for b in (self.btn_agregar, self.btn_restaurar, self.btn_listo):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+        fila.addWidget(ayuda_edicion, 1)
+        fila.addWidget(self.btn_agregar)
+        fila.addWidget(self.btn_restaurar)
+        fila.addWidget(self.btn_listo)
+        self.barra_edicion.hide()
+        raiz.addWidget(self.barra_edicion)
+
+        self.vacio = QLabel(t("No hay gráficas. Pulsa «Personalizar gráficas» y luego «Añadir gráfica»."))
+        self.vacio.setObjectName("ayuda")
+        self.vacio.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vacio.hide()
+        raiz.addWidget(self.vacio)
+        self.rejilla = RejillaPersonal()
+        self.rejilla.orden_cambiado.connect(self._orden_cambiado)
+        raiz.addWidget(self.rejilla)
+        raiz.addStretch(1)
         desplazable = QScrollArea()
         desplazable.setWidgetResizable(True)
         desplazable.setFrameShape(QFrame.Shape.NoFrame)
@@ -186,6 +236,13 @@ class ChartsView(QWidget):
         self.combo_categoria.currentIndexChanged.connect(lambda _: self.refresh())
         self.combo_top.currentIndexChanged.connect(lambda _: self.refresh())
         self.btn_guardar.clicked.connect(self._elegir_archivo)
+        self.btn_personalizar.clicked.connect(lambda: self.set_edicion(True))
+        self.btn_listo.clicked.connect(lambda: self.set_edicion(False))
+        self.btn_agregar.clicked.connect(self._menu_agregar)
+        self.btn_restaurar.clicked.connect(self.restaurar)
+        self._items: list[tuple[str, str]] = prefs.predeterminado()   # (gráfica, tamaño), en el orden en pantalla
+        self._edicion = False
+        self._poner_baldosas()
 
     # ------------------------------------------------------------------ API
     def set_sesion(self, sesion: auth.Sesion | None) -> None:
@@ -193,6 +250,8 @@ class ChartsView(QWidget):
         if sesion is None:
             self._cargado = False
         else:
+            self._items = prefs.cargar(sesion.usuario)
+            self._poner_baldosas()
             self.refresh()
 
     def refresh(self) -> None:
@@ -204,6 +263,48 @@ class ChartsView(QWidget):
         self._runner.run(_cargar, self._mostrar, self.banner.show_error,
                          None if categoria == t("Todas") else categoria,
                          int(self.combo_top.currentData() or 10), key="graficas")
+
+    # ----------------------------------------------------- personalización
+    def items(self) -> list[tuple[str, str]]:
+        return list(self._items)
+
+    def set_edicion(self, si: bool) -> None:
+        self._edicion = si
+        self.rejilla.set_edicion(si)
+        self.barra_edicion.setVisible(si)
+        self.btn_personalizar.setVisible(not si)
+
+    def en_edicion(self) -> bool:
+        return self._edicion
+
+    def agregar_grafica(self, chart_id: str) -> bool:
+        if chart_id not in prefs.IDS or any(c == chart_id for c, _t in self._items):
+            return False
+        self._items.append((chart_id, prefs.TAM_INICIAL))
+        self._poner_baldosas()
+        self._persistir()
+        return True
+
+    def quitar_grafica(self, chart_id: str) -> None:
+        if all(c != chart_id for c, _t in self._items):
+            return
+        self._items = [(c, tam) for c, tam in self._items if c != chart_id]
+        self._poner_baldosas()
+        self._persistir()
+
+    def cambiar_tam(self, chart_id: str, tam: str) -> None:
+        if tam not in prefs.TAMS:
+            return
+        self._items = [(c, tam if c == chart_id else x) for c, x in self._items]
+        self.rejilla.cambiar_tam(chart_id, tam)
+        self._persistir()
+
+    def restaurar(self) -> None:
+        if self._sesion is not None:
+            self._items = prefs.restaurar(self._sesion.usuario)
+        else:
+            self._items = prefs.predeterminado()
+        self._poner_baldosas()
 
     def bar_data(self, chart_id: str) -> list[tuple[str, float]]:
         return list(self._datos[chart_id])
@@ -219,6 +320,57 @@ class ChartsView(QWidget):
         return self._contenido.grab().save(str(ruta))
 
     # ------------------------------------------------------------- internos
+    def _poner_baldosas(self) -> None:
+        """Arma la rejilla con las gráficas elegidas. Los marcos (con sus gráficas) sobreviven: se sueltan antes de
+        que la rejilla destruya las baldosas, así los datos siguen llegando aunque una gráfica esté quitada."""
+        for marco in self._marcos.values():
+            marco.hide()
+            marco.setParent(self._contenido)
+        baldosas = []
+        for chart_id, tam in self._items:
+            b = Baldosa(chart_id, "grafico", tam, self._marcos[chart_id])
+            b.menu_pedido.connect(self._menu)
+            b.quitar.connect(self.quitar_grafica)
+            baldosas.append(b)
+        self.rejilla.poner(baldosas)
+        for chart_id, _tam in self._items:
+            self._marcos[chart_id].show()
+        self.vacio.setVisible(not self._items)
+        self.rejilla.setVisible(bool(self._items))
+        faltan = len(self._items) < len(prefs.IDS)
+        self.btn_agregar.setEnabled(faltan)
+
+    def _persistir(self) -> None:
+        if self._sesion is not None:
+            prefs.guardar(self._sesion.usuario, self._items)
+
+    def _orden_cambiado(self, ids: list[str]) -> None:
+        tam = dict(self._items)
+        self._items = [(i, tam[i]) for i in ids if i in tam]
+        self._persistir()
+
+    def _menu(self, chart_id: str) -> None:
+        tam_actual = dict(self._items).get(chart_id)
+        m = QMenu(self)
+        tam = m.addMenu(t("Tamaño"))
+        for x in prefs.TAMS:
+            a = tam.addAction(t(NOMBRE_TAMANO[x]), lambda v=x: self.cambiar_tam(chart_id, v))
+            a.setCheckable(True)
+            a.setChecked(tam_actual == x)
+        m.addSeparator()
+        m.addAction(t("Quitar de Gráficas"), lambda: self.quitar_grafica(chart_id))
+        m.exec(QCursor.pos())
+
+    def _menu_agregar(self) -> None:
+        puestas = {c for c, _t in self._items}
+        m = QMenu(self)
+        for chart_id in prefs.IDS:
+            if chart_id not in puestas:
+                m.addAction(t(TITULOS[chart_id]), lambda c=chart_id: self.agregar_grafica(c))
+        if m.isEmpty():
+            m.addAction(t("Ya están todas las gráficas")).setEnabled(False)
+        m.exec(self.btn_agregar.mapToGlobal(self.btn_agregar.rect().bottomLeft()))
+
     def _mostrar(self, datos: dict) -> None:
         self._cargado = True
         actual = self.combo_categoria.currentText()
