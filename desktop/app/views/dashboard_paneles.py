@@ -6,6 +6,7 @@ fuera. Las vistas previas del catálogo son pictogramas del tipo de visualizaci�
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Callable
 
 from PyQt6.QtCore import QDate, QEvent, QPointF, QRectF, Qt, pyqtSignal
@@ -23,7 +24,7 @@ from .isla import isla
 
 registrar({
     "Agregar widget": "Add widget", "Catálogo de widgets": "Widget catalog", "Todos": "All", "Agregar": "Add",
-    "Ya agregado": "Already added", "Listo": "Done", "Configurar gráfico": "Configure chart",
+    "Ya agregado": "Already added", "Agregar otro": "Add another", "En tu dashboard": "In your dashboard", "Listo": "Done", "Configurar gráfico": "Configure chart",
     "Nombre del gráfico": "Chart name", "Fuente de datos": "Data source", "Visualización": "Visualization",
     "Período": "Period", "Desde": "From", "Hasta": "To", "Agrupación": "Grouping", "Orden": "Order",
     "Elementos mostrados": "Items shown", "Todos los elementos": "All items", "Mostrar leyenda": "Show legend",
@@ -205,7 +206,7 @@ class CatalogoWidgets(Hoja):
     def __init__(self, ventana: QWidget) -> None:
         super().__init__(ventana, 820, 600)
         self._sesion = None
-        self._en_uso: set[str] = set()
+        self._en_uso: Counter[str] = Counter()     # clave -> cuántas veces está ya en el dashboard
         self._categoria = "Todos"
         self._cabecera(t("Catálogo de widgets"), t("Elige qué quieres ver en tu dashboard. Solo hay información real del sistema."))
         cuerpo = QHBoxLayout()
@@ -247,13 +248,14 @@ class CatalogoWidgets(Hoja):
         pie.addWidget(self.btn_listo)
         self.cuerpo.addLayout(pie)
 
-    def abrir_con(self, sesion, en_uso: set[str]) -> None:
-        self._sesion, self._en_uso = sesion, set(en_uso)
+    def abrir_con(self, sesion, en_uso) -> None:
+        """``en_uso``: las claves de los widgets que ya hay (una por widget; un gráfico repetido cuenta cada vez)."""
+        self._sesion, self._en_uso = sesion, Counter(en_uso)
         self._pintar()
         self.abrir()
 
     def marcar_en_uso(self, clave: str) -> None:
-        self._en_uso.add(clave)
+        self._en_uso[clave] += 1
         self._pintar()
 
     def _elegir(self, nombre: str) -> None:
@@ -289,14 +291,18 @@ class CatalogoWidgets(Hoja):
         desc = QLabel(t(d.descripcion))
         desc.setObjectName("ayuda")
         desc.setWordWrap(True)
-        etiqueta = QLabel(f"{t(d.categoria)} · {t({'kpi': 'Indicador', 'panel': 'Panel', 'grafico': 'Gráfico'}[d.tipo])}")
+        usos = self._en_uso[d.clave]
+        pie = f"{t(d.categoria)} · {t({'kpi': 'Indicador', 'panel': 'Panel', 'grafico': 'Gráfico'}[d.tipo])}"
+        if usos and not d.unico:
+            pie += f" · {t('En tu dashboard')}: {usos}"
+        etiqueta = QLabel(pie)
         etiqueta.setObjectName("cardDetalle")
         texto.addWidget(nombre)
         texto.addWidget(desc)
         texto.addWidget(etiqueta)
         fila.addLayout(texto, 1)
-        ya = d.unico and d.clave in self._en_uso
-        boton = QPushButton(t("Ya agregado") if ya else t("Agregar"))
+        ya = d.unico and usos > 0
+        boton = QPushButton(t("Ya agregado") if ya else t("Agregar otro") if usos else t("Agregar"))
         boton.setEnabled(not ya)
         boton.setObjectName("primario" if not ya else "")
         boton.setCursor(Qt.CursorShape.PointingHandCursor)
