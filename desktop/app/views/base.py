@@ -116,7 +116,7 @@ QLineEdit[valido="true"] { border: 1px solid #10B981; }
 QLineEdit[invalido="true"] { border: 1px solid #F87171; }
 QLineEdit[invalido="true"]:focus { border: 2px solid #F87171; padding: 6px 9px; }
 QLineEdit[valido="true"]:focus { border: 2px solid #10B981; padding: 6px 9px; }
-QComboBox::drop-down, QSpinBox::up-button, QSpinBox::down-button { border: none; width: 22px; background: transparent; }
+QComboBox::drop-down, QDateEdit::drop-down, QSpinBox::up-button, QSpinBox::down-button { border: none; width: 22px; background: transparent; }
 QComboBox QAbstractItemView { background: #111111; border: 1px solid #2E2E2E; selection-background-color: #10261F;
                               selection-color: #EDEDED; outline: none; }
 QProgressBar { border: none; background: #232323; border-radius: 4px; height: 8px; }
@@ -461,7 +461,7 @@ def estilo() -> str:
         _FLECHAS["palomita"] = ruta.as_posix()
     return ESTILO + f"""
 QCheckBox::indicator:checked {{ image: url({_FLECHAS["palomita"]}); }}
-QComboBox::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 14px; height: 14px; margin-right: 8px; }}
+QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 14px; height: 14px; margin-right: 8px; }}
 QSpinBox::up-arrow {{ image: url({_FLECHAS["arriba"]}); width: 10px; height: 10px; }}
 QSpinBox::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 10px; height: 10px; }}
 """
