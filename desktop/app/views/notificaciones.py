@@ -47,6 +47,9 @@ def _fecha(f) -> str:
     return f"{f:%d/%m %H:%M}"
 
 
+RELLENO_CELDA = 22   # 2 × 10 px de `QTableWidget::item { padding: 0 10px }` + 2 de holgura
+
+
 class NotificacionesView(QWidget):
     ir_a = pyqtSignal(str)       # «Ver»: el título de la pantalla relacionada
     cambiaron = pyqtSignal()     # se marcó algo como leído
@@ -80,10 +83,12 @@ class NotificacionesView(QWidget):
         self.tabla.verticalHeader().setDefaultSectionSize(36)
         cabecera = self.tabla.horizontalHeader()
         cabecera.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        for c in (0, 1):
-            cabecera.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        cabecera.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)   # ResizeToContents no cuenta el botón de la celda
-        self.tabla.setColumnWidth(3, 92)
+        cabecera.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        # El punto de «sin leer» y el botón «Ver» tienen ancho propio: ResizeToContents no cuenta los widgets de celda
+        # y el texto se cortaba; el ancho de «Ver» se calcula con la fuente real al llenar la tabla.
+        for c in (0, 3):
+            cabecera.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
+        self.tabla.setColumnWidth(0, 30)
 
         tarjeta = QFrame()
         tarjeta.setObjectName("card")
@@ -126,7 +131,8 @@ class NotificacionesView(QWidget):
                 for f in range(self.tabla.rowCount())]
 
     def boton_ver(self, fila: int) -> QPushButton | None:
-        return self.tabla.cellWidget(fila, 3)
+        celda = self.tabla.cellWidget(fila, 3)
+        return celda.findChild(QPushButton) if celda is not None else None
 
     # ------------------------------------------------------------- internos
     def _mostrar(self, lista) -> None:
@@ -138,6 +144,7 @@ class NotificacionesView(QWidget):
         solo = self.combo_filtro.currentText() == t(SIN_LEER)
         self._visibles = [n for n in self._todas if not (solo and n.leida)]
         self.tabla.setRowCount(len(self._visibles))
+        ancho = 0
         for f, n in enumerate(self._visibles):
             punto = QTableWidgetItem("" if n.leida else "●")
             if not n.leida:
@@ -154,12 +161,21 @@ class NotificacionesView(QWidget):
                 boton = QPushButton(t("Ver"))
                 boton.setObjectName("verAviso")
                 boton.setCursor(Qt.CursorShape.PointingHandCursor)
-                boton.setFixedHeight(26)
+                boton.setFixedHeight(24)
+                boton.ensurePolished()   # toma su fuente de la hoja de estilo antes de medir el texto
+                necesario = boton.fontMetrics().horizontalAdvance(boton.text()) + 24 + 2 + 8   # relleno + borde + holgura
+                boton.setMinimumWidth(necesario)
                 boton.clicked.connect(lambda _c=False, x=n: self._ver(x))
-                self.tabla.setCellWidget(f, 3, boton)
+                celda = QWidget()
+                en_celda = QHBoxLayout(celda)
+                en_celda.setContentsMargins(0, 0, 0, 0)
+                en_celda.addWidget(boton)
+                self.tabla.setCellWidget(f, 3, celda)
+                ancho = max(ancho, necesario + RELLENO_CELDA)
             else:
                 self.tabla.removeCellWidget(f, 3)
                 self.tabla.setItem(f, 3, QTableWidgetItem(""))
+        self.tabla.setColumnWidth(3, max(ancho, 64))   # el QSS da 10 px de relleno por lado a cada celda
         if not self._visibles:
             self.banner.show_empty(t("No hay notificaciones sin leer.") if solo else t("Aún no hay notificaciones."))
         self.btn_todas.setEnabled(any(not n.leida for n in self._todas))

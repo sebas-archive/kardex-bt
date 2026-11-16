@@ -80,7 +80,7 @@ QFrame#panelMarca QLabel { color: #FFFFFF; background: transparent; }
 QLabel#tituloAcceso { font-size: 22px; font-weight: 600; background: transparent; }
 QFrame#card QStackedWidget, QWidget#formulario { background: #111111; }
 QPushButton#verAviso { border: 1px solid #10B981; border-radius: 6px; background: transparent; color: #34D399;
-                       font-weight: 700; padding: 2px 14px; margin: 3px 8px; }
+                       font-weight: 700; font-size: 12px; padding: 2px 12px; }
 QPushButton#verAviso:hover { background: #10B981; color: #04130E; }
 QPushButton#enlace { border: none; background: transparent; color: #34D399; font-weight: 600; padding: 4px; }
 QPushButton#enlace:hover { color: #6EE7B7; background: transparent; }
