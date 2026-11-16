@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHeaderView, QLabel, 
 from .. import auth, permisos
 from ..i18n import t
 from .base import QueryRunner, StateBanner
+from .isla import isla
 
 
 class RolesView(QWidget):
@@ -90,7 +91,8 @@ class RolesView(QWidget):
     def _guardar(self, rol: str, modulo: str, nivel: str) -> None:
         # Si falla (p. ej. sin permiso), se muestra el error y se vuelve a leer la matriz para no mentir en pantalla.
         self.banner.clear()
-        self._runner.run(permisos.guardar, lambda _: None, self._fallo, self._sesion, rol, modulo, nivel, key="guardarPermiso")
+        self._runner.run(permisos.guardar, lambda _: isla.exito(t("Permiso actualizado")), self._fallo,
+                         self._sesion, rol, modulo, nivel, key="guardarPermiso")
 
     def _fallo(self, mensaje: str) -> None:
         self._error = t("No se pudo guardar el cambio. Se volvió a leer la matriz.") + f" {mensaje}"

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit
 from .. import auth, configuracion
 from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
+from .isla import isla
 
 registrar({
     "Configuración general": "General settings",
@@ -122,7 +123,7 @@ class ConfiguracionView(QWidget):
         return self._campos[clave]
 
     def banner_texto(self) -> str:
-        return self.lbl_error.text() if not self.lbl_error.isHidden() else self.banner.text()
+        return self.lbl_error.text() or self.banner.text()
 
     # ------------------------------------------------------------- internos
     def _sucio(self) -> bool:
@@ -141,7 +142,7 @@ class ConfiguracionView(QWidget):
     def _guardar(self) -> None:
         if self._sesion is None:
             return
-        self.lbl_error.hide()
+        self.lbl_error.setText("")
         self.btn_guardar.setEnabled(False)
         cambios = {k: e.text() for k, e in self._campos.items()}
         self._runner.run(configuracion.guardar, self._guardado, self._error, self._sesion, cambios)
@@ -150,9 +151,10 @@ class ConfiguracionView(QWidget):
         self.btn_guardar.setEnabled(True)
         self._mostrar(valores)
         self.lbl_info.setText(t("Guardado."))
-        self.lbl_info.show()
+        isla.exito(t("Cambios guardados"), t("La configuración se guardó correctamente."))
 
     def _error(self, mensaje: str) -> None:
         self.btn_guardar.setEnabled(True)
-        self.lbl_error.setText(mensaje)
-        self.lbl_error.setVisible(bool(mensaje))
+        self.lbl_error.setText(mensaje)  # consultable; el aviso se muestra en la Isla
+        if mensaje:
+            isla.error(t("No se pudo guardar la configuración"), mensaje)

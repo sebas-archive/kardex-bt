@@ -50,7 +50,8 @@ from .views.roles import RolesView
 from .views.solicitudes import SolicitudesView
 from .views.sync import SyncView
 from .views.usuarios import UsuariosView
-from .views.widgets import Aviso, Transicion
+from .views.isla import isla
+from .views.widgets import Transicion
 
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
 ANCHO_MAXIMO_CONTENIDO = 1440
@@ -80,7 +81,9 @@ class MainWindow(QMainWindow):
         self._runner = QueryRunner(self)
         self._sesion: auth.Sesion | None = None
         self._secciones: list[tuple[str, QWidget, QPushButton, str, tuple[str, ...] | None]] = []
-        self._avisos: list[Aviso] = []
+        self._oracle_caido = False
+        self._id_sync: int | None = None   # proceso «Sincronizando…» abierto en la Isla
+        self._bt_antes = ""
         self._sin_leer = 0
         self._colapsada = False
         self._colapso_manual = False
@@ -234,6 +237,7 @@ class MainWindow(QMainWindow):
         self._raiz.addWidget(aplicacion)
         self._raiz.addWidget(self.estado_cuenta)
         self.setCentralWidget(self._raiz)
+        isla.instalar(self)   # la Isla vive dentro de la ventana: es el único canal de avisos
         self._instalar_atajos()
 
         self.acceso.entro.connect(self.iniciar)
@@ -402,6 +406,9 @@ class MainWindow(QMainWindow):
         for _titulo, vista, _boton, _modulo, _roles in self._secciones:
             if hasattr(vista, "set_sesion"):
                 vista.set_sesion(None)
+        isla.quitar_estado("oracle")
+        isla.quitar_estado("bluetooth")
+        self._oracle_caido = False
         self.acceso.limpiar()
         self._raiz.setCurrentIndex(0)
         self.sesion_cambiada.emit(None)
@@ -521,40 +528,29 @@ class MainWindow(QMainWindow):
     def conectar_servicio(self, remoto: ServicioRemoto) -> None:
         """Refleja el estado del servicio Bluetooth en el encabezado y avisa cuando termina una sincronización."""
         remoto.status_changed.connect(self._estado_bluetooth)
-        remoto.listo.connect(lambda: self.avisar(self._texto_listo(remoto.status())))
+        remoto.listo.connect(lambda: self._sync_listo(remoto.status()))
         self._estado_bluetooth(remoto.status())
 
     def tras_restaurar(self) -> None:
         self.cerrar_sesion()
         self.avisar(i18n.t("Respaldo restaurado. Reanuda el servicio Bluetooth cuando quieras."), "info")
 
-    def avisar(self, texto: str, tipo: str = "ok", duracion_ms: int = 4200) -> None:
-        """Aviso flotante que sube desde la esquina inferior derecha y se apila."""
-        self._avisos = [a for a in self._avisos if self._vivo(a)]
-        aviso = Aviso(texto, tipo, self)
-        aviso.cerrado.connect(self._reacomodar_avisos)
-        ocupados = sum(a.height() + 10 for a in self._avisos)
-        aviso.mostrar(self.height() - aviso.height() - 24 - ocupados, duracion_ms)
-        self._avisos.append(aviso)
+    TIPO_ISLA = {"ok": "exito", "error": "error", "info": "info", "aviso": "advertencia", "warning": "advertencia"}
 
-    def _reacomodar_avisos(self, _aviso=None) -> None:
-        self._avisos = [a for a in self._avisos if self._vivo(a)]
-        ocupados = 0
-        for aviso in reversed(self._avisos):
-            destino = self.height() - aviso.height() - 24 - ocupados
-            if abs(aviso.y() - destino) > 1:
-                aviso.move(aviso.x(), destino)
-            ocupados += aviso.height() + 10
+    def avisar(self, texto: str, tipo: str = "ok", duracion_ms: int | None = None) -> None:
+        """Comunica algo a la persona por la Isla (arriba al centro). ``tipo``: ok, error, info o aviso."""
+        getattr(isla, self.TIPO_ISLA.get(tipo, "info"))(texto, duracion_ms=duracion_ms)
 
     def avisos_visibles(self) -> list[str]:
-        return [a.texto for a in self._avisos if self._vivo(a)]
+        return isla.textos()
 
-    @staticmethod
-    def _vivo(aviso: Aviso) -> bool:
-        try:
-            return not aviso.isHidden()
-        except RuntimeError:
-            return False
+    def _sync_listo(self, status: dict) -> None:
+        texto = self._texto_listo(status)
+        if self._id_sync is not None:
+            isla.actualizar(self._id_sync, "exito", texto)
+            self._id_sync = None
+        else:
+            isla.exito(texto)
 
     @staticmethod
     def _texto_listo(status: dict) -> str:
@@ -577,8 +573,34 @@ class MainWindow(QMainWindow):
             "LISTO": ("listo", "ok"), "ERROR": ("error", "error"), "PAUSANDO": ("pausando", "activo"),
             "PAUSADO": ("en pausa", ""), "DETENIDO": ("servicio detenido", "error"),
         }
-        texto, estado = textos.get(status["estado"], (status["estado"].lower(), ""))
-        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), estado)
+        estado = status["estado"]
+        texto, tono = textos.get(estado, (estado.lower(), ""))
+        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), tono)
+        self._avisar_bluetooth(estado, status)
+
+    def _avisar_bluetooth(self, estado: str, status: dict) -> None:
+        """Bluetooth en la Isla: los estados que duran son persistentes y solo cambian cuando cambia la condición."""
+        antes, self._bt_antes = self._bt_antes, estado
+        if self._sesion is None:
+            return
+        if estado == "ERROR":
+            isla.estado("bluetooth", "error", i18n.t("Error en el servicio Bluetooth"), status.get("ultimo_error") or "")
+        elif estado == "DETENIDO":
+            isla.estado("bluetooth", "advertencia", i18n.t("Servicio Bluetooth detenido"),
+                        i18n.t("Los teléfonos no podrán enviar lecturas."))
+        elif estado == "PAUSADO":
+            isla.estado("bluetooth", "info", i18n.t("Servicio Bluetooth en pausa"))
+        else:
+            isla.quitar_estado("bluetooth")
+        if estado in ("RECIBIENDO", "PROCESANDO") and self._id_sync is None:
+            self._id_sync = isla.cargando(i18n.t("Sincronizando inventario"), i18n.t("Recibiendo lecturas del teléfono…"))
+        elif estado == "ERROR" and self._id_sync is not None:
+            isla.actualizar(self._id_sync, "error", i18n.t("Error en la sincronización"), status.get("ultimo_error") or "")
+            self._id_sync = None
+        if estado == "CONECTADO" and antes != "CONECTADO":
+            isla.info(i18n.t("Celular conectado"), i18n.t("Listo para recibir el conteo."), clave="bt-conexion")
+        elif antes in ("CONECTADO", "RECIBIENDO") and estado in ("IDLE", "ESPERANDO_EMPAREJAMIENTO"):
+            isla.advertencia(i18n.t("Celular desconectado"), clave="bt-conexion")
 
     # ------------------------------------------------------------------ Oracle y encabezado
     def comprobar_oracle(self) -> None:
@@ -592,10 +614,16 @@ class MainWindow(QMainWindow):
         self.lbl_actualizado.setText(i18n.t("Actualizado {hora}", hora=f"{ahora:%H:%M:%S}"))
         self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
         self.banner.clear()
+        if self._oracle_caido:
+            self._oracle_caido = False
+            isla.quitar_estado("oracle")
+            isla.exito(i18n.t("Oracle conectado"), i18n.t("La conexión se restableció."))
 
     def _oracle_fallo(self, mensaje: str) -> None:
         self._poner_chip(self.chip_oracle, i18n.t("Oracle: sin conexión"), "error")
-        self.banner.show_error(mensaje)
+        self.banner.registrar(i18n.t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
+        self._oracle_caido = True
+        isla.estado("oracle", "error", i18n.t("Oracle sin conexión"), mensaje)
 
     # ------------------------------------------------------------------ lateral
     def _alternar_manual(self) -> None:

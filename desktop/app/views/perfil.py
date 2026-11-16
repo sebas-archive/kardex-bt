@@ -20,6 +20,7 @@ from ..i18n import t
 from ..tema import NOMBRE_MODO
 from . import components
 from .base import QueryRunner
+from .isla import isla
 from .foto import (EditorFoto, borrar_perfil, elegir_imagen, formato_valido, guardar_perfil, pixmap_avatar,
                    pixmap_inicial)
 
@@ -237,11 +238,11 @@ class PerfilView(QWidget):
         self._resultado(mensaje, False)
 
     def _resultado(self, mensaje: str, ok: bool) -> None:
-        self.lbl_resultado.setObjectName("avisoFormulario" if ok else "errorFormulario")
-        self.lbl_resultado.style().unpolish(self.lbl_resultado)
-        self.lbl_resultado.style().polish(self.lbl_resultado)
-        self.lbl_resultado.setText(t(mensaje))
-        self.lbl_resultado.show()
+        self.lbl_resultado.setText(t(mensaje))  # consultable; el aviso lo muestra la Isla
+        if ok:
+            isla.exito(t("Contraseña actualizada"), t(mensaje))
+        else:
+            isla.error(t("No se pudo cambiar la contraseña"), t(mensaje))
 
     # ------------------------------------------------------------- foto
     def _elegir_foto(self) -> None:
@@ -316,12 +317,11 @@ class PerfilView(QWidget):
         self._aviso_foto(t("Se volverá a mostrar tu inicial."), False)
 
     def _aviso_foto(self, mensaje: str, error: bool) -> None:
-        self.lbl_foto_aviso.setObjectName("errorFormulario" if error else "avisoFormulario")
-        self.lbl_foto_aviso.style().unpolish(self.lbl_foto_aviso)
-        self.lbl_foto_aviso.style().polish(self.lbl_foto_aviso)
-        self.lbl_foto_aviso.setText(t(mensaje))
-        self.lbl_foto_aviso.show()
-        QTimer.singleShot(5000, self.lbl_foto_aviso.hide)
+        self.lbl_foto_aviso.setText(t(mensaje))  # consultable; el aviso lo muestra la Isla
+        if error:
+            isla.error(t("No se pudo actualizar la foto"), t(mensaje))
+        else:
+            isla.exito(t("Foto de perfil"), t(mensaje))
 
     # ------------------------------------------------------------- tema e idioma
     def _guardar_tema(self, _indice: int) -> None:
@@ -334,6 +334,7 @@ class PerfilView(QWidget):
 
     def _tema_listo(self, modo: str) -> None:
         self.lbl_pref.hide()
+        isla.info(t("Apariencia actualizada"))
         self.tema_cambiado.emit(modo)
 
     def _guardar_idioma(self, _indice: int) -> None:
@@ -346,12 +347,12 @@ class PerfilView(QWidget):
 
     def _idioma_listo(self, idioma: str) -> None:
         self.lbl_pref.hide()
+        isla.info(t("Idioma actualizado"))
         self.idioma_cambiado.emit(idioma)
 
     def _pref_fallo(self, mensaje: str, combo: QComboBox, anterior: str) -> None:
         combo.blockSignals(True)
         combo.setCurrentIndex(max(0, combo.findData(anterior)))
         combo.blockSignals(False)
-        self.lbl_pref.setObjectName("errorFormulario")
         self.lbl_pref.setText(t("No se pudo guardar la preferencia.") + f" {mensaje}")
-        self.lbl_pref.show()
+        isla.error(t("No se pudo guardar la preferencia"), mensaje)
