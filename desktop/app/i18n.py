@@ -223,6 +223,39 @@ _EN: dict[str, str] = {
     "No se pudo consultar la base de datos.": "The database could not be reached.",
     "Reanudar el servicio Bluetooth cuando quieras.": "Resume the Bluetooth service whenever you want.",
     "Respaldo restaurado.": "Backup restored.",
+    # ------------------------------------------------ aviso flotante «Nuevo SKU»
+    "Nuevo SKU": "New SKU",
+    "Crear y procesar": "Create and process",
+    "No crear": "Don't create",
+    "SKU": "SKU",
+    "Sin SKU": "No SKU",
+    "Nombre del producto": "Product name",
+    "Categoría": "Category",
+    "1 lectura": "1 reading",
+    "{n} lecturas": "{n} readings",
+    "última {fecha}": "last {fecha}",
+    "+{n} más": "+{n} more",
+    "El SKU viene en la lectura; no se puede cambiar.": "The SKU comes from the reading; it cannot be changed.",
+    "El SKU no está en el catálogo. Al crearlo se le asigna stock 0 y la lectura se procesa.":
+        "The SKU is not in the catalog. Creating it sets stock 0 and processes the reading.",
+    "El nombre y la categoría son obligatorios.": "Name and category are required.",
+    "¿No tomar la lectura?": "Don't take the reading?",
+    "El SKU {sku} no se contará.": "SKU {sku} will not be counted.",
+    "SKU creado": "SKU created",
+    "lectura procesada": "reading processed",
+    "Lectura descartada": "Reading discarded",
+    # ------------------------------------------------ Sincronización: SKU nuevos
+    "Nuevos SKU": "New SKUs",
+    "Nuevos SKU: {n}": "New SKUs: {n}",
+    "No hay SKU nuevos pendientes de decisión.": "There are no new SKUs waiting for a decision.",
+    "Los SKU nuevos esperan tu decisión en el aviso flotante («Crear y procesar» o «No crear»). "
+    "Ya no cuentan como error.":
+        "New SKUs wait for your decision in the floating notice (“Create and process” or “Don't create”). "
+        "They no longer count as errors.",
+    "· último procesamiento {fecha} UTC ({origen}) · {pendientes} pendientes, {errores} con error, "
+    "{nuevos} nuevos, {descartados} descartados":
+        "· last run {fecha} UTC ({origen}) · {pendientes} pending, {errores} with error, "
+        "{nuevos} new, {descartados} discarded",
     # ------------------------------------------------ misc
     "Sí": "Yes",
     "No": "No",

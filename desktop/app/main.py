@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
     QButtonGroup,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -35,6 +36,7 @@ from . import auth, configuracion, db, i18n, notificaciones, permisos, tema
 from .servicio_remoto import ServicioRemoto
 from .views.acceso import AccesoView
 from .views.auditoria import AuditoriaView
+from .views.aviso_nuevo_sku import AvisoNuevoSku, DialogoNuevoSku
 from .views.base import QueryRunner, StateBanner, estilo
 from .views.charts import ChartsView
 from .views.configuracion import ConfiguracionView
@@ -91,6 +93,11 @@ class MainWindow(QMainWindow):
         self._colapso_manual = False
         self._auto_colapsada = False
         self._registrar_vistas: Callable[[], None] | None = None
+        # Aviso flotante «Nuevo SKU»: sondeo propio (2,8 s) y sin solapar consultas.
+        self._nuevos_sku: list = []
+        self._consultando_nuevos = False
+        self._nuevo_sku_en_curso = False
+        self._aviso_automatico = auto_refresh_ms > 0   # en las pruebas (0) no se sondea en segundo plano
 
         # ------------------------------------------------------------ barra lateral
         self.marca = QLabel(i18n.t("Inventario"))
@@ -241,6 +248,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._raiz)
         isla.instalar(self)   # la Isla vive dentro de la ventana: es el único canal de avisos
         vigilante.instalar()  # estados vacíos de tablas y diálogos con el mismo acabado
+        # Aviso flotante «Nuevo SKU»: overlay (no ocupa lugar en el layout) sobre el contenido, arriba a la derecha.
+        self.aviso_nuevo_sku = AvisoNuevoSku(self)
+        self.aviso_nuevo_sku.crear_solicitado.connect(self._crear_nuevo_sku)
+        self.aviso_nuevo_sku.descartar_solicitado.connect(self._descartar_nuevo_sku)
         # Notificaciones flotantes: la campana abre el panel y «Ver todo» abre la vista extendida (sin pestaña).
         self.bandeja = PopoverNotificaciones(self)
         self.hoja_notificaciones = HojaNotificaciones(self)
@@ -265,6 +276,11 @@ class MainWindow(QMainWindow):
             self._timer.setInterval(auto_refresh_ms)
             self._timer.timeout.connect(lambda: self.refresh_requested.emit() if self._sesion else None)
             self._timer.start()
+        # Sondeo del aviso «Nuevo SKU»: solo con sesión abierta y solo si la app refresca sola (en pruebas, 0).
+        self._timer_nuevos = QTimer(self)
+        if self._aviso_automatico:
+            self._timer_nuevos.setInterval(2800)
+            self._timer_nuevos.timeout.connect(self._consultar_nuevos_sku)
         self.refresh_requested.connect(self.contar_notificaciones)
         if sesion is not None:
             self.iniciar(sesion)
@@ -357,6 +373,7 @@ class MainWindow(QMainWindow):
         self.btn_salir.setIcon(icono("salir"))
         self.btn_avisos.setIcon(icono("campana_aviso" if self._sin_leer else "campana"))
         self._actualizar_boton_tema()
+        self.aviso_nuevo_sku.reestilizar()
         self.update()
         QTimer.singleShot(0, self._reconstruir_vistas)
 
@@ -375,6 +392,7 @@ class MainWindow(QMainWindow):
         self.btn_actualizar.setText(i18n.t("Actualizar"))
         self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
         self._actualizar_boton_tema()
+        self.aviso_nuevo_sku.retraducir()
         QTimer.singleShot(0, self._reconstruir_vistas)
 
     def retranslate(self) -> None:
@@ -386,6 +404,10 @@ class MainWindow(QMainWindow):
 
     def iniciar(self, sesion: auth.Sesion) -> None:
         """Entra a la aplicación con esa sesión: aplica sus preferencias y muestra las secciones de su rol."""
+        from dataclasses import replace
+
+        tema_temporal, idioma_temporal = self.acceso.preferencias_temporales()
+        sesion = replace(sesion, tema=tema_temporal or sesion.tema, idioma=idioma_temporal or sesion.idioma)
         self._sesion = sesion
         self.bandeja.set_sesion(sesion)
         vista_avisos = getattr(self, "_vista_avisos", None)
@@ -407,6 +429,9 @@ class MainWindow(QMainWindow):
         self.sesion_cambiada.emit(sesion)
         self.comprobar_oracle()
         self.contar_notificaciones()
+        if self._aviso_automatico:
+            self._timer_nuevos.start()
+            self._consultar_nuevos_sku()
         if sesion.aviso_clave:
             self.avisar(f"{i18n.t('Tu solicitud de contraseña fue rechazada:')} {sesion.aviso_clave}", "error")
             self._runner.run(auth.consumir_aviso_clave, lambda _: None, lambda _m: None, sesion.usuario)
@@ -422,6 +447,9 @@ class MainWindow(QMainWindow):
 
     def cerrar_sesion(self) -> None:
         self._sesion = None
+        self._timer_nuevos.stop()
+        self._nuevos_sku = []
+        self.aviso_nuevo_sku.ocultar()
         for _titulo, vista, _boton, _modulo, _roles in self._secciones:
             if hasattr(vista, "set_sesion"):
                 vista.set_sesion(None)
@@ -569,6 +597,89 @@ class MainWindow(QMainWindow):
                                        else i18n.t("{n} notificaciones sin leer", n=cantidad))
         else:
             self.btn_avisos.setToolTip(i18n.t("Sin notificaciones sin leer"))
+
+    # ------------------------------------------------------------------ aviso «Nuevo SKU»
+    def _consultar_nuevos_sku(self) -> None:
+        """Sondea las lecturas de SKU desconocido (NUEVO_SKU) sin solapar consultas y fuera del hilo de UI."""
+        if self._sesion is None or self._consultando_nuevos:
+            return
+        self._consultando_nuevos = True
+        self._runner.run(db.fetch_nuevos_sku, self._mostrar_nuevos_sku, self._fallo_nuevos_sku, key="nuevos-sku")
+
+    def _mostrar_nuevos_sku(self, filas) -> None:
+        self._consultando_nuevos = False
+        if self._sesion is None:
+            self.aviso_nuevo_sku.ocultar()
+            return
+        antes = {fila.id_transito for fila in self._nuevos_sku}
+        self._nuevos_sku = list(filas or [])
+        self.aviso_nuevo_sku.mostrar(self._nuevos_sku)
+        # El backfill de ``fetch_nuevos_sku`` dejó el aviso en la campana: si el conjunto de pendientes
+        # cambió, el contador sube ya, sin esperar al refresco global.
+        if {fila.id_transito for fila in self._nuevos_sku} != antes:
+            self.contar_notificaciones()
+
+    def _fallo_nuevos_sku(self, _mensaje: str) -> None:
+        """No se repite aquí el error de Oracle: el chip/aviso persistente ya lo informa cada 5 s."""
+        self._consultando_nuevos = False
+
+    def _crear_nuevo_sku(self, sku: str) -> None:
+        """«Crear y procesar»: pide nombre y categoría y da de alta el SKU con su lectura."""
+        if self._sesion is None or self._nuevo_sku_en_curso:
+            return
+        dialogo = DialogoNuevoSku(sku, self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
+        sku, nombre, categoria = dialogo.datos()
+        self._nuevo_sku_en_curso = True
+        self.aviso_nuevo_sku.setEnabled(False)
+        self._runner.run(db.nuevo_sku_alta, lambda _r: self._nuevo_sku_creado(sku),
+                         self._nuevo_sku_fallo, self._sesion, sku, nombre, categoria, key="alta-nuevo-sku")
+
+    def _nuevo_sku_creado(self, sku: str) -> None:
+        self._nuevo_sku_en_curso = False
+        self.aviso_nuevo_sku.setEnabled(True)
+        self.aviso_nuevo_sku.olvidar(sku)
+        isla.exito(i18n.t("SKU creado"), f"{sku} · {i18n.t('lectura procesada')}")
+        self._refrescar_vista_actual()
+        self._consultar_nuevos_sku()
+
+    def _nuevo_sku_fallo(self, mensaje: str) -> None:
+        """El aviso se queda para reintentar o descartar; el motivo va a la Isla."""
+        self._nuevo_sku_en_curso = False
+        self.aviso_nuevo_sku.setEnabled(True)
+        isla.error(mensaje)
+
+    def _descartar_nuevo_sku(self, sku: str) -> None:
+        """«No crear»: confirma y descarta la lectura (no se cuenta)."""
+        if self._sesion is None or self._nuevo_sku_en_curso:
+            return
+        sku = (sku or "").strip().upper()
+        isla.confirmar(i18n.t("¿No tomar la lectura?"), i18n.t("El SKU {sku} no se contará.", sku=sku),
+                       al_confirmar=lambda: self._ejecutar_descarte(sku), verbo=i18n.t("No crear"))
+
+    def _ejecutar_descarte(self, sku: str) -> None:
+        if self._sesion is None or self._nuevo_sku_en_curso:
+            return
+        self._nuevo_sku_en_curso = True
+        self.aviso_nuevo_sku.setEnabled(False)
+        self._runner.run(db.descartar_nuevo_sku, lambda _r: self._nuevo_sku_descartado(sku),
+                         self._nuevo_sku_fallo, self._sesion, sku, key="descarte-nuevo-sku")
+
+    def _nuevo_sku_descartado(self, sku: str) -> None:
+        self._nuevo_sku_en_curso = False
+        self.aviso_nuevo_sku.setEnabled(True)
+        self.aviso_nuevo_sku.olvidar(sku)
+        isla.info(i18n.t("Lectura descartada"), sku)
+        self._refrescar_vista_actual()
+        self._consultar_nuevos_sku()
+
+    def _refrescar_vista_actual(self) -> None:
+        """Tras crear o descartar, la pantalla abierta vuelve a leer sus datos (sin esperar al refresco global)."""
+        vista = self.paginas.currentWidget()
+        refrescar = getattr(vista, "refresh", None)
+        if callable(refrescar):
+            refrescar()
 
     def conectar_servicio(self, remoto: ServicioRemoto) -> None:
         """Refleja el estado del servicio Bluetooth en el encabezado y avisa cuando termina una sincronización."""
@@ -763,6 +874,24 @@ class MainWindow(QMainWindow):
             titulo = next((t for t, _v, _b, modulo, _r in self._secciones if modulo == actual), None)
             if titulo is not None:
                 self.ir_a(titulo)
+        self._repulir_navegacion()
+
+    def _repulir_navegacion(self) -> None:
+        """Vuelve a aplicar la hoja de estilo a la barra: los botones recién creados tras un cambio de tema o idioma
+        pueden quedar sin las reglas de ``#nav`` (texto centrado, iconos desalineados) hasta el siguiente repintado."""
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.style().unpolish(boton)
+            boton.style().polish(boton)
+            boton.updateGeometry()
+        self._lateral.updateGeometry()
+        self._lateral.update()
+        QTimer.singleShot(0, self._repulir_navegacion_diferido)
+
+    def _repulir_navegacion_diferido(self) -> None:
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.style().unpolish(boton)
+            boton.style().polish(boton)
+            boton.update()
 
     def _centrar_contenido(self) -> None:
         if not hasattr(self, "_centro"):
@@ -789,6 +918,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_raiz"):
             return
         self._centrar_contenido()
+        if hasattr(self, "aviso_nuevo_sku") and self.aviso_nuevo_sku.isVisible():
+            self.aviso_nuevo_sku.reubicar()
         self.lbl_actualizado.setVisible(self.width() >= 1000 and not getattr(self, "_cabecera_propia", False))   # en ventanas estrechas el encabezado prioriza lo esencial
         if not self._colapso_manual and self._raiz.currentIndex() == 1:
             if self.width() < 1060 and not self._colapsada:
@@ -798,13 +929,18 @@ class MainWindow(QMainWindow):
                 self._auto_colapsada = False
                 self.alternar_lateral()
         QTimer.singleShot(0, self._centrar_contenido)
+        if self.aviso_nuevo_sku.isVisible():
+            QTimer.singleShot(0, self.aviso_nuevo_sku.reubicar)   # los márgenes del contenido se ajustan después
 
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
         QTimer.singleShot(0, self._centrar_contenido)
+        if self.aviso_nuevo_sku.isVisible():
+            QTimer.singleShot(0, self.aviso_nuevo_sku.reubicar)
 
     def closeEvent(self, evento) -> None:
         self._timer.stop()
+        self._timer_nuevos.stop()
         self.cerrando.emit()
         super().closeEvent(evento)
 
@@ -854,6 +990,7 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
             respaldos.restaurado.connect(ventana.tras_restaurar)
         if hasattr(sync, "datos_cambiados"):
             sync.datos_cambiados.connect(ventana.refresh_requested)
+            sync.datos_cambiados.connect(ventana._consultar_nuevos_sku)   # llegó algo: el aviso se actualiza ya
         if hasattr(graficas, "filtro"):
             graficas.filtro.connect(ventana._drill)
         if hasattr(dashboard, "filtro"):

@@ -52,14 +52,36 @@ class Lectura:
 
 @dataclass(frozen=True)
 class EstadoBatch:
-    """Una fila de ``V_ESTADO_BATCH``."""
+    """Una fila de ``V_ESTADO_BATCH``.
+
+    ``nuevos`` son las lecturas de un SKU desconocido que esperan la decisión del Administrador (aviso
+    flotante «Nuevo SKU»); ``descartados``, las que se decidió no tomar. Ninguna de las dos cuenta como error.
+    """
 
     pendientes: int
     procesando: int
     procesados: int
     errores: int
+    nuevos: int
+    descartados: int
     ultimo_run: datetime | None
     ultimo_origen: str | None
+
+
+@dataclass(frozen=True)
+class NuevoSkuFila:
+    """Una lectura de un SKU que no está en el catálogo (``V_NUEVOS_SKU``), esperando decisión.
+
+    No es un error: el batch la dejó en ``NUEVO_SKU`` y el aviso flotante ofrece «Crear y procesar»
+    (``pkg_batch.alta_y_procesar``) o «No crear» (``pkg_batch.descartar_nuevo_sku``).
+    """
+
+    id_transito: int
+    uuid_dispositivo: str
+    seq: int
+    sku: str
+    cantidad: str
+    fecha_recepcion: datetime | None
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,7 @@ from .models import (
     EstadoBatch,
     FilaInventario,
     Lectura,
+    NuevoSkuFila,
     ResumenConteo,
 )
 
@@ -99,6 +100,17 @@ def _like(texto: str) -> str:
     return f"%{escapado}%"
 
 
+def _falta_objeto(exc: Exception) -> bool:
+    """Si el error es que la vista/columna nueva aún no existe (migración pendiente), no un fallo real.
+
+    La capa de datos (``db/init``) se despliega en paralelo al escritorio: mientras una instalación viva no
+    tenga ``V_NUEVOS_SKU`` ni las columnas ``nuevos``/``descartados``, la app sigue funcionando como antes en
+    vez de llenar la Isla de errores cada 3 segundos.
+    """
+    texto = str(exc)
+    return any(codigo in texto for codigo in ("ORA-00942", "ORA-00904", "ORA-04063"))
+
+
 # ------------------------------------------------------------------ conteo actual
 def conteo_actual() -> str:
     """El identificador del único conteo: siempre ``ACTUAL``. Existe para no repetir la cadena en las vistas."""
@@ -162,11 +174,72 @@ def fetch_lecturas(sku: str) -> list[Lectura]:
 
 # ------------------------------------------------------------------ batch y errores
 def fetch_estado_batch() -> EstadoBatch:
-    with _conexion() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT pendientes, procesando, procesados, errores, ultimo_run, ultimo_origen FROM v_estado_batch")
-        r = cur.fetchone()
-    return EstadoBatch(int(r[0]), int(r[1]), int(r[2]), int(r[3]), r[4], r[5])
+    """Estado del batch. Incluye ``nuevos`` y ``descartados`` (SKU desconocido pendiente / lectura no tomada).
+
+    Si la base todavía no tiene las columnas nuevas (migración pendiente), se leen las de antes y esos dos
+    contadores quedan en 0: la pantalla de Sincronización sigue funcionando, sin el chip «Nuevos SKU».
+    """
+    try:
+        with _conexion() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT pendientes, procesando, procesados, errores, nuevos, descartados, "
+                        "       ultimo_run, ultimo_origen FROM v_estado_batch")
+            r = cur.fetchone()
+    except Exception as exc:  # noqa: BLE001 — solo se tolera la migración pendiente; lo demás se propaga
+        if not _falta_objeto(exc):
+            raise
+        with _conexion() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT pendientes, procesando, procesados, errores, ultimo_run, ultimo_origen "
+                        "FROM v_estado_batch")
+            r = cur.fetchone()
+        return EstadoBatch(int(r[0]), int(r[1]), int(r[2]), int(r[3]), 0, 0, r[4], r[5])
+    return EstadoBatch(int(r[0]), int(r[1]), int(r[2]), int(r[3]), int(r[4]), int(r[5]), r[6], r[7])
+
+
+def fetch_nuevos_sku(limit: int = 200) -> list[NuevoSkuFila]:
+    """Lecturas de SKUs que no están en el catálogo, de la más reciente a la más antigua (``V_NUEVOS_SKU``).
+
+    No son errores: esperan la decisión del Administrador en el aviso flotante. Sin la vista (migración
+    pendiente) devuelve una lista vacía y el aviso simplemente no aparece.
+
+    Al traerlas deja además en la campana el aviso de las que aún no lo tenían (backfill): así el SKU nuevo
+    aparece en Notificaciones aunque el teléfono haya sincronizado con la app cerrada.
+    """
+    try:
+        with _conexion() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM (SELECT id_transito, uuid_dispositivo, seq, sku, cantidad, fecha_recepcion "
+                "                 FROM v_nuevos_sku "
+                "                ORDER BY fecha_recepcion DESC NULLS LAST, id_transito DESC) "
+                " WHERE ROWNUM <= :n",
+                n=limit,
+            )
+            filas = [NuevoSkuFila(int(r[0]), r[1] or "", int(r[2]), r[3] or "", r[4] or "", r[5]) for r in cur]
+            _avisar_nuevos_sku(cur, conn, filas)
+            return filas
+    except Exception as exc:  # noqa: BLE001 — solo se tolera la migración pendiente; lo demás se propaga
+        if _falta_objeto(exc):
+            return []
+        raise
+
+
+def _avisar_nuevos_sku(cur, conn, filas) -> None:
+    """Backfill de la campana: crea las notificaciones NUEVO_SKU que falten y confirma.
+
+    Es idempotente (la clave ``NUEVO_SKU:<id_transito>``) y tolerante a una instalación vieja sin la tabla
+    NOTIFICACIONES (ORA-00942): en ese caso la app sigue mostrando el aviso flotante como hasta ahora.
+    """
+    from btsync import notificaciones as bn
+
+    try:
+        if bn.avisar_nuevos_sku(cur, filas):
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001 — el aviso de la campana no debe romper el flujo NUEVO_SKU
+        if not _falta_objeto(exc):
+            raise
+        conn.rollback()
 
 
 def fetch_errores(limit: int = 200) -> list[ErrorFila]:
@@ -192,12 +265,8 @@ def reprocesar_errores() -> None:
         conn.cursor().execute("BEGIN pkg_batch.reprocesar_errores(); END;")
 
 
-def crear_producto(quien, sku: str, nombre: str, categoria: str) -> None:
-    """Alta de un SKU desconocido (solo Administrador): producto + stock 0 en ``ACTUAL``.
-
-    La lectura que estaba en error se procesa después con ``reprocesar_errores`` (lo llama la vista).
-    """
-    from . import auditoria
+def _validar_alta(quien, sku: str, nombre: str, categoria: str) -> tuple[str, str, str]:
+    """Permiso y normalización/validación de los datos de un alta de SKU (común a los dos flujos nuevos)."""
     from .auth import ErrorDeAcceso
 
     if not getattr(quien, "es_admin", False):
@@ -207,21 +276,79 @@ def crear_producto(quien, sku: str, nombre: str, categoria: str) -> None:
         raise ErrorDeAcceso("El SKU, el nombre y la categoría son obligatorios.")
     if len(sku) > 30 or len(nombre) > 120 or len(categoria) > 40:
         raise ErrorDeAcceso("El SKU, el nombre o la categoría son demasiado largos.")
+    return sku, nombre, categoria
+
+
+def _error_alta(exc: Exception, sku: str) -> "Exception | None":
+    """Traduce los errores de ``pkg_batch.alta_y_procesar`` a un ``ErrorDeAcceso`` legible (o ``None``).
+
+    La capa de datos lanza ORA-20010 con un código en el texto: ``SKU_INVALIDO``, ``NOMBRE_INVALIDO`` o
+    ``CATEGORIA_INVALIDA``. ORA-20011/SKU_YA_EXISTE queda por compatibilidad con ``alta_sku``.
+    """
+    from .auth import ErrorDeAcceso
+
+    texto = str(exc)
+    if "ORA-20011" in texto or "SKU_YA_EXISTE" in texto:
+        return ErrorDeAcceso(f"El SKU {sku} ya existe.")
+    if "SKU_INVALIDO" in texto:
+        return ErrorDeAcceso(f"El SKU {sku} no es válido: revisa que no esté vacío y no pase de 30 caracteres.")
+    if "NOMBRE_INVALIDO" in texto:
+        return ErrorDeAcceso("El nombre del producto no es válido: revísalo.")
+    if "CATEGORIA_INVALIDA" in texto:
+        return ErrorDeAcceso("La categoría no es válida: revísala.")
+    if "ORA-20010" in texto:
+        return ErrorDeAcceso("No se pudo dar de alta el SKU: revisa el nombre y la categoría.")
+    return None
+
+
+def nuevo_sku_alta(quien, sku: str, nombre: str, categoria: str) -> None:
+    """«Crear y procesar» del aviso flotante: da de alta el SKU y procesa sus lecturas NUEVO_SKU.
+
+    Solo Administrador. Normaliza el SKU a mayúsculas (el teléfono puede mandarlo en minúsculas) y llama a
+    ``pkg_batch.alta_y_procesar``, que crea el producto con stock 0 si falta, pasa las lecturas a PENDIENTE,
+    las procesa y deja la conciliación al día. La auditoría deja constancia de que la lectura se procesó.
+    """
+    from . import auditoria
+
+    sku, nombre, categoria = _validar_alta(quien, sku, nombre, categoria)
     with _conexion() as conn:
         cur = conn.cursor()
         try:
-            cur.execute(
-                "BEGIN pkg_batch.alta_sku(:s, :n, :c, 'UND', 0); END;",
-                s=sku, n=nombre, c=categoria,
-            )
+            cur.execute("BEGIN pkg_batch.alta_y_procesar(:s, :n, :c); END;", s=sku, n=nombre, c=categoria)
+        except Exception as exc:
+            traducido = _error_alta(exc, sku)
+            if traducido is not None:
+                raise traducido from None
+            raise
+        auditoria.registrar(cur, quien.usuario, "inventario", "Dió de alta un SKU",
+                            f"{nombre} ({sku}) · lectura procesada")
+        conn.commit()
+
+
+def descartar_nuevo_sku(quien, sku: str) -> None:
+    """«No crear» del aviso flotante: deja DESCARTADO las lecturas NUEVO_SKU de ese SKU (no se cuentan).
+
+    Solo Administrador. El SKU se normaliza igual que en el alta para que casen las lecturas. Es idempotente:
+    si ya no queda ninguna lectura NUEVO_SKU de ese SKU, no pasa nada.
+    """
+    from . import auditoria
+    from .auth import ErrorDeAcceso
+
+    if not getattr(quien, "es_admin", False):
+        raise ErrorDeAcceso("Solo el Administrador puede descartar una lectura de nuevo SKU.")
+    sku = sku.strip().upper()
+    if not sku:
+        raise ErrorDeAcceso("El SKU es obligatorio.")
+    with _conexion() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN pkg_batch.descartar_nuevo_sku(:s); END;", s=sku)
         except Exception as exc:
             texto = str(exc)
-            if "ORA-20011" in texto or "SKU_YA_EXISTE" in texto:
-                raise ErrorDeAcceso(f"El SKU {sku} ya existe.") from None
-            if "ORA-20010" in texto:
-                raise ErrorDeAcceso("No se pudo dar de alta: revisa el SKU, el nombre, la categoría y la unidad.") from None
+            if "ORA-20010" in texto or "ORA-20011" in texto:
+                raise ErrorDeAcceso(f"No se pudo descartar la lectura del SKU {sku}.") from None
             raise
-        auditoria.registrar(cur, quien.usuario, "inventario", "Dió de alta un SKU", f"{nombre} ({sku})")
+        auditoria.registrar(cur, quien.usuario, "sync", "Descartó una lectura de nuevo SKU", sku)
         conn.commit()
 
 

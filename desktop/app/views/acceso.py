@@ -263,13 +263,11 @@ class AccesoView(QWidget):
         self._id_proceso: int | None = None
         self._pregunta_actual: str | None = None
         self._pregunta_texto = ""
+        self._tema_invitado_elegido = False
+        self._idioma_invitado_elegido = False
         self._ajustes = QSettings("GestionInventario", "Acceso")
-        self._guest_tema = str(self._ajustes.value("tema_invitado", "claro") or "claro")
-        if self._guest_tema not in tema.MODOS:
-            self._guest_tema = "claro"
-        self._guest_idioma = str(self._ajustes.value("idioma_invitado", "es") or "es")
-        if self._guest_idioma not in i18n.IDIOMAS:
-            self._guest_idioma = "es"
+        self._guest_tema = "claro"
+        self._guest_idioma = "es"
         i18n.set_idioma(self._guest_idioma)
         tema.aplicar(QApplication.instance(), self._guest_tema)
 
@@ -560,7 +558,7 @@ class AccesoView(QWidget):
         if modo not in tema.MODOS:
             return
         self._guest_tema = modo
-        self._ajustes.setValue("tema_invitado", modo)
+        self._tema_invitado_elegido = True
         tema.aplicar(QApplication.instance(), modo)
         self._actualizar_tema()
 
@@ -568,9 +566,14 @@ class AccesoView(QWidget):
         if codigo not in i18n.IDIOMAS:
             return
         self._guest_idioma = codigo
-        self._ajustes.setValue("idioma_invitado", codigo)
+        self._idioma_invitado_elegido = True
         i18n.set_idioma(codigo)
         self._reconstruir_idioma()
+
+    def preferencias_temporales(self) -> tuple[str | None, str | None]:
+        """Las elecciones explícitas de Acceso para esta ejecución, sin persistirlas en la cuenta."""
+        return (self._guest_tema if self._tema_invitado_elegido else None,
+                self._guest_idioma if self._idioma_invitado_elegido else None)
 
     def _actualizar_tema(self) -> None:
         self._fondo.update()
