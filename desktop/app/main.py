@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from typing import Callable
 
-from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -124,14 +125,20 @@ class MainWindow(QMainWindow):
         self.btn_cuenta.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cuenta.setToolTip(i18n.t("Abrir mi perfil"))
         self.btn_cuenta.setMinimumHeight(48)
-        en_cuenta = QHBoxLayout(self.btn_cuenta)
-        en_cuenta.setContentsMargins(6, 4, 6, 4)
-        en_cuenta.setSpacing(10)
-        en_cuenta.addWidget(self.lbl_avatar)
+        self._en_cuenta = QHBoxLayout(self.btn_cuenta)
+        self._en_cuenta.setContentsMargins(6, 4, 6, 4)
+        self._en_cuenta.setSpacing(10)
+        self._en_cuenta.addWidget(self.lbl_avatar)
         self._textos_cuenta = QWidget()
         self._textos_cuenta.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._textos_cuenta.setLayout(textos)
-        en_cuenta.addWidget(self._textos_cuenta, 1)
+        self._en_cuenta.addWidget(self._textos_cuenta, 1)
+        self.btn_tema = QPushButton()
+        self.btn_tema.setObjectName("iconoLateral")
+        self.btn_tema.setIcon(icono("contraste"))
+        self.btn_tema.setToolTip(i18n.t("Tema"))
+        self.btn_tema.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._menu_tema_acciones = {}
         self.btn_salir = QPushButton()
         self.btn_salir.setObjectName("iconoLateral")
         self.btn_salir.setIcon(icono("salir"))
@@ -143,6 +150,7 @@ class MainWindow(QMainWindow):
         self._en_pie.setContentsMargins(4, 4, 4, 4)
         self._en_pie.setSpacing(2)
         self._en_pie.addWidget(self.btn_cuenta, 1)
+        self._en_pie.addWidget(self.btn_tema)
         self._en_pie.addWidget(self.btn_salir)
 
         lateral = QFrame()
@@ -232,6 +240,7 @@ class MainWindow(QMainWindow):
         self.acceso.sin_acceso.connect(self.mostrar_estado_cuenta)
         self.estado_cuenta.volver.connect(self._volver_al_acceso)
         self.btn_salir.clicked.connect(self.cerrar_sesion)
+        self.btn_tema.clicked.connect(self._menu_tema)
         self.btn_cuenta.clicked.connect(self.abrir_perfil)
         self.btn_colapsar.clicked.connect(self._alternar_manual)
         self.btn_avisos.clicked.connect(self._abrir_notificaciones)
@@ -273,6 +282,47 @@ class MainWindow(QMainWindow):
                 return
 
     # ------------------------------------------------------------------ tema e idioma
+    # ------------------------------------------------------------------ control de tema del pie
+    ORDEN_TEMA = ("claro", "sistema", "oscuro")
+
+    def _icono_tema(self, modo: str | None = None) -> str:
+        return {"claro": "sol", "oscuro": "luna"}.get(modo or tema.modo(), "contraste")
+
+    def _actualizar_boton_tema(self) -> None:
+        modo = tema.modo()
+        self.btn_tema.setIcon(icono(self._icono_tema(modo)))
+        self.btn_tema.setToolTip(f"{i18n.t('Tema')}: {i18n.t(tema.NOMBRE_MODO.get(modo, modo))}")
+
+    def _construir_menu_tema(self) -> QMenu:
+        """Menú del pie con los tres modos; deja las acciones en ``_menu_tema_acciones`` (para pruebas)."""
+        menu = QMenu(self)
+        self._menu_tema_acciones = {}
+        actual = tema.modo()
+        for modo in self.ORDEN_TEMA:
+            accion = menu.addAction(i18n.t(tema.NOMBRE_MODO[modo]))
+            accion.setCheckable(True)
+            accion.setChecked(modo == actual)
+            accion.triggered.connect(lambda _marcada=False, m=modo: self._elegir_tema(m))
+            self._menu_tema_acciones[modo] = accion
+        return menu
+
+    def _menu_tema(self) -> None:
+        menu = self._construir_menu_tema()
+        menu.exec(self.btn_tema.mapToGlobal(QPoint(0, -menu.sizeHint().height())))
+
+    def _elegir_tema(self, modo: str) -> None:
+        """Aplica el tema de inmediato y lo persiste por usuario; si falla la persistencia, solo avisa."""
+        if modo not in self.ORDEN_TEMA:
+            return
+        self.cambiar_tema(modo)
+        if self._sesion is None:
+            return
+        self._runner.run(auth.guardar_preferencias, lambda _v: None, self._tema_fallo,
+                         self._sesion.usuario, modo, None, key="temaPie")
+
+    def _tema_fallo(self, mensaje: str) -> None:
+        self.avisar(f"{i18n.t('No se pudo guardar la preferencia.')} {mensaje}", "error")
+
     def _aplicar_tema_idioma(self, modo: str, idioma: str) -> None:
         i18n.set_idioma(idioma)
         tema.aplicar(QApplication.instance(), modo)
@@ -286,6 +336,7 @@ class MainWindow(QMainWindow):
         self.btn_colapsar.setIcon(icono("panel"))
         self.btn_salir.setIcon(icono("salir"))
         self.btn_avisos.setIcon(icono("campana_aviso" if self._sin_leer else "campana"))
+        self._actualizar_boton_tema()
         self.update()
         QTimer.singleShot(0, self._reconstruir_vistas)
 
@@ -303,6 +354,7 @@ class MainWindow(QMainWindow):
         self.btn_cuenta.setToolTip(i18n.t("Abrir mi perfil"))
         self.btn_actualizar.setText(i18n.t("Actualizar"))
         self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
+        self._actualizar_boton_tema()
         QTimer.singleShot(0, self._reconstruir_vistas)
 
     def retranslate(self) -> None:
@@ -319,6 +371,7 @@ class MainWindow(QMainWindow):
         self.lbl_usuario.setText(sesion.nombre)
         self.lbl_rol.setText(i18n.t(auth.NOMBRE_ROL[sesion.rol]))
         self._poner_avatar()
+        self._actualizar_boton_tema()
         self.btn_avisos.setVisible(sesion.puede("notificaciones"))
         for titulo, vista, boton, modulo, roles in self._secciones:
             boton.setVisible(self._visible(sesion, modulo, roles) and not boton.property("fuera"))
@@ -571,9 +624,13 @@ class MainWindow(QMainWindow):
         for boton in (self.btn_avisos, self.btn_colapsar):
             self._cabecera.setAlignment(boton, Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignRight)
         self._en_pie.setDirection(QBoxLayout.Direction.TopToBottom if c else QBoxLayout.Direction.LeftToRight)
-        self._en_pie.setAlignment(self.btn_cuenta, Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignVCenter)
-        self.btn_cuenta.setMinimumWidth(48 if c else 0)
-        self.btn_cuenta.setMaximumWidth(48 if c else 16777215)
+        alineacion = Qt.AlignmentFlag.AlignHCenter if c else Qt.AlignmentFlag.AlignVCenter
+        for boton in (self.btn_cuenta, self.btn_tema, self.btn_salir):
+            self._en_pie.setAlignment(boton, alineacion)
+        self._en_cuenta.setContentsMargins(0, 0, 0, 0) if c else self._en_cuenta.setContentsMargins(6, 4, 6, 4)
+        self._en_cuenta.setSpacing(0 if c else 10)
+        self.btn_cuenta.setMinimumWidth(36 if c else 0)
+        self.btn_cuenta.setMaximumWidth(36 if c else 16777215)
 
     def lateral_contraida(self) -> bool:
         return self._colapsada
