@@ -387,6 +387,36 @@ QFrame#lienzo QFrame#segmentado QPushButton#segmento { border: 1px solid transpa
     padding: 7px 12px; color: #A3A3A3; font-weight: 600; min-height: 18px; }
 QFrame#lienzo QFrame#segmentado QPushButton#segmento:hover { color: #FFFFFF; background: rgba(255,255,255,0.05); }
 QFrame#lienzo QFrame#segmentado QPushButton#segmento:checked { background: #1C1C1C; color: #FFFFFF; border: 1px solid #2E2E2E; }
+
+/* Visor de fotos (estilo Apple Photos): oscuro en ambos temas para que la imagen sea la protagonista */
+QDialog#visor { background: transparent; }
+QFrame#visorCaja { background: #0B0D0C; border: 1px solid #2A3330; border-radius: 18px; }
+QLabel#visorTitulo { color: #F3F4F6; font-size: 15px; font-weight: 700; background: transparent; }
+QLabel#visorSub { color: #D1D5DB; font-size: 12px; background: transparent; }
+QToolButton#visorBoton { background: transparent; border: none; border-radius: 10px; padding: 6px; min-width: 20px; min-height: 20px; }
+QToolButton#visorBoton:hover { background: rgba(229,231,235,0.14); }
+QToolButton#visorBoton:checked { background: rgba(229,231,235,0.22); }
+QToolButton#visorFlecha { background: rgba(11,13,12,0.74); border: 1px solid #2A3330; border-radius: 22px; }
+QToolButton#visorFlecha:hover { background: rgba(42,51,48,0.92); }
+QFrame#visorControles { background: rgba(24,29,27,0.90); border: 1px solid #2A3330; border-radius: 16px; }
+QLabel#visorZoom { color: #E5E7EB; font-size: 12px; font-weight: 600; background: transparent; }
+QFrame#visorSep { background: #2A3330; border: none; }
+QFrame#visorInfo { background: rgba(24,29,27,0.95); border: 1px solid #2A3330; border-radius: 16px; }
+QLabel#visorInfoTitulo { color: #F3F4F6; font-size: 13px; font-weight: 700; background: transparent; }
+QLabel#visorInfoEtiqueta { color: #9CA3AF; font-size: 11px; background: transparent; }
+QLabel#visorInfoValor { color: #E5E7EB; font-size: 13px; background: transparent; }
+
+/* Ventana de lecturas de un producto */
+QLabel#tituloLecturas { font-size: 20px; font-weight: 700; background: transparent; }
+QLabel#chipDato { background: #1C1C1C; color: #CFCFCF; border-radius: 8px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
+QLabel#miniValor { font-size: 19px; font-weight: 700; background: transparent; }
+QLabel#miniIcono { background: #10261F; border-radius: 10px; }
+QLabel#vacioTitulo { font-size: 16px; font-weight: 700; background: transparent; }
+QLabel#vacioIcono { background: transparent; }
+QLabel#datoLectura { font-weight: 600; background: transparent; }
+QWidget#celdaCentrada { background: transparent; }
+QPushButton#miniatura { border: 1px solid #2E2E2E; border-radius: 8px; padding: 0; background: #0F0F0F; min-height: 0; }
+QPushButton#miniatura:hover { border-color: #10B981; }
 """
 
 
