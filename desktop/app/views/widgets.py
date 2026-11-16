@@ -710,39 +710,3 @@ class Indicador(QWidget):
             trazo.lineTo(centro.x() + s * 0.55, centro.y() - s * 0.55)
             trazo.lineTo(centro.x() - s * 0.6, centro.y() + s * 0.55)
         p.drawPath(trazo)
-
-
-class Transicion(QWidget):
-    """Cambio de pestaña: la imagen de la página anterior se desliza y se desvanece sobre la nueva."""
-
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._imagen: QPixmap | None = None
-        self._avance, self._sentido, self._anim = 0.0, 1, None
-        self.hide()
-
-    def lanzar(self, imagen: QPixmap, sentido: int) -> None:
-        if not ANIMAR or imagen.isNull():
-            return
-        _detener(self._anim)
-        self._imagen, self._sentido, self._avance = imagen, sentido, 0.0
-        self.setGeometry(self.parentWidget().rect())
-        self.show()
-        self.raise_()
-        self._anim = animar(self, 0.0, 1.0, 320, self._pintar_hasta, self._terminar, QEasingCurve.Type.OutCubic)
-
-    def _pintar_hasta(self, v: float) -> None:
-        self._avance = v
-        self.update()
-
-    def _terminar(self) -> None:
-        self._imagen = None
-        self.hide()
-
-    def paintEvent(self, _evento) -> None:
-        if self._imagen is None:
-            return
-        p = QPainter(self)
-        p.setOpacity(1.0 - self._avance)
-        p.drawPixmap(int(-self._sentido * 70 * self._avance), 0, self._imagen)
