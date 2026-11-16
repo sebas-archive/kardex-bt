@@ -713,7 +713,8 @@ class Indicador(QWidget):
 
 
 class Transicion(QWidget):
-    """Cambio de pestaña: la imagen de la página anterior se desliza y se desvanece sobre la nueva."""
+    """Cambio de vista: la página anterior se desliza hacia el lado de donde viene el menú, se encoge un poco
+    y se desvanece, mientras la nueva se revela debajo. El sentido sigue el orden del menú."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -730,7 +731,7 @@ class Transicion(QWidget):
         self.setGeometry(self.parentWidget().rect())
         self.show()
         self.raise_()
-        self._anim = animar(self, 0.0, 1.0, 320, self._pintar_hasta, self._terminar, QEasingCurve.Type.OutCubic)
+        self._anim = animar(self, 0.0, 1.0, 460, self._pintar_hasta, self._terminar, QEasingCurve.Type.InOutCubic)
 
     def _pintar_hasta(self, v: float) -> None:
         self._avance = v
@@ -743,6 +744,12 @@ class Transicion(QWidget):
     def paintEvent(self, _evento) -> None:
         if self._imagen is None:
             return
+        t = self._avance
         p = QPainter(self)
-        p.setOpacity(1.0 - self._avance)
-        p.drawPixmap(int(-self._sentido * 70 * self._avance), 0, self._imagen)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        ancho, alto = self.width(), self.height()
+        escala = 1.0 - 0.07 * t                      # se encoge al irse, como si se alejara
+        p.setOpacity(max(0.0, 1.0 - t * 1.25))       # se apaga un poco antes de llegar al borde
+        p.translate(-self._sentido * ancho * 0.16 * t + ancho * (1 - escala) / 2, alto * (1 - escala) / 2)
+        p.scale(escala, escala)
+        p.drawPixmap(0, 0, self._imagen)
