@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
-from app import i18n, isla, tema
+from app import i18n, tema
 from app.models import Lectura
 from app.views.lecturas import COL_FOTO, DetalleLecturas
 from app.views.visor_foto import ESCALA_MAXIMA, FotoLectura, VisorFoto

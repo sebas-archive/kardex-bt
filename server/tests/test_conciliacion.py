@@ -129,18 +129,20 @@ def test_v_estado_batch_counts(escenario, db):
     def estado_batch():
         cur = db.cursor()
         cur.execute(
-            "SELECT pendientes, procesando, procesados, errores, ultimo_run, ultimo_origen FROM v_estado_batch"
+            "SELECT pendientes, procesando, procesados, errores, nuevos, descartados, "
+            "       ultimo_run, ultimo_origen FROM v_estado_batch"
         )
         return cur.fetchone()
 
     antes = estado_batch()
-    staging(db, "tst-c1", 1, T0, C, "ZZ9", 1)       # quedará en ERROR
+    staging(db, "tst-c1", 1, T0, C, "ZZ9", 1)       # SKU desconocido: quedará en NUEVO_SKU (no error)
     staging(db, "tst-c1", 2, T0, C, "A1", 1)        # quedará PROCESADO
     procesar(db)
     staging(db, "tst-c1", 3, T0, C, "A2", 1)        # se queda PENDIENTE
     ahora = estado_batch()
-    assert (ahora[0] - antes[0], ahora[1] - antes[1], ahora[2] - antes[2], ahora[3] - antes[3]) == (1, 0, 1, 1)
-    assert ahora[4] is not None and ahora[5] == "MANUAL"
+    assert (ahora[0] - antes[0], ahora[1] - antes[1], ahora[2] - antes[2], ahora[3] - antes[3],
+            ahora[4] - antes[4], ahora[5] - antes[5]) == (1, 0, 1, 0, 1, 0)
+    assert ahora[6] is not None and ahora[7] == "MANUAL"
 
 
 def test_concurrent_batches_leave_same_conciliation_as_single_run(escenario, db):

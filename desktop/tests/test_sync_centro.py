@@ -143,8 +143,8 @@ def test_actividad_y_contadores_salen_de_oracle(admin, escenario):
     antes = sync_datos.fetch_contadores_dia()
     conn = connect()
     try:
-        staging(conn, "tst-centro", 1, T0, C, "A1", 5)
-        staging(conn, "tst-centro", 2, T0, C, "ZZ9", 1)
+        staging(conn, "tst-centro", 1, T0, C, "A1", 5)         # lectura válida: procesada
+        staging(conn, "tst-centro", 2, T0, C, "A2", "abc")     # cantidad inválida: error real
         db.procesar_ahora()
     finally:
         conn.close()
@@ -152,7 +152,7 @@ def test_actividad_y_contadores_salen_de_oracle(admin, escenario):
     assert len(act.recibidas) == 15 and not act.vacia
     assert sum(act.recibidas) >= 2 and sum(act.procesadas) >= 1 and sum(act.errores) >= 1
     despues = sync_datos.fetch_contadores_dia()
-    assert despues.recibidas >= antes.recibidas + 2 and despues.errores >= 1
+    assert despues.recibidas >= antes.recibidas + 2 and despues.errores >= antes.errores + 1
     assert sync_datos.lecturas_por_minuto(act) > 0
     for rango, (minutos, paso, _) in sync_datos.RANGOS.items():
         assert len(sync_datos.fetch_actividad(rango).recibidas) == minutos // paso
@@ -189,16 +189,17 @@ def test_error_marca_etapa_y_nodo(qtbot, admin, escenario):
 def test_tabla_con_errores_y_estado_vacio(qtbot, admin, escenario):
     v, _ = _vista(qtbot, admin)
     esperar(qtbot, lambda: v._batch is not None)
+    v._aplicar_errores([])          # la BD viva puede tener errores reales: el estado vacío se prueba aparte
     assert v.pila.currentWidget() is v.vacio
     assert v.vacio.lbl_titulo.text() == "Todo está en orden"
     assert v.lbl_cuenta.text() == "Sin errores pendientes"
-    errs = [ErrorFila(1, "tel-1", 4, "ZZ1", "2", "SKU_DESCONOCIDO", datetime.now())]
+    errs = [ErrorFila(1, "tel-1", 4, "ZZ1", "2", "CANTIDAD_INVALIDA", datetime.now())]
     v._aplicar_errores(errs)
     assert v.pila.currentWidget() is v.tabla_errores
     assert v.lbl_cuenta.text() == "1 error pendiente"
     fila = v.errores()[0]
-    assert fila == ("tel-1", "4", "ZZ1", "SKU desconocido", f"{errs[0].fecha_recepcion:%d/%m/%Y %H:%M}",
-                    "Con error", "Dar de alta")
+    assert fila == ("tel-1", "4", "ZZ1", "Cantidad inválida", f"{errs[0].fecha_recepcion:%d/%m/%Y %H:%M}",
+                    "Con error")
     v._aplicar_errores([])
     assert v.pila.currentWidget() is v.vacio
 
