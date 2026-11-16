@@ -126,12 +126,29 @@ class TarjetaKpi(QFrame):
     def detalle(self) -> str:
         return self._detalle_texto
 
+    def _normalizar(self) -> None:
+        """Si el cursor ya no está encima, la tarjeta vuelve a mostrar la cifra.
+
+        Qt no manda ``leaveEvent`` cuando la tarjeta se reubica o se oculta bajo el cursor (p. ej. al agregarla con el
+        catálogo abierto): sin esto la cifra se quedaba a opacidad 0 para siempre.
+        """
+        if self.underMouse():
+            return
+        _detener(self._anim_volteo)
+        self._volteada = False
+        self._detalle.setVisible(False)
+        self._op_detalle.setOpacity(0.0)
+        self._op_valor.setOpacity(1.0)
+        self._pista.hide()
+
     def set_detalle(self, texto: str) -> None:
         self._detalle_texto = texto
         self._detalle.setText(texto)
         self._detalle.setVisible(self._volteada and bool(texto))
+        self._normalizar()
 
     def set_texto(self, texto: str) -> None:
+        self._normalizar()
         _detener(self._anim)
         self._final, self._numero = texto, 0.0
         self._valor.setText(texto)
@@ -141,6 +158,7 @@ class TarjetaKpi(QFrame):
         if numero is None:
             self.set_texto("—")
             return
+        self._normalizar()
         _detener(self._anim)
         self._final = formato(numero)
         inicio, self._numero = self._numero, float(numero)
@@ -180,7 +198,10 @@ class TarjetaKpi(QFrame):
         """Volteo 2D: la cifra se desvanece mientras el detalle aparece (sin bloquear el dato)."""
         hay = bool(self._detalle_texto)
         self._detalle.setVisible(hay)
-        if hacia_detalle:
+        if hacia_detalle and not hay:
+            self._op_valor.setOpacity(1.0)            # sin detalle que mostrar, la cifra nunca se desvanece
+            self._op_detalle.setOpacity(0.0)
+        elif hacia_detalle:
             self._op_valor.setOpacity(max(0.0, 1.0 - v))
             self._op_detalle.setOpacity(v if hay else 0.0)
         else:
@@ -192,6 +213,10 @@ class TarjetaKpi(QFrame):
         self._detalle.setVisible(self._volteada)
         self._op_detalle.setOpacity(1.0 if self._volteada else 0.0)
         self._op_valor.setOpacity(0.0 if self._volteada else 1.0)
+
+    def hideEvent(self, evento) -> None:
+        self._normalizar()
+        super().hideEvent(evento)
 
     def mouseReleaseEvent(self, evento) -> None:
         if evento.button() == Qt.MouseButton.LeftButton:
