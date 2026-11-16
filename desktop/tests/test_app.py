@@ -133,6 +133,28 @@ def test_theme_and_language_apply_and_persist_in_the_session(qtbot, puente):
     assert i18n.idioma() == "es"
 
 
+def test_access_preferences_override_account_preferences_for_this_app_run(qtbot, puente):
+    """Lo elegido antes de entrar no se reemplaza con lo guardado en la cuenta."""
+    from PyQt6.QtCore import QSettings
+
+    ajustes = QSettings("GestionInventario", "Acceso")
+    ajustes.clear()
+    ventana = build_window(puente, auto_refresh_ms=0)
+    ventana.comprobar_oracle = lambda: None
+    ventana.contar_notificaciones = lambda: None
+    qtbot.addWidget(ventana)
+    ventana.acceso._elegir_tema_invitado("oscuro")
+    ventana.acceso._elegir_idioma_invitado("en")
+
+    ventana.iniciar(Sesion("ana", "Ana", ADMIN, tema="claro", idioma="es"))
+
+    assert (tema.modo(), i18n.idioma()) == ("oscuro", "en")
+    assert (ventana.sesion().tema, ventana.sesion().idioma) == ("oscuro", "en")
+    ajustes.clear()
+    tema.aplicar(QApplication.instance(), "sistema")
+    i18n.set_idioma("es")
+
+
 def test_logout_returns_to_access_and_clears_the_session(qtbot, puente):
     ventana = abrir(qtbot, puente, ANA)
     ventana.cerrar_sesion()
@@ -293,41 +315,45 @@ def test_access_remembers_the_username(qtbot):
     ajustes.clear()
 
 
-def test_access_gear_changes_guest_theme_and_language_and_persists(qtbot):
+def test_access_gear_changes_theme_and_language_only_for_the_current_app_run(qtbot):
     from PyQt6.QtCore import QSettings
     from PyQt6.QtWidgets import QLabel
     from app import tema as tema_mod
     ajustes = QSettings("GestionInventario", "Acceso")
     ajustes.clear()
-    vista = AccesoView()
-    qtbot.addWidget(vista)
-    vista.resize(1920, 1011)
-    vista.show()
-    qtbot.wait(30)
-    assert not vista.btn_config.isHidden()
-    assert vista.btn_config.x() > vista.width() - 100
-    vista._construir_menu_config()
-    assert vista._menu_config_acciones["tema"]["claro"].isChecked()
-    assert vista._menu_config_acciones["idioma"]["es"].isChecked()
+    try:
+        vista = AccesoView()
+        qtbot.addWidget(vista)
+        vista.resize(1920, 1011)
+        vista.show()
+        qtbot.wait(30)
+        assert not vista.btn_config.isHidden()
+        assert vista.btn_config.x() > vista.width() - 100
+        vista._construir_menu_config()
+        assert vista._menu_config_acciones["tema"]["claro"].isChecked()
+        assert vista._menu_config_acciones["idioma"]["es"].isChecked()
 
-    vista._elegir_tema_invitado("oscuro")
-    assert tema_mod.modo() == "oscuro"
-    assert ajustes.value("tema_invitado") == "oscuro"
+        vista._elegir_tema_invitado("oscuro")
+        assert tema_mod.modo() == "oscuro"
+        assert not ajustes.contains("tema_invitado")
 
-    vista.mostrar_formulario(1)
-    vista.txt_usuario_nuevo.setText("ana.gomez")
-    vista.txt_nombre.setText("Ana Gómez")
-    vista._elegir_idioma_invitado("en")
-    assert i18n.idioma() == "en"
-    assert vista.formularios.currentIndex() == 1
-    assert vista.txt_usuario_nuevo.text() == "ana.gomez" and vista.txt_nombre.text() == "Ana Gómez"
-    titulo = vista.formularios.currentWidget().findChild(QLabel, "tituloFormulario")
-    assert titulo is not None and titulo.text() == "Create account"
-    assert ajustes.value("idioma_invitado") == "en"
+        vista.mostrar_formulario(1)
+        vista.txt_usuario_nuevo.setText("ana.gomez")
+        vista.txt_nombre.setText("Ana Gómez")
+        vista._elegir_idioma_invitado("en")
+        assert i18n.idioma() == "en"
+        assert vista.formularios.currentIndex() == 1
+        assert vista.txt_usuario_nuevo.text() == "ana.gomez" and vista.txt_nombre.text() == "Ana Gómez"
+        titulo = vista.formularios.currentWidget().findChild(QLabel, "tituloFormulario")
+        assert titulo is not None and titulo.text() == "Create account"
+        assert not ajustes.contains("idioma_invitado")
 
-    otra = AccesoView()
-    qtbot.addWidget(otra)
-    assert i18n.idioma() == "en" and tema_mod.modo() == "oscuro"
-    ajustes.clear()
-    tema_mod.aplicar(QApplication.instance(), "sistema")
-    i18n.set_idioma("es")
+        tema_mod.aplicar(QApplication.instance(), "sistema")
+        i18n.set_idioma("es")
+        otra = AccesoView()
+        qtbot.addWidget(otra)
+        assert i18n.idioma() == "es" and tema_mod.modo() == "claro"
+    finally:
+        ajustes.clear()
+        tema_mod.aplicar(QApplication.instance(), "sistema")
+        i18n.set_idioma("es")

@@ -3,7 +3,7 @@
 import pytest
 
 from btsync import notificaciones, respaldo
-from conftest import OPERADOR_ACTIVO, connect
+from conftest import OPERADOR_ACTIVO, connect, staging
 from test_controller import FakeStore, FakeTransport, ctl, started, wait_for  # noqa: F401
 from test_session import UUID, acct, end, hello, inicio, rec, run
 
@@ -90,3 +90,51 @@ def test_el_respaldo_automatico_notifica_lo_creado_y_el_fallo(tmp_path, monkeypa
         respaldo.Automatico(connect, reloj=lambda: datetime(2026, 11, 15, 23, 30))()
     fallo = [f for f in filas() if f[0] == "RESPALDO_FALLO"]
     assert len(fallo) == 1 and fallo[0][1].startswith("Falló el respaldo automático:") and fallo[0][3] == "ADMIN"
+
+
+# --------------------------------------------------- SKU nuevo: aviso en la campana
+def test_avisar_nuevos_sku_crea_una_por_lectura_y_no_duplica():
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        assert notificaciones.avisar_nuevos_sku(cur, [(41, "khs"), (42, "ZZ9")]) == 2
+        conn.commit()
+        assert notificaciones.avisar_nuevos_sku(cur, [(41, "khs"), (42, "ZZ9")]) == 0   # clave repetida
+        conn.commit()
+    finally:
+        conn.close()
+    avisos = [f for f in filas() if f[0] == "NUEVO_SKU"]
+    assert len(avisos) == 2
+    assert avisos == [
+        ("NUEVO_SKU", "Nuevo SKU khs: decide «Crear y procesar» o «No crear» en Sincronización.",
+         "Sincronización", "ADMIN", None),
+        ("NUEVO_SKU", "Nuevo SKU ZZ9: decide «Crear y procesar» o «No crear» en Sincronización.",
+         "Sincronización", "ADMIN", None),
+    ]
+
+
+def test_avisar_nuevos_sku_acepta_las_filas_del_escritorio():
+    from types import SimpleNamespace
+
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        assert notificaciones.avisar_nuevos_sku(cur, [SimpleNamespace(id_transito=7, sku="KHS")]) == 1
+        conn.commit()
+    finally:
+        conn.close()
+    assert [f[1] for f in filas() if f[0] == "NUEVO_SKU"] == [
+        "Nuevo SKU KHS: decide «Crear y procesar» o «No crear» en Sincronización."]
+
+
+def test_run_batch_deja_en_la_campana_los_sku_nuevos_pendientes(escenario, store, db):
+    """Cubre «el móvil sincronizó con la app cerrada»: el batch deja el aviso sin depender del escritorio."""
+    staging(db, "tst-notif", 1, 1731170400000, "ACTUAL", "zz9", 4)
+    store.run_batch("SYNC")
+    avisos = [f for f in filas() if f[0] == "NUEVO_SKU"]
+    assert len(avisos) == 1
+    assert avisos[0][1] == "Nuevo SKU zz9: decide «Crear y procesar» o «No crear» en Sincronización."
+    assert avisos[0][2:] == ("Sincronización", "ADMIN", None)
+    store.run_batch("SYNC")                    # el SKU sigue pendiente: la clave evita el duplicado
+    assert len([f for f in filas() if f[0] == "NUEVO_SKU"]) == 1
+

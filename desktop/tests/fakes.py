@@ -118,6 +118,28 @@ def end(n):
     return frame(["END", str(n)])
 
 
+class FakeRunner:
+    """``QueryRunner`` de mentira: ejecuta la función ya, en el hilo de la prueba, para probar flujos sin hilos.
+
+    Misma firma que ``QueryRunner.run``; si la función falla, el mensaje va a ``on_error`` igual que el real.
+    """
+
+    def __init__(self) -> None:
+        self.llamadas: list[tuple] = []
+
+    def run(self, fn, on_done=None, on_error=None, *args, key=None, **kwargs):
+        self.llamadas.append((fn, args, kwargs))
+        try:
+            resultado = fn(*args, **kwargs)
+        except Exception as exc:  # igual que QueryWorker: el texto llega a la interfaz
+            if on_error is not None:
+                on_error(str(exc))
+            return None
+        if on_done is not None:
+            on_done(resultado)
+        return None
+
+
 class FakeRemoto(QObject):
     """El servicio Bluetooth sin Oracle: la prueba pone el estado con ``poner`` y lee lo que pidió la vista."""
 
