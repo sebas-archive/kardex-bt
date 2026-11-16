@@ -26,7 +26,7 @@ _EN: dict[str, str] = {
     "Perfil": "Profile",
     "Solicitudes": "Requests",
     "Empleados": "Employees",
-    "Roles y permisos": "Roles & permissions",
+    "Roles y permisos": "Roles and permissions",
     "Auditoría": "Audit log",
     "Configuración": "Settings",
     "Respaldos": "Backups",
