@@ -10,3 +10,15 @@ fotos/
 respaldos/
 logs/
 config/
+
+# --- espacios de agentes y artefactos locales (no forman parte del producto) ---
+# Herramientas de agentes: configuración, worktrees enlazados y borradores.
+.agents/
+.claude/
+# Empaquetado de la app de escritorio.
+dist/
+# Residuo del intento con Next.js (ver docs/verificacion.md, O3): el sistema entregado es PyQt.
+web/
+# Exportaciones de prueba que no deben viajar con el código.
+graficas.png
+inventario.csv
