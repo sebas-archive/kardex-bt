@@ -50,6 +50,7 @@ from .views.roles import RolesView
 from .views.solicitudes import SolicitudesView
 from .views.sync import SyncView
 from .views.usuarios import UsuariosView
+from .views.bandeja import HojaNotificaciones, PopoverNotificaciones
 from .views.isla import isla
 from .views.widgets import Transicion
 
@@ -238,6 +239,12 @@ class MainWindow(QMainWindow):
         self._raiz.addWidget(self.estado_cuenta)
         self.setCentralWidget(self._raiz)
         isla.instalar(self)   # la Isla vive dentro de la ventana: es el único canal de avisos
+        # Notificaciones flotantes: la campana abre el panel y «Ver todo» abre la vista extendida (sin pestaña).
+        self.bandeja = PopoverNotificaciones(self)
+        self.hoja_notificaciones = HojaNotificaciones(self)
+        self.bandeja.ver_todo.connect(self.abrir_hoja_notificaciones)
+        self.bandeja.ir_a.connect(self.ir_a)
+        self.bandeja.cambiaron.connect(self.contar_notificaciones)
         self._instalar_atajos()
 
         self.acceso.entro.connect(self.iniciar)
@@ -371,6 +378,10 @@ class MainWindow(QMainWindow):
     def iniciar(self, sesion: auth.Sesion) -> None:
         """Entra a la aplicación con esa sesión: aplica sus preferencias y muestra las secciones de su rol."""
         self._sesion = sesion
+        self.bandeja.set_sesion(sesion)
+        vista_avisos = getattr(self, "_vista_avisos", None)
+        if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
+            vista_avisos.set_sesion(sesion)
         self._aplicar_tema_idioma(sesion.tema, sesion.idioma)
         self.lbl_usuario.setText(sesion.nombre)
         self.lbl_rol.setText(i18n.t(auth.NOMBRE_ROL[sesion.rol]))
@@ -406,6 +417,11 @@ class MainWindow(QMainWindow):
         for _titulo, vista, _boton, _modulo, _roles in self._secciones:
             if hasattr(vista, "set_sesion"):
                 vista.set_sesion(None)
+        self.bandeja.set_sesion(None)
+        self.hoja_notificaciones.cerrar()
+        vista_avisos = getattr(self, "_vista_avisos", None)
+        if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
+            vista_avisos.set_sesion(None)
         isla.quitar_estado("oracle")
         isla.quitar_estado("bluetooth")
         self._oracle_caido = False
@@ -434,7 +450,23 @@ class MainWindow(QMainWindow):
         self.ir_a(i18n.t("Perfil"))
 
     def _abrir_notificaciones(self) -> None:
-        self.ir_a(i18n.t("Notificaciones"))
+        """La campana: abre el panel flotante de notificaciones."""
+        self.bandeja.abrir(self.btn_avisos)
+
+    def abrir_hoja_notificaciones(self) -> None:
+        """«Ver todo»: la vista extendida, flotante sobre la ventana."""
+        if self._sesion is not None and self._sesion.puede("notificaciones"):
+            self.hoja_notificaciones.abrir()
+
+    def registrar_notificaciones(self, vista: QWidget) -> None:
+        """La vista extendida vive en la hoja flotante: sin pestaña, pero con sesión y refresco como las demás."""
+        self._vista_avisos = vista
+        self.hoja_notificaciones.poner(vista)
+        refrescar = getattr(vista, "refresh", None)
+        if callable(refrescar):
+            self.refresh_requested.connect(refrescar)
+        if hasattr(vista, "set_sesion") and self._sesion is not None:
+            vista.set_sesion(self._sesion)
 
     def _drill(self, tipo: str, valor: str) -> None:
         """Clic en una gráfica: lleva a Inventario con el filtro cuando la vista lo permite."""
@@ -499,8 +531,12 @@ class MainWindow(QMainWindow):
 
     def ir_a(self, titulo: str) -> None:
         """Abre una sección. Las que el rol no puede consultar no se abren."""
+        if titulo == i18n.t("Notificaciones"):
+            self.abrir_hoja_notificaciones()
+            return
         if titulo not in self.secciones():
             return
+        self.hoja_notificaciones.cerrar()
         indice = next(i for i, s in enumerate(self._secciones) if s[0] == titulo)
         anterior = self.paginas.currentWidget()
         if anterior is not None and self.isVisible():
@@ -753,7 +789,7 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
         ventana.add_view(configuracion_vista, i18n.t("Configuración"), "configuracion", icono_id="Configuración")
         ventana.add_view(sync, i18n.t("Sincronización"), "sync", icono_id="Sincronización")
         ventana.add_view(respaldos, i18n.t("Respaldos"), "respaldos", icono_id="Respaldos")
-        ventana.add_view(avisos, i18n.t("Notificaciones"), "notificaciones", icono_id="Notificaciones")
+        ventana.registrar_notificaciones(avisos)   # flotante: se abre desde la campana, sin pestaña
         ventana.add_view(perfil, i18n.t("Perfil"), "perfil", en_barra=False, icono_id="Perfil")
 
         perfil.cerrar_sesion.connect(ventana.cerrar_sesion)

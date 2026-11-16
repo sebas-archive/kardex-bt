@@ -46,24 +46,23 @@ def test_without_session_the_window_shows_only_the_login(qtbot, puente):
 def test_admin_sidebar_exact_order_and_profile_at_the_footer(qtbot, puente):
     ventana = abrir(qtbot, puente, ANA)
     assert ventana.secciones() == ["Dashboard", "Inventario", "Solicitudes", "Empleados", "Roles y permisos",
-                                   "Auditoría", "Configuración", "Sincronización", "Respaldos", "Notificaciones",
-                                   "Perfil"]
+                                   "Auditoría", "Configuración", "Sincronización", "Respaldos", "Perfil"]
     # Perfil no está en la lista: se abre desde el pie.
     visible = [titulo for titulo, _v, boton, _m, _r in ventana._secciones
                if boton.isVisible() and not boton.property("fuera")]
     assert visible == ["Dashboard", "Inventario", "Solicitudes", "Empleados", "Roles y permisos",
-                       "Auditoría", "Configuración", "Sincronización", "Respaldos", "Notificaciones"]
-    assert not ventana.btn_avisos.isHidden()
+                       "Auditoría", "Configuración", "Sincronización", "Respaldos"]
+    assert not ventana.btn_avisos.isHidden()   # las notificaciones son flotantes: solo la campana
     ventana.btn_cuenta.click()
     assert ventana.seccion_actual() == "Perfil"
 
 
 def test_inventory_sidebar_exact_order(qtbot, puente):
     ventana = abrir(qtbot, puente, LUIS)
-    assert ventana.secciones() == ["Dashboard", "Inventario", "Gráficas", "Sincronización", "Notificaciones", "Perfil"]
+    assert ventana.secciones() == ["Dashboard", "Inventario", "Gráficas", "Sincronización", "Perfil"]
     visible = [titulo for titulo, _v, boton, _m, _r in ventana._secciones
                if boton.isVisible() and not boton.property("fuera")]
-    assert visible == ["Dashboard", "Inventario", "Gráficas", "Sincronización", "Notificaciones"]
+    assert visible == ["Dashboard", "Inventario", "Gráficas", "Sincronización"]
     ventana.ir_a("Solicitudes")
     assert ventana.seccion_actual() == "Dashboard"
     assert not ventana.btn_avisos.isHidden()

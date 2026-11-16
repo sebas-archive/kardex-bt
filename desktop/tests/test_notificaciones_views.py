@@ -78,10 +78,15 @@ def test_la_campana_cuenta_las_sin_leer_y_abre_la_pantalla(qtbot, cuentas):
     _crear("Nueva solicitud de cuenta: Pedro Ruiz", seccion="Solicitudes")
     ventana = build_window(FakeRemoto(), auto_refresh_ms=0, sesion=ana)
     qtbot.addWidget(ventana)
-    assert not ventana.btn_avisos.isHidden() and "Notificaciones" in ventana.secciones()
+    assert not ventana.btn_avisos.isHidden() and "Notificaciones" not in ventana.secciones()
     esperar(qtbot, lambda: ventana.btn_avisos.toolTip() == "1 notificación sin leer")
-    ventana.btn_avisos.click()
-    assert ventana.seccion_actual() == "Notificaciones"
+    ventana.btn_avisos.click()                      # la campana abre el panel flotante
+    assert ventana.bandeja.isVisible()
+    esperar(qtbot, lambda: any("Pedro Ruiz" in f for f in ventana.bandeja.filas()))
+    ventana.bandeja.btn_ver_todo.click()            # «Ver todo» abre la vista extendida, también flotante
+    assert not ventana.bandeja.isVisible() and not ventana.hoja_notificaciones.isHidden()
+    ventana.hoja_notificaciones.cerrar()
+    assert ventana.hoja_notificaciones.isHidden()
     _sin_consultas_pendientes(qtbot, ventana)
 
 
@@ -91,7 +96,7 @@ def test_inventario_tambien_tiene_notificaciones(qtbot, cuentas):
     cuentas.aprobar(ana, "luis", INVENTARIO)
     ventana = build_window(FakeRemoto(), auto_refresh_ms=0, sesion=cuentas.iniciar_sesion("luis", CLAVE))
     qtbot.addWidget(ventana)
-    assert "Notificaciones" in ventana.secciones() and not ventana.btn_avisos.isHidden()
+    assert "Notificaciones" not in ventana.secciones() and not ventana.btn_avisos.isHidden()
     _sin_consultas_pendientes(qtbot, ventana)
 
 
