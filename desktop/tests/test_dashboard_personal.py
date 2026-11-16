@@ -271,3 +271,18 @@ def test_el_dashboard_original_conserva_su_api(qtbot):
     assert v.categorias() == []
     assert not [b for b in v.findChildren(__import__("PyQt6.QtWidgets", fromlist=["QPushButton"]).QPushButton)
                 if "Cerrar" in b.text()]
+
+
+def test_la_cifra_de_una_tarjeta_nunca_queda_invisible_tras_un_hover_sin_leave(qtbot, monkeypatch):
+    """Regresión: el cursor entra antes de que lleguen los datos y Qt no manda ``leaveEvent`` al reubicarla."""
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QEnterEvent
+    from app.views import widgets
+    monkeypatch.setattr(widgets, "ANIMAR", False)
+    c = widgets.TarjetaKpi("Avance")
+    qtbot.addWidget(c)
+    c.show()
+    c.enterEvent(QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(5, 5)))
+    c.set_valor(100, lambda v: str(round(v)))
+    c.set_detalle("")
+    assert c._op_valor.opacity() == 1.0 and c.texto_visible() == "100"
