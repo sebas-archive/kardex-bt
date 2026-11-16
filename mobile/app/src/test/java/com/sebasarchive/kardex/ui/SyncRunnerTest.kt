@@ -106,4 +106,29 @@ class SyncRunnerTest {
         assertEquals(listOf(1, 2, 3), conexiones)
         assertEquals(SyncEstado.PcNoDisponible("sin servicio"), s.last())
     }
+
+    @Test
+    fun test_probe_connects_closes_the_socket_and_ends_ok() {
+        // «Conectar primero» (sin sesión): abrir la conexión, cerrarla y terminar bien, sin enviar nada.
+        var cerrado = false
+        val r = SyncRunner(
+            conectar = { object : BluetoothSocketLike {
+                override val inputStream: InputStream = ByteArrayInputStream(ByteArray(0))
+                override val outputStream: OutputStream = ByteArrayOutputStream()
+                override fun close() { cerrado = true }
+            } },
+            sincronizar = { socket -> kotlinx.coroutines.flow.flow { socket.close(); emit(SyncProgress.Done(0, 0, 0)) } },
+            pausaMs = 0,
+        )
+        assertEquals(listOf(SyncEstado.Conectando(1), SyncEstado.Listo(0, 0, 0)), estados(r))
+        assertTrue(cerrado)
+    }
+
+    @Test
+    fun test_probe_without_pc_gives_up_after_three_attempts() {
+        val conexiones = mutableListOf<Int>()
+        val s = estados(runner(conexiones, falla = true, intentos = listOf(emptyList())))
+        assertEquals(listOf(1, 2, 3), conexiones)
+        assertTrue(s.last() is SyncEstado.PcNoDisponible)
+    }
 }

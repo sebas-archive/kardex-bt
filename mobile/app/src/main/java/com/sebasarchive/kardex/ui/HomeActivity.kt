@@ -12,7 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Inicio: quién cuenta, cuánto falta por enviar y a dónde ir. Sin sesión abierta, manda al acceso. */
+/** Inicio: quién cuenta, cuánto falta por enviar y a dónde ir. Sin sesión: primero conectar con el PC y luego el acceso. */
 class HomeActivity : PantallaActivity() {
     private val s by lazy { Servicios.de(this) }
     private var ui by mutableStateOf(HomeUi())
@@ -21,7 +21,11 @@ class HomeActivity : PantallaActivity() {
         super.onCreate(savedInstanceState)
         val abierta = s.auth.sesion()
         if (abierta == null || !abierta.puedeTrabajar) {  // sin sesión, al acceso; sin cuenta activa, a su estado
-            reemplazarPor(if (abierta == null) AuthActivity::class.java else EstadoCuentaActivity::class.java)
+            when {
+                abierta != null -> reemplazarPor(EstadoCuentaActivity::class.java)
+                !s.pcVerificado -> reemplazarPor(SincronizarActivity::class.java) { putExtra(SincronizarActivity.EXTRA_SOLO_CONECTAR, true) }
+                else -> reemplazarPor(AuthActivity::class.java)
+            }
             return
         }
         pantalla {
