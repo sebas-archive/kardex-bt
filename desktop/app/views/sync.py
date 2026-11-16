@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -55,6 +56,8 @@ from .base import QueryRunner, StateBanner
 from .isla import isla
 from .sync_ui import (
     BotonActualizar,
+    BotonPremium,
+    Esqueleto,
     EstadoVacio,
     Etapas,
     FlujoDatos,
@@ -236,6 +239,10 @@ registrar({
     "Oracle conectado de nuevo": "Oracle reconnected",
     "No se pudo consultar Oracle": "Could not query Oracle",
     "Actualizado": "Updated",
+    "Actualizando…": "Refreshing…",
+    "Reprocesando…": "Reprocessing…",
+    "Procesando…": "Processing…",
+    "Resuelta": "Resolved",
 })
 
 PASOS_ES = ["Esperando dispositivo", "Dispositivo conectado", "Recibiendo lecturas", "Procesando información",
@@ -369,7 +376,8 @@ def modelo_flujo(status: dict, oracle_ok: bool | None, procesando: bool, batch, 
     else:
         pc = ("pausa", t("Esperando"))
     pendientes = (batch.pendientes + batch.procesando) if batch is not None else 0
-    nodos.append({"tono": pc[0], "estado": pc[1], "detalle": t("{n} pendientes", n=pendientes) if pendientes else ""})
+    nodos.append({"tono": pc[0], "estado": pc[1], "detalle": t("{n} pendientes", n=pendientes) if pendientes else "",
+                  "ocupado": pc[0] == "ok"})   # el PC trabaja (recibe o procesa): su indicador de proceso se enciende
     if oracle_ok is None:
         nodos.append({"tono": "pausa", "estado": t("Comprobando"), "detalle": ""})
     elif oracle_ok:
@@ -450,6 +458,8 @@ class SyncView(QWidget):
         self._antes_reproceso: int | None = None
         self._intencion: str | None = None
         self._servicio_ocupado = False   # orden pausar/reanudar en curso: se ignoran clics (sin quitar el foco al botón)
+        self._conectando = False         # reanudación en curso: el icono muestra «conectando» hasta el resultado real
+        self._btn_accion: BotonPremium | None = None   # botón que lanzó un (re)procesamiento en curso
         self._ultimo_recibidos = -1
         self._ultimo_estado = ""
         self._entrada_hecha = False
@@ -510,12 +520,12 @@ class SyncView(QWidget):
         self.lbl_aviso = QLabel("")
         self.lbl_aviso.setWordWrap(True)
         self.lbl_aviso.setStyleSheet(f"color: {self._colores['error']};")
-        self.btn_pausar = QPushButton(t("Pausar servicio"))
+        self.btn_pausar = BotonPremium(t("Pausar servicio"), icono="pausaplay")
         self.btn_pausar.setObjectName("primario")
         self.btn_pausar.setMinimumHeight(40)
-        self.btn_aceptar = QPushButton(t("Aceptar código"))
-        self.btn_rechazar = QPushButton(t("Rechazar"))
-        self.btn_reintentar = QPushButton(t("Reintentar"))
+        self.btn_aceptar = BotonPremium(t("Aceptar código"))
+        self.btn_rechazar = BotonPremium(t("Rechazar"))
+        self.btn_reintentar = BotonPremium(t("Reintentar"))
         self.btn_reintentar.hide()
         self.btn_pausar.clicked.connect(self._clic_pausar)
         self.btn_aceptar.clicked.connect(lambda: self._responder(True))
@@ -544,6 +554,8 @@ class SyncView(QWidget):
 
         self.pill_actividad = Pildora(t("Esperando dispositivo"), "pausa")
         self.contadores: dict[str, Odometro] = {}
+        self._cajas_contadores: list[QFrame] = []
+        self._cajas_stats: list[QFrame] = []
         rejilla = QGridLayout()
         rejilla.setSpacing(12)
         for k, (clave, titulo, sub, color) in enumerate((
@@ -552,6 +564,7 @@ class SyncView(QWidget):
                 ("pendientes", "Lecturas pendientes", "por procesar", "aviso"),
                 ("errores", "Lecturas con error", "sin resolver", "error"))):
             caja = _tarjeta("contadorSync")
+            self._cajas_contadores.append(caja)
             en_caja = QVBoxLayout(caja)
             en_caja.setContentsMargins(16, 12, 16, 12)
             en_caja.setSpacing(0)
@@ -607,7 +620,7 @@ class SyncView(QWidget):
         grupo = QButtonGroup(self)
         grupo.setExclusive(True)
         for clave, corto, largo in RANGOS_ES:
-            b = QPushButton(t(corto))
+            b = BotonPremium(t(corto))
             b.setObjectName("segmento")
             b.setCheckable(True)
             b.setToolTip(t(largo))
@@ -624,6 +637,7 @@ class SyncView(QWidget):
                               ("errores", "Errores registrados"), ("minuto", "Actividad por minuto"),
                               ("ultima", "Última sincronización")):
             caja = _tarjeta("contadorSync")
+            self._cajas_stats.append(caja)
             en_caja = QVBoxLayout(caja)
             en_caja.setContentsMargins(14, 9, 14, 9)
             en_caja.setSpacing(0)
@@ -657,8 +671,8 @@ class SyncView(QWidget):
         self.combo_motivo = QComboBox()
         self.combo_motivo.addItem(t(TODOS_LOS_MOTIVOS))
         self.combo_motivo.setMinimumWidth(200)
-        self.btn_reprocesar = QPushButton(t("Reprocesar errores"))
-        self.btn_procesar = QPushButton(t("Procesar ahora"))
+        self.btn_reprocesar = BotonPremium(t("Reprocesar errores"))
+        self.btn_procesar = BotonPremium(t("Procesar ahora"))
         self.progreso = QProgressBar()
         self.progreso.setObjectName("progresoSync")
         self.progreso.setRange(0, 0)
@@ -674,9 +688,14 @@ class SyncView(QWidget):
         self.tabla_errores.horizontalHeader().setHighlightSections(False)
         self.tabla_errores.setMinimumHeight(150)
         self.vacio = EstadoVacio(t("Todo está en orden"), t("No hay lecturas pendientes de revisión"))
+        self.esqueleto = Esqueleto()      # filas fantasma con shimmer hasta que llegan los primeros datos de Oracle
         self.pila = QStackedWidget()
         self.pila.addWidget(self.tabla_errores)
         self.pila.addWidget(self.vacio)
+        self.pila.addWidget(self.esqueleto)
+        self.pila.setCurrentWidget(self.esqueleto)
+        self._cargado = False
+        self._vistos: set[int] = set()    # filas ya mostradas: solo las nuevas entran con animación
         barra = QHBoxLayout()
         barra.setSpacing(8)
         barra.addWidget(_etiqueta(t("Lecturas con error"), "seccion"))
@@ -731,8 +750,54 @@ class SyncView(QWidget):
         super().showEvent(evento)
         if not self._entrada_hecha:
             self._entrada_hecha = True
-            sync_ui.entrada_escalonada([self.cabecera, self.hero, self.tarjeta_flujo, self.tarjeta_actividad,
-                                        self.tarjeta_errores])
+            self._instalar_interacciones()
+        # Se repite cada vez que el usuario entra a la pantalla (cambio de sección), pero no con un refresco de datos
+        # ni cuando el sistema restaura la ventana (esa visibilidad es «espontánea»).
+        if not evento.spontaneous():
+            self._entrada_cinematica()
+
+    def _instalar_interacciones(self) -> None:
+        """Hover (elevación + sombra ambiental) y pulsación (compresión con spring) en todas las tarjetas. Los efectos
+        existen solo mientras hay movimiento o el cursor está encima: una tarjeta quieta no paga nada."""
+        for tarjeta in (self.hero, self.tarjeta_flujo, self.tarjeta_actividad, self.tarjeta_errores):
+            motion.hacer_interactiva(tarjeta, 20)
+        for caja in self._cajas_contadores + self._cajas_stats:
+            motion.hacer_interactiva(caja, 14)
+
+    def _entrada_cinematica(self) -> None:
+        """Secuencia orquestada, solo al entrar a la pantalla (nunca en un refresco de datos):
+        cabecera → indicadores → panel Bluetooth (expansión) → contadores → flujo (izquierda a derecha) →
+        estadísticas → errores."""
+        if not widgets.ANIMAR:
+            return
+        entrar = motion.entrar
+        # 1. cabecera
+        entrar(self.lbl_titulo, 0, dy=10)
+        entrar(self.lbl_subtitulo, 50, dy=10)
+        entrar(self.lbl_actualizado, 80, dy=10)
+        # 2. indicadores de Oracle y Bluetooth
+        entrar(self.pill_oracle, 150, dy=8)
+        entrar(self.pill_bluetooth, 200, dy=8)
+        entrar(self.btn_actualizar, 250, dy=8)
+        # 3. panel Bluetooth: expansión suave; el icono hace su scale-in cuando el panel ya casi está
+        entrar(self.hero, 240, dy=18, escala=0.965, ms_=motion.Dur.EXPANSION, radio=20)
+        QTimer.singleShot(motion.dur(380), self._entrada_icono)
+        # 4. indicadores numéricos, uno tras otro
+        for k, caja in enumerate(self._cajas_contadores):
+            entrar(caja, 520 + 80 * k, dy=8, ms_=motion.Dur.ENTRADA, radio=14)
+        # 5. flujo Android → Bluetooth → PC → Oracle, revelado de izquierda a derecha
+        self.flujo.revelar(retardo_ms=motion.dur(700))
+        entrar(self.tarjeta_flujo, 640, dy=16, radio=20)
+        # 6. actividad y estadísticas con stagger
+        entrar(self.tarjeta_actividad, 860, dy=16, radio=20)
+        for k, caja in enumerate(self._cajas_stats):
+            entrar(caja, 1040 + 60 * k, dy=8, ms_=motion.Dur.ENTRADA, radio=14)
+        # 7. errores, al final
+        entrar(self.tarjeta_errores, 1100, dy=16, radio=20)
+
+    def _entrada_icono(self) -> None:
+        if not sip.isdeleted(self.icono):
+            self.icono.reproducir_entrada()
 
     # ------------------------------------------------- contrato de las vistas
     def set_sesion(self, sesion: auth.Sesion | None) -> None:
@@ -745,10 +810,18 @@ class SyncView(QWidget):
         self._remoto.sondear()
         self._actualizar(self._remoto.status())
         if self._sesion is not None:
-            self.btn_actualizar.iniciar()
+            if not self.btn_actualizar.girando():
+                self.btn_actualizar.iniciar()
+                self.btn_actualizar.set_texto(t("Actualizando…"))
             self._recargar()
         else:
-            self.btn_actualizar.detener()
+            self._reposo_actualizar()
+
+    def _reposo_actualizar(self, resultado: str | None = None) -> None:
+        """«Actualizar» vuelve a su estado normal (icono en reposo y texto original), con la marca de resultado."""
+        if self.btn_actualizar.girando():
+            self.btn_actualizar.detener(resultado)
+        self.btn_actualizar.set_texto(t("Actualizar"))
 
     def errores(self) -> list[tuple[str, ...]]:
         return [tuple(self.tabla_errores.item(f, c).text() if self.tabla_errores.item(f, c) else ""
@@ -769,7 +842,10 @@ class SyncView(QWidget):
         self.refresh()
 
     def _fallo_carga(self, mensaje: str) -> None:
-        self.btn_actualizar.detener()
+        self._reposo_actualizar("error")
+        if not self._cargado:      # sin datos y sin Oracle: no se deja el esqueleto parpadeando para siempre
+            self.pila.setCurrentWidget(self.tabla_errores)
+        self._cerrar_boton_accion("error")
         habia = self._oracle_ok is not False
         self._oracle_ok = False
         self._pintar_oracle()
@@ -787,8 +863,12 @@ class SyncView(QWidget):
             isla.exito(t("Oracle conectado de nuevo"))
         self._oracle_ok = True
         self.banner.clear()
-        self.btn_actualizar.detener()
+        self._reposo_actualizar("exito")
+        procesadas_antes = self._cont.procesadas if self._cont is not None else None
         self._batch, self._cont, self._tasa = datos["batch"], datos["contadores"], datos["tasa"]
+        if procesadas_antes is not None and self._cont.procesadas > procesadas_antes:
+            # Oracle confirmó escrituras reales: paquetes PC → Oracle y destello en Oracle
+            self.flujo.confirmar_escritura(self._cont.procesadas - procesadas_antes)
         self._actividad = datos["actividad"]
         self._ultima_actualizacion = datetime.now()
         self.lbl_actualizado.setText("· " + t("Última actualización {hora}", hora=f"{self._ultima_actualizacion:%H:%M:%S}"))
@@ -807,10 +887,12 @@ class SyncView(QWidget):
         nuevos = list(datos["errores"])
         quitados = [i for i, e in enumerate(self._visibles) if e.id_transito not in {n.id_transito for n in nuevos}]
         self._errores_nuevos = nuevos
-        self.tabla_errores.desvanecer_filas(quitados, lambda: self._aplicar_errores(nuevos))
+        # las filas que ya no están en error se resolvieron: pasan a verde con un check y se desvanecen
+        self.tabla_errores.desvanecer_filas(quitados, lambda: self._aplicar_errores(nuevos), exito=True)
         self._refrescar_flujo()
 
     def _aplicar_errores(self, errores: list) -> None:
+        self._cargado = True
         self._errores = list(errores)
         motivos = sorted({e.mensaje_error for e in errores if e.mensaje_error})
         actual = self.combo_motivo.currentData()
@@ -835,16 +917,31 @@ class SyncView(QWidget):
         antes, ahora = self._antes_reproceso, len(self._errores)
         self._antes_reproceso = None
         if antes is None:
+            self._cerrar_boton_accion("exito")
             self._terminar_proceso("exito", t("Procesamiento completado"))
         elif antes == 0:
+            self._cerrar_boton_accion(None)
             self._terminar_proceso("info", t("No había errores que reprocesar"))
         elif ahora == 0:
+            self._cerrar_boton_accion("exito")
             self._terminar_proceso("exito", t("Errores reprocesados"), t("{n} lecturas resueltas", n=antes))
         elif ahora < antes:
+            self._cerrar_boton_accion("exito")
+            self.tabla_errores.resaltar_filas(list(range(self.tabla_errores.rowCount())))   # las que siguen con error
             self._terminar_proceso("advertencia", t("Errores reprocesados"),
                                    t("{n} reprocesados · {m} siguen con error", n=antes - ahora, m=ahora))
         else:
+            self._cerrar_boton_accion("error")
+            self.tabla_errores.resaltar_filas(list(range(self.tabla_errores.rowCount())))
             self._terminar_proceso("advertencia", t("Sin cambios"), t("Las {n} lecturas siguen con error", n=ahora))
+
+    def _cerrar_boton_accion(self, resultado: str | None) -> None:
+        """El botón que lanzó el (re)procesamiento muestra su resultado y recupera texto e icono originales."""
+        boton, self._btn_accion = self._btn_accion, None
+        if boton is None:
+            return
+        boton.detener(resultado)
+        boton.set_texto(t("Reprocesar errores") if boton is self.btn_reprocesar else t("Procesar ahora"))
 
     def _poner_cuenta(self) -> None:
         n = len(self._errores)
@@ -900,7 +997,7 @@ class SyncView(QWidget):
         etiqueta = self.stats[clave]
         if etiqueta.text() != texto:
             etiqueta.setText(texto)
-            if widgets.ANIMAR and etiqueta.isVisible():
+            if widgets.ANIMAR and etiqueta.isVisible() and motion.sin_efecto_en_ancestros(etiqueta):
                 motion.desvanecer(etiqueta, 0.25, 1.0, 220, lambda e=etiqueta: e.setGraphicsEffect(None))
 
     def _pintar_actividad(self) -> None:
@@ -942,7 +1039,15 @@ class SyncView(QWidget):
             self.vacio.lbl_titulo.setText(t("Todo está en orden") if sin_filtro else t("Ninguna lectura con este motivo"))
             self.vacio.lbl_desc.setText(t("No hay lecturas pendientes de revisión") if sin_filtro
                                         else t("Cambia el filtro para ver los demás errores."))
-        self.pila.setCurrentWidget(self.tabla_errores if hay else self.vacio)
+        if hay:
+            ya_vistos = self._vistos
+            nuevas = [f for f, e in enumerate(self._visibles) if e.id_transito not in ya_vistos]
+            self._vistos |= {e.id_transito for e in self._visibles}
+            self.tabla_errores.animar_entrada(nuevas)        # entra solo lo nuevo, con stagger
+        else:
+            self._vistos = set()
+        if self._cargado:
+            self.pila.setCurrentWidget(self.tabla_errores if hay else self.vacio)
 
     # ------------------------------------------------------------- procesar / reprocesar
     def _accion(self, operacion, reprocesa: bool = False) -> None:
@@ -952,6 +1057,10 @@ class SyncView(QWidget):
         self.btn_reprocesar.setEnabled(False)
         barra.setValue(posicion)   # deshabilitar el botón con foco lo pasa a otro widget y el scroll saltaba
         self.progreso.show()
+        self._cerrar_boton_accion(None)
+        self._btn_accion = self.btn_reprocesar if reprocesa else self.btn_procesar
+        self._btn_accion.iniciar()                     # spinner en lugar del icono; el clic nunca queda bloqueado por la animación
+        self._btn_accion.set_texto(t("Reprocesando…") if reprocesa else t("Procesando…"))
         self._antes_reproceso = len(self._errores) if reprocesa else None
         self._proceso = isla.cargando(t("Reprocesando errores…") if reprocesa else t("Procesando lecturas…"))
         self._procesando_manual = True
@@ -978,6 +1087,7 @@ class SyncView(QWidget):
         self._procesando_manual = False
         self._esperando_resultado = False
         self.progreso.hide()
+        self._cerrar_boton_accion("error")
         self._terminar_proceso("error", t("No se pudo procesar"), mensaje)
         self.btn_procesar.setEnabled(True)
         self.btn_reprocesar.setEnabled(True)
@@ -994,8 +1104,11 @@ class SyncView(QWidget):
         # No se deshabilita el botón: al perder el foco, Qt lo pasa a un widget de más abajo y el QScrollArea
         # desplaza la pantalla hasta él (la vista saltaba al pulsar Pausar/Reanudar).
         self._servicio_ocupado = True
+        self.btn_pausar.iniciar()          # el botón responde al instante; el resultado real lo resuelve en _actualizar
         if self._remoto.status()["estado"] in (PAUSADO, PAUSANDO):
             self._intencion = "reanudar"
+            self._conectando = True        # el icono pasa a «conectando» y las ondas arrancan al confirmarse
+            self.icono.set_modo("buscando")
             self._remoto.reanudar(self._sesion)
         else:
             self._intencion = "pausar"
@@ -1008,6 +1121,11 @@ class SyncView(QWidget):
     def _fallo_servicio(self, mensaje: str) -> None:
         self._intencion = None
         self._servicio_ocupado = False
+        if self.btn_pausar.girando():      # la operación falló: se revierte lo visual y el botón marca el error
+            self.btn_pausar.detener("error")
+        if self._conectando:
+            self._conectando = False
+            self.icono.set_modo(modo_icono(self._remoto.status()["estado"]))
         self.lbl_aviso.setText(mensaje)
         self.lbl_aviso.setVisible(bool(mensaje))
         if mensaje:
@@ -1023,10 +1141,12 @@ class SyncView(QWidget):
         error = status["ultimo_error"]
         gestiona = self._puede_gestionar()
         titulo, descripcion = textos_hero(estado, error)
-        self.lbl_estado.setText(titulo)
-        self.lbl_ayuda.setText(descripcion)
+        motion.cruzar_texto(self.lbl_estado, titulo)
+        motion.cruzar_texto(self.lbl_ayuda, descripcion)
         self.lbl_ayuda.setVisible(bool(descripcion))
-        self.icono.set_modo(modo_icono(estado))
+        if self._conectando and estado not in (PAUSADO, PAUSANDO):
+            self._conectando = False       # llegó el resultado real de la reanudación
+        self.icono.set_modo("buscando" if self._conectando else modo_icono(estado))
         self.lbl_codigo.setText(status["codigo"] or "")
         self.lbl_codigo.setVisible(estado == CONFIRMAR_CODIGO and bool(status["codigo"]))
         self.btn_aceptar.setVisible(estado == CONFIRMAR_CODIGO and gestiona)
@@ -1067,14 +1187,27 @@ class SyncView(QWidget):
         self.etapas.set_estado(actual, hechas, en_error)
         self._refrescar_flujo()
 
-        self.btn_pausar.setText(t("Reanudar servicio") if estado in (PAUSADO, PAUSANDO) else t("Pausar servicio"))
+        en_pausa = estado in (PAUSADO, PAUSANDO)
+        self.btn_pausar.set_texto(t("Reanudar servicio") if en_pausa else t("Pausar servicio"))
+        self.btn_pausar.set_reproduccion(en_pausa)
         self.btn_pausar.setVisible(gestiona and estado != DETENIDO)
         self._servicio_ocupado = False
-        if self._intencion == "reanudar" and estado not in (PAUSADO, PAUSANDO):
+        if self._intencion == "reanudar" and not en_pausa:
             self._intencion = None
+            self.btn_pausar.detener("exito")
             isla.exito(t("Bluetooth reanudado"))
-        elif self._intencion == "pausar" and estado in (PAUSADO, PAUSANDO):
+        elif self._intencion == "pausar" and en_pausa:
             self._intencion = None   # el aviso de «en pausa» ya lo da la Isla global (estado persistente de Bluetooth)
+            self.btn_pausar.detener("exito")
+
+        # eventos reales → movimiento: lecturas que llegan viajan por el flujo y los nodos reaccionan al cambio de fase
+        if self._ultimo_recibidos >= 0 and recibidos > self._ultimo_recibidos:
+            self.flujo.emitir_lecturas(recibidos - self._ultimo_recibidos)
+        if self._ultimo_estado and estado != self._ultimo_estado:
+            if estado == CONECTADO:
+                self.flujo.pulso(0)
+            elif estado == PROCESANDO:
+                self.flujo.pulso(2)
 
         # los contadores del día siguen al servicio: se recargan cuando cambia el estado o llegan más lecturas
         if estado != self._ultimo_estado or recibidos != self._ultimo_recibidos:
