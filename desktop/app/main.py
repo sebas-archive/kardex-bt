@@ -763,6 +763,24 @@ class MainWindow(QMainWindow):
             titulo = next((t for t, _v, _b, modulo, _r in self._secciones if modulo == actual), None)
             if titulo is not None:
                 self.ir_a(titulo)
+        self._repulir_navegacion()
+
+    def _repulir_navegacion(self) -> None:
+        """Vuelve a aplicar la hoja de estilo a la barra: los botones recién creados tras un cambio de tema o idioma
+        pueden quedar sin las reglas de ``#nav`` (texto centrado, iconos desalineados) hasta el siguiente repintado."""
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.style().unpolish(boton)
+            boton.style().polish(boton)
+            boton.updateGeometry()
+        self._lateral.updateGeometry()
+        self._lateral.update()
+        QTimer.singleShot(0, self._repulir_navegacion_diferido)
+
+    def _repulir_navegacion_diferido(self) -> None:
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.style().unpolish(boton)
+            boton.style().polish(boton)
+            boton.update()
 
     def _centrar_contenido(self) -> None:
         if not hasattr(self, "_centro"):
