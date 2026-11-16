@@ -130,7 +130,7 @@ class BarraSegmentada
 class Dona
 class Indicador
 class Pasos
-class Aviso
+class AvisoNuevoSku
 class Transicion
 
 RefreshableView <|.. DashboardView
@@ -146,7 +146,7 @@ MainWindow *-- EstadoCuentaView : cuenta sin acceso
 MainWindow o-- RefreshableView : secciones de la barra lateral
 MainWindow ..> Sesion : la del usuario que entró
 MainWindow *-- Transicion
-MainWindow ..> Aviso : avisos flotantes
+MainWindow ..> AvisoNuevoSku : avisos flotantes
 MainWindow *-- StateBanner
 AccesoView ..> auth : registrar / iniciar_sesion / recuperar
 UsuariosView ..> auth : módulo «usuarios»

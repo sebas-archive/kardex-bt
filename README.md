@@ -108,8 +108,21 @@ servicio `bluetooth` esté activo. En el celular: **Sincronizar**; la primera ve
 El operador cuenta directamente del catálogo y el batch va conciliando contra `ACTUAL`. Si un SKU no tiene lectura, la cantidad contada se
 muestra vacía (no en 0). El Dashboard muestra el avance (SKUs con lectura vigente sobre el total), el estado del batch y la diferencia por
 categoría como referencia; el Inventario muestra SKU, producto, categoría, cantidad contada y cantidad del sistema,
-sin diferencia, porcentaje ni clasificación en las filas. Las lecturas con problemas quedan en error y se ven en **Sincronización**; el Administrador puede dar de
-alta el SKU desde el detalle del error y **Reprocesar errores**.
+sin diferencia, porcentaje ni clasificación en las filas.
+
+Cuando una lectura llega al PC con un **SKU que no está en el catálogo**, ya no queda en error: aparece un **aviso flotante «Nuevo SKU»**
+(arriba a la derecha, sobre el contenido, sin ocupar lugar en la pantalla) con el SKU, cuántas lecturas son y dos opciones:
+
+- **Crear y procesar**: pide nombre y categoría (el SKU del aviso se muestra en solo lectura y en mayúsculas), crea el producto con stock 0,
+  procesa la lectura y la deja reflejada en Inventario y Dashboard.
+- **No crear**: tras confirmar, descarta la lectura; las descartadas no se cuentan ni aparecen en el Inventario.
+
+El aviso muestra hasta 3 SKU (si hay más, «+N más») y se actualiza solo mientras haya sesión abierta. En **Sincronización** esas lecturas
+aparecen como chip «Nuevos SKU» con su conteo y una ayuda, nunca como error; la tabla de errores queda solo para datos inválidos
+(formato, cantidad o dañados), y el Administrador puede **Reprocesar errores** como antes.
+
+Cada lectura pendiente de SKU nuevo deja además un aviso en la **campana** (Notificaciones, para el Administrador) que con «Ver» lleva a
+**Sincronización**; se crea también si el teléfono sincronizó con la app cerrada, y no se duplica al volver a evaluarse.
 
 ### Configuración y respaldos
 
