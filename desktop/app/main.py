@@ -552,6 +552,7 @@ class MainWindow(QMainWindow):
         self.paginas.setCurrentIndex(indice)
         self._secciones[indice][2].setChecked(True)
         self.lbl_titulo.setText(titulo)
+        self._cabecera_global(self._secciones[indice][1])
         self._actualizar_progreso_vista()
 
     # ------------------------------------------------------------------ notificaciones y avisos
@@ -771,6 +772,15 @@ class MainWindow(QMainWindow):
         margen = MARGEN_LATERAL + sobra // 2
         self._en_centro.setContentsMargins(margen, 18, margen, 18)
 
+    def _cabecera_global(self, vista: QWidget) -> None:
+        """Las pantallas con ``cabecera_propia`` (Sincronización) dibujan su propio título, estados y «Actualizar»:
+        la fila global se oculta para no repetirlos. El texto de ``lbl_titulo`` sigue siendo la sección actual."""
+        self._cabecera_propia = bool(getattr(vista, "cabecera_propia", False))
+        for w in (self.lbl_titulo, self.lbl_actualizado, self.chip_oracle, self.chip_bluetooth, self.btn_actualizar):
+            w.setVisible(not self._cabecera_propia)
+        if not self._cabecera_propia:
+            self.lbl_actualizado.setVisible(self.width() >= 1000)
+
     def _actualizar_progreso_vista(self) -> None:
         """Sin indicador de scroll: se conserva el punto de extensión para las vistas que lo consulten."""
 
@@ -779,7 +789,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_raiz"):
             return
         self._centrar_contenido()
-        self.lbl_actualizado.setVisible(self.width() >= 1000)   # en ventanas estrechas el encabezado prioriza lo esencial
+        self.lbl_actualizado.setVisible(self.width() >= 1000 and not getattr(self, "_cabecera_propia", False))   # en ventanas estrechas el encabezado prioriza lo esencial
         if not self._colapso_manual and self._raiz.currentIndex() == 1:
             if self.width() < 1060 and not self._colapsada:
                 self._auto_colapsada = True

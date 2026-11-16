@@ -387,6 +387,34 @@ QFrame#lienzo QFrame#segmentado QPushButton#segmento { border: 1px solid transpa
     padding: 7px 12px; color: #A3A3A3; font-weight: 600; min-height: 18px; }
 QFrame#lienzo QFrame#segmentado QPushButton#segmento:hover { color: #FFFFFF; background: rgba(255,255,255,0.05); }
 QFrame#lienzo QFrame#segmentado QPushButton#segmento:checked { background: #1C1C1C; color: #FFFFFF; border: 1px solid #2E2E2E; }
+
+/* Pantalla Sincronización: superficies de 20/14 px, segmentos y tabla ligera */
+QFrame#tarjetaSync { background: #111111; border: 1px solid #232323; border-radius: 20px; }
+QFrame#tarjetaSync QLabel { background: transparent; }
+QFrame#contadorSync { background: #0F0F0F; border: 1px solid #232323; border-radius: 14px; }
+QFrame#contadorSync:hover { border-color: #2E2E2E; background: #121212; }
+QFrame#contadorSync QLabel { background: transparent; }
+QFrame#divisorSync { background: #232323; border: none; max-width: 1px; min-width: 1px; }
+QLabel#tituloSync { font-size: 26px; font-weight: 700; color: #FFFFFF; background: transparent; }
+QLabel#estadoHeroSync { font-size: 22px; font-weight: 700; color: #FFFFFF; background: transparent; }
+QLabel#valorStatSync { font-size: 19px; font-weight: 700; color: #FFFFFF; background: transparent; }
+QLabel#codigoSync { background: transparent; }
+QLabel#badgeSync { background: #3A1512; color: #F87171; border-radius: 11px; padding: 3px 11px; font-size: 12px;
+                   font-weight: 600; }
+QLabel#badgeSync[vacio="true"] { background: #10261F; color: #34D399; }
+QProgressBar#progresoSync { min-height: 3px; max-height: 3px; border: none; border-radius: 1px; background: #1C1C1C; }
+QProgressBar#progresoSync::chunk { background: #10B981; border-radius: 1px; }
+QFrame#lienzo QPushButton#segmento { min-height: 16px; padding: 5px 13px; border-radius: 13px; background: transparent;
+                                     border: 1px solid transparent; color: #A3A3A3; font-weight: 600; }
+QFrame#lienzo QPushButton#segmento:hover { background: #1C1C1C; color: #EDEDED; }
+QFrame#lienzo QPushButton#segmento:checked { background: #10261F; color: #34D399; border-color: #1E3A32; }
+QFrame#lienzo QPushButton#accionSync { border-radius: 15px; padding: 5px 15px 5px 11px; min-height: 18px; }
+QTableWidget#tablaSync { background: transparent; border: none; gridline-color: transparent; outline: none; }
+QTableWidget#tablaSync QHeaderView { background: transparent; }
+QTableWidget#tablaSync QHeaderView::section { background: transparent; border: none; border-bottom: 1px solid #232323;
+                                              padding: 8px 14px; color: #8A8A8A; font-size: 11px; font-weight: 600; }
+QTableWidget#tablaSync::item { border: none; }
+QFrame#tarjetaSync QStackedWidget, QWidget#vacioSync { background: transparent; }
 """
 
 
