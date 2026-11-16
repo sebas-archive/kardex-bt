@@ -45,7 +45,7 @@ def test_seis_graficas_y_sus_datos(vista):
     v, _ana = vista
     assert set(CHART_IDS) == {"avance", "top", "danados", "batch"}
     assert set(EXTRA_IDS) == {"dona", "hora"}
-    assert len(v.plots) == 5 and v.dona is not None
+    assert len(v.plots) == 10 and v.dona is not None and v.anillo is not None and v.dona_buenas is not None
     assert dict(v.bar_data("top"))["Abarrotes"] == 3.0
     assert sum(valor for _c, valor in v.serie("dona")) == 65.0
     assert v.serie("hora") and v.serie("hora")[0][1] == 5.0
@@ -111,11 +111,30 @@ def test_quitar_todas_muestra_el_aviso_y_deshabilita_nada_mas_que_lo_justo(vista
     assert not v.vacio.isVisibleTo(v) and v.rejilla.ids() == ["hora"]
 
 
-def test_con_las_seis_puestas_no_hay_nada_que_agregar(vista):
+def test_con_todas_puestas_no_hay_nada_que_agregar(vista):
+    from app import graficas_prefs as gp
     v, _ana = vista
-    assert not v.btn_agregar.isEnabled()
+    assert v.btn_agregar.isEnabled()        # las siete nuevas están por añadir
+    for c in gp.EXTRAS:
+        assert v.agregar_grafica(c)
+    assert v.rejilla.ids() == SEIS + list(gp.EXTRAS) and not v.btn_agregar.isEnabled()
     v.quitar_grafica("top")
     assert v.btn_agregar.isEnabled()
+
+
+def test_graficas_nuevas_y_sus_datos(qtbot, vista):
+    from app import graficas_prefs as gp
+    v, _ana = vista
+    for c in gp.EXTRAS:
+        v.agregar_grafica(c)
+    v.refresh()
+    esperar(qtbot, lambda: bool(v.bar_data("operadores")))
+    assert dict(v.bar_data("operadores")) == {"Ana": 3.0, "Luis": 2.0}
+    assert sum(x for _e, x in v.bar_data("dia")) == 5.0
+    assert sum(x for _e, x in v.bar_data("skus")) == 5.0
+    assert v.serie("acumulado")[-1][1] == 5.0
+    assert v.anillo.valor() is not None and 0 <= v.anillo.valor() <= 100
+    assert dict(v.serie("buenas")).keys() == {"buenas", "danadas"}
 
 
 def test_tamano_y_orden_se_recuerdan_por_usuario(qtbot, vista, cuentas):

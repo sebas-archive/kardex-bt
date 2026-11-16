@@ -325,9 +325,10 @@ class BarraSegmentada(QWidget):
 class Dona(QWidget):
     """Gráfica de dona: los sectores se abren en abanico hasta su tamaño; el total va en el centro."""
 
-    def __init__(self, colores: dict[str, str], nombres: dict[str, str] | None = None, parent: QWidget | None = None) -> None:
+    def __init__(self, colores: dict[str, str], nombres: dict[str, str] | None = None, parent: QWidget | None = None,
+                 unidad: str = "SKU") -> None:
         super().__init__(parent)
-        self._colores, self._nombres = colores, nombres or {}
+        self._colores, self._nombres, self._unidad = colores, nombres or {}, unidad
         self._datos: list[tuple[str, float]] = []
         self._avance, self._anim = 1.0, None
         self._ocultas: set[str] = set()
@@ -380,7 +381,7 @@ class Dona(QWidget):
         fuente.setBold(False)
         p.setFont(fuente)
         p.setPen(QColor(TINTA_SUAVE))
-        p.drawText(caja.adjusted(0, lado * 0.2, 0, lado * 0.2), Qt.AlignmentFlag.AlignCenter, "SKU")
+        p.drawText(caja.adjusted(0, lado * 0.2, 0, lado * 0.2), Qt.AlignmentFlag.AlignCenter, self._unidad)
         # Leyenda a la derecha, con el porcentaje de cada sector.
         x, y = caja.right() + 24, caja.top() + max(0.0, (lado - 28 * len(self._datos)) / 2)
         fuente.setPixelSize(13)
