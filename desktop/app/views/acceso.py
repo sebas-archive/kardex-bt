@@ -7,7 +7,7 @@ del backend no cambia (``auth._validar_clave``).
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QApplication, QMenu, QScrollArea, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
@@ -123,8 +123,17 @@ class CasillaAcceso(QCheckBox):
         self.setStyleSheet("CasillaAcceso { background: transparent; border: none; }")
 
     def sizeHint(self) -> QSize:
+        self.ensurePolished()  # la fuente de la hoja de estilos debe estar aplicada antes de medir el texto
         ancho = self.LADO + 10 + self.fontMetrics().horizontalAdvance(self.text())
-        return QSize(ancho + 4, max(self.LADO, self.fontMetrics().height()) + 6)
+        return QSize(ancho + 12, max(self.LADO, self.fontMetrics().height()) + 6)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def changeEvent(self, evento) -> None:
+        super().changeEvent(evento)
+        if evento.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self.updateGeometry()
 
     def hitButton(self, _pos) -> bool:
         return True
