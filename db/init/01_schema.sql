@@ -60,7 +60,17 @@ CREATE TABLE captura_transito (
     fecha_reclamo     TIMESTAMP,
     CONSTRAINT pk_captura_transito PRIMARY KEY (id_transito),
     CONSTRAINT uq_transito_dispositivo_seq UNIQUE (uuid_dispositivo, seq),
-    CONSTRAINT ck_transito_estado CHECK (estado IN ('PENDIENTE', 'PROCESANDO', 'PROCESADO', 'ERROR'))
+    -- Estados de una lectura:
+    --   PENDIENTE  -> recien recibida, esperando al batch.
+    --   PROCESANDO -> reclamada por una corrida del batch.
+    --   PROCESADO  -> validada e insertada en REGISTROS_PROCESADOS.
+    --   ERROR      -> no es una lectura valida (formato, cantidad, danados...) o fallo inesperado.
+    --   NUEVO_SKU  -> la lectura es valida pero su SKU no esta en PRODUCTOS: NO es un error, espera a
+    --                 que el Administrador decida desde el escritorio ("Crear y procesar" o "No crear").
+    --   DESCARTADO -> el Administrador decidio no tomar esa lectura (SKU nuevo no creado): no cuenta
+    --                 como lectura y la purga la elimina como si estuviera procesada.
+    CONSTRAINT ck_transito_estado CHECK (estado IN ('PENDIENTE', 'PROCESANDO', 'PROCESADO', 'ERROR',
+                                                    'NUEVO_SKU', 'DESCARTADO'))
 );
 
 CREATE INDEX ix_transito_estado ON captura_transito (estado);

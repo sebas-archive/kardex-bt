@@ -1,6 +1,8 @@
 -- Batch de inventario continuo: pasa las lecturas del staging (CAPTURA_TRANSITO) a REGISTROS_PROCESADOS
 -- y concilia lo contado contra el stock del sistema (CONCILIACION) del conteo unico ACTUAL.
 -- El contenedor ejecuta este script como SYS; el paquete vive en el esquema APP.
+-- Decision aprobada: un SKU que no esta en PRODUCTOS NO es un error; la lectura queda en NUEVO_SKU
+-- esperando que el Administrador decida desde el escritorio ("Crear y procesar" o "No crear").
 WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = app;
@@ -8,6 +10,7 @@ ALTER SESSION SET CURRENT_SCHEMA = app;
 CREATE OR REPLACE PACKAGE pkg_batch AS
     -- Procesa todo lo PENDIENTE. Las filas que llevan mas de p_timeout_min minutos en
     -- PROCESANDO (una corrida que murio a medias) se recuperan primero.
+    -- Una lectura valida cuyo SKU no existe en PRODUCTOS no es un error: queda en NUEVO_SKU.
     PROCEDURE procesar_pendientes(
         p_origen      IN VARCHAR2 DEFAULT 'MANUAL',
         p_timeout_min IN NUMBER   DEFAULT 5
@@ -19,7 +22,8 @@ CREATE OR REPLACE PACKAGE pkg_batch AS
     -- Devuelve a PENDIENTE las filas en ERROR y las vuelve a procesar.
     PROCEDURE reprocesar_errores(p_id_conteo IN VARCHAR2 DEFAULT NULL);
 
-    -- Borra del staging las filas PROCESADO con mas de p_dias dias (la ultima de cada dispositivo se conserva).
+    -- Borra del staging las filas PROCESADO o DESCARTADO con mas de p_dias dias
+    -- (la ultima de cada dispositivo y las que tienen foto se conservan).
     PROCEDURE purgar_transito(p_dias IN NUMBER DEFAULT 7);
 
     -- Alta de un SKU que llego en una lectura y no existe: producto + stock 0 en ACTUAL (hace COMMIT).
@@ -31,12 +35,30 @@ CREATE OR REPLACE PACKAGE pkg_batch AS
         p_unidad    IN VARCHAR2 DEFAULT 'UND',
         p_costo_unit IN NUMBER  DEFAULT 0
     );
+
+    -- "Crear y procesar" del aviso flotante Nuevo SKU (hace COMMIT):
+    --   1. Normaliza p_sku a UPPER(TRIM). Si no existe el producto lo crea (producto + stock 0 en
+    --      ACTUAL); si ya existe (sin distinguir mayusculas) no falla y usa su SKU canonico.
+    --   2. Pasa a PENDIENTE las lecturas NUEVO_SKU de ese SKU (y las viejas ERROR por SKU_DESCONOCIDO,
+    --      anteriores a este flujo) y las procesa.
+    --   3. Refresca CONCILIACION para que el SKU aparezca ya en el Dashboard aunque la lectura
+    --      haya quedado en ERROR (una lectura invalida no rompe la operacion global).
+    PROCEDURE alta_y_procesar(
+        p_sku       IN VARCHAR2,
+        p_nombre    IN VARCHAR2,
+        p_categoria IN VARCHAR2
+    );
+
+    -- "No crear" del aviso flotante Nuevo SKU (hace COMMIT): las lecturas NUEVO_SKU de ese SKU
+    -- pasan a DESCARTADO con MENSAJE_ERROR NULL y dejan de contar. Solo afecta filas NUEVO_SKU.
+    PROCEDURE descartar_nuevo_sku(p_sku IN VARCHAR2);
 END pkg_batch;
 /
 
 CREATE OR REPLACE PACKAGE BODY pkg_batch AS
 
     e_validacion EXCEPTION;
+    e_sku_nuevo  EXCEPTION;      -- lectura valida, pero su SKU no esta en PRODUCTOS
     g_error      VARCHAR2(40);   -- codigo de la ultima validacion fallida
 
     PROCEDURE fallar(p_codigo IN VARCHAR2) IS
@@ -59,6 +81,13 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         END IF;
         RETURN UTL_URL.UNESCAPE(p_valor, 'UTF-8');
     END texto;
+
+    -- SKU de una linea REC desescapado y normalizado: la misma clave para comparar en el batch,
+    -- en alta_y_procesar y en descartar_nuevo_sku.
+    FUNCTION sku_normalizado(p_raw IN VARCHAR2) RETURN VARCHAR2 IS
+    BEGIN
+        RETURN UPPER(TRIM(texto(campo(p_raw, 5))));
+    END sku_normalizado;
 
     -- En cada SKU vale la lectura con FECHA_CAPTURA mas reciente (recontar reemplaza);
     -- si empatan, la de ID_TRANSITO mayor (global, asignado al llegar al staging).
@@ -84,33 +113,31 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
            AND vigente <> CASE WHEN id_registro = l_mejor THEN 'S' ELSE 'N' END;
     END recalcular_vigente;
 
-    -- Valida una linea REC y la inserta. Lanza e_validacion (con g_error) si no es valida.
+    -- Valida una linea REC y la inserta. Lanza e_validacion (con g_error) si no es valida y
+    -- e_sku_nuevo si es valida pero su SKU no existe en PRODUCTOS (NO es un error).
     PROCEDURE procesar_fila(p_id IN NUMBER, p_raw IN VARCHAR2) IS
-        l_ts      VARCHAR2(4000);
-        l_sku     VARCHAR2(4000);
-        l_cant    VARCHAR2(4000);
-        l_oper    VARCHAR2(4000);
-        l_nota    VARCHAR2(4000);
-        l_danados VARCHAR2(4000);   -- protocolo 5: unidades danadas de las contadas (vacio si no se indico)
-        l_n       PLS_INTEGER;
+        l_ts       VARCHAR2(4000);
+        l_sku      VARCHAR2(4000);
+        l_canon    productos.sku%TYPE;   -- SKU canonico del catalogo (p.ej. 'khs' -> 'KHS')
+        l_cant     VARCHAR2(4000);
+        l_oper     VARCHAR2(4000);
+        l_nota     VARCHAR2(4000);
+        l_danados  VARCHAR2(4000);   -- protocolo 5: unidades danadas de las contadas (vacio si no se indico)
     BEGIN
         l_ts := campo(p_raw, 3);
         IF campo(p_raw, 1) IS NULL OR campo(p_raw, 1) <> 'REC'
            OR l_ts IS NULL OR NOT REGEXP_LIKE(l_ts, '^[0-9]{1,15}$') THEN
             fallar('FORMATO_INVALIDO');
         END IF;
-        l_sku    := texto(campo(p_raw, 5));
+        l_sku    := sku_normalizado(p_raw);
         l_cant   := texto(campo(p_raw, 6));
         l_oper   := texto(campo(p_raw, 7));
         l_nota   := texto(campo(p_raw, 8));
         l_danados := texto(campo(p_raw, 9));
 
         -- El conteo es unico (ACTUAL): el campo 4 del REC se acepta pero no decide el conteo.
+        -- Un SKU vacio o demasiado largo es un error de FORMATO (no un SKU nuevo).
         IF l_sku IS NULL OR LENGTH(l_sku) = 0 OR LENGTH(l_sku) > 30 THEN
-            fallar('SKU_DESCONOCIDO');
-        END IF;
-        SELECT COUNT(*) INTO l_n FROM productos WHERE sku = l_sku;
-        IF l_n = 0 THEN
             fallar('SKU_DESCONOCIDO');
         END IF;
         -- Decimal con punto, sin signo, hasta 9 enteros y 3 decimales.
@@ -123,10 +150,17 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
             fallar('DANADOS_INVALIDO');
         END IF;
 
+        -- Existencia del SKU: se comprueba DESPUES de validar los campos, para que un error de
+        -- formato siga siendo ERROR. Si no esta en el catalogo, la lectura NO es un error.
+        SELECT MIN(sku) INTO l_canon FROM productos WHERE UPPER(TRIM(sku)) = l_sku;
+        IF l_canon IS NULL THEN
+            RAISE e_sku_nuevo;
+        END IF;
+
         INSERT INTO registros_procesados
             (id_transito, id_conteo, sku, cantidad, operador, nota, fecha_captura, vigente, danados)
         VALUES
-            (p_id, 'ACTUAL', l_sku,
+            (p_id, 'ACTUAL', l_canon,
              -- Mascara fija: no depende del NLS de la sesion.
              TO_NUMBER(l_cant, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,'''),
              SUBSTR(l_oper, 1, 60), SUBSTR(l_nota, 1, 255),
@@ -135,7 +169,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
              'N',
              CASE WHEN l_danados IS NULL THEN NULL ELSE TO_NUMBER(l_danados, '999999999D999', 'NLS_NUMERIC_CHARACTERS=''.,''') END);
 
-        recalcular_vigente(l_sku);
+        recalcular_vigente(l_canon);
     END procesar_fila;
 
     -- Conciliacion por SKU del conteo:
@@ -231,6 +265,13 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
                        SET estado = 'ERROR', mensaje_error = g_error
                      WHERE id_transito = l_ids(i);
                     l_err := l_err + 1;
+                WHEN e_sku_nuevo THEN
+                    -- Lectura valida de un SKU que no esta en PRODUCTOS: NO es un error; espera la
+                    -- decision del Administrador en el escritorio. No cuenta en LOG_BATCH.
+                    ROLLBACK TO sp_fila;
+                    UPDATE captura_transito
+                       SET estado = 'NUEVO_SKU', mensaje_error = 'SKU_DESCONOCIDO', fecha_reclamo = NULL
+                     WHERE id_transito = l_ids(i);
                 WHEN DUP_VAL_ON_INDEX THEN
                     -- Red de seguridad (UNIQUE sobre ID_TRANSITO): otra corrida ya la proceso.
                     ROLLBACK TO sp_fila;
@@ -253,7 +294,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         END LOOP;
 
         -- 4. Bitacora de la corrida. Lo procesado queda confirmado aqui: un fallo al
-        --    conciliar no debe devolver las filas a PROCESANDO.
+        --    conciliar no debe devolver las filas a PROCESANDO. NUEVO_SKU no es un error.
         INSERT INTO log_batch (inicio, fin, procesados, errores, origen)
         VALUES (l_inicio, SYSTIMESTAMP, l_ok, l_err, SUBSTR(p_origen, 1, 20));
         COMMIT;
@@ -285,8 +326,9 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
     BEGIN
         -- Se conserva siempre la fila de mayor SEQ de cada dispositivo: de ella sale el
         -- READY|<ultimo_seq>; sin ella el telefono reenviaria todo su historial.
+        -- DESCARTADO se purga igual que PROCESADO: es una decision ya tomada.
         DELETE FROM captura_transito t
-         WHERE t.estado = 'PROCESADO'
+         WHERE t.estado IN ('PROCESADO', 'DESCARTADO')
            AND t.fecha_recepcion < SYSTIMESTAMP - NUMTODSINTERVAL(p_dias, 'DAY')
            AND t.seq < (SELECT MAX(u.seq)
                           FROM captura_transito u
@@ -304,10 +346,12 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         p_unidad    IN VARCHAR2 DEFAULT 'UND',
         p_costo_unit IN NUMBER  DEFAULT 0
     ) IS
-        l_sku       VARCHAR2(30 CHAR)  := TRIM(p_sku);
-        l_nombre    VARCHAR2(120 CHAR) := TRIM(p_nombre);
-        l_categoria VARCHAR2(40 CHAR)  := TRIM(p_categoria);
-        l_unidad    VARCHAR2(10 CHAR)  := NVL(TRIM(p_unidad), 'UND');
+        -- Locales anchos: la validacion de longitud da un mensaje legible (no ORA-06502).
+        l_sku       VARCHAR2(4000 CHAR) := UPPER(TRIM(p_sku));
+        l_nombre    VARCHAR2(4000 CHAR) := TRIM(p_nombre);
+        l_categoria VARCHAR2(4000 CHAR) := TRIM(p_categoria);
+        l_unidad    VARCHAR2(4000 CHAR) := NVL(TRIM(p_unidad), 'UND');
+        l_n         PLS_INTEGER;
     BEGIN
         IF l_sku IS NULL OR LENGTH(l_sku) = 0 OR LENGTH(l_sku) > 30 OR INSTR(l_sku, '|') > 0
            OR INSTR(l_sku, CHR(10)) > 0 OR INSTR(l_sku, CHR(13)) > 0 THEN
@@ -321,6 +365,12 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
         END IF;
         IF LENGTH(l_unidad) = 0 OR LENGTH(l_unidad) > 10 THEN
             RAISE_APPLICATION_ERROR(-20010, 'UNIDAD_INVALIDA');
+        END IF;
+
+        -- Un producto con el mismo SKU en otras mayusculas ya ocupa la clave: no se duplica.
+        SELECT COUNT(*) INTO l_n FROM productos WHERE UPPER(TRIM(sku)) = l_sku;
+        IF l_n > 0 THEN
+            RAISE_APPLICATION_ERROR(-20011, 'SKU_YA_EXISTE');
         END IF;
 
         BEGIN
@@ -337,8 +387,86 @@ CREATE OR REPLACE PACKAGE BODY pkg_batch AS
          WHEN MATCHED THEN UPDATE SET cantidad_sistema = 0
          WHEN NOT MATCHED THEN INSERT (id_conteo, sku, cantidad_sistema) VALUES ('ACTUAL', l_sku, 0);
 
+        -- P3: un SKU dado de alta debe salir ya en CONCILIACION/Dashboard (aunque aun no tenga lectura).
+        conciliar_interno('ACTUAL');
         COMMIT;
     END alta_sku;
+
+    PROCEDURE alta_y_procesar(
+        p_sku       IN VARCHAR2,
+        p_nombre    IN VARCHAR2,
+        p_categoria IN VARCHAR2
+    ) IS
+        -- Locales anchos: la validacion de longitud da un mensaje legible (no ORA-06502).
+        l_clave     VARCHAR2(4000 CHAR) := UPPER(TRIM(p_sku));   -- clave normalizada de comparacion
+        l_canon     productos.sku%TYPE;                          -- SKU canonico de PRODUCTOS
+        l_nombre    VARCHAR2(4000 CHAR) := TRIM(p_nombre);
+        l_categoria VARCHAR2(4000 CHAR) := TRIM(p_categoria);
+    BEGIN
+        IF l_clave IS NULL OR LENGTH(l_clave) = 0 OR LENGTH(l_clave) > 30 OR INSTR(l_clave, '|') > 0
+           OR INSTR(l_clave, CHR(10)) > 0 OR INSTR(l_clave, CHR(13)) > 0 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'SKU_INVALIDO');
+        END IF;
+        IF l_nombre IS NULL OR LENGTH(l_nombre) = 0 OR LENGTH(l_nombre) > 120 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'NOMBRE_INVALIDO');
+        END IF;
+        IF l_categoria IS NULL OR LENGTH(l_categoria) = 0 OR LENGTH(l_categoria) > 40 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'CATEGORIA_INVALIDA');
+        END IF;
+
+        -- Si ya existe (con cualquier combinacion de mayusculas) no falla: se reutiliza su SKU canonico.
+        SELECT MIN(sku) INTO l_canon FROM productos WHERE UPPER(TRIM(sku)) = l_clave;
+        IF l_canon IS NULL THEN
+            INSERT INTO productos (sku, nombre, categoria, unidad, costo_unit)
+            VALUES (l_clave, l_nombre, l_categoria, 'UND', 0);
+            l_canon := l_clave;
+        END IF;
+
+        -- Stock 0 solo si el SKU es nuevo; uno existente conserva su stock del sistema.
+        MERGE INTO stock_sistema s
+        USING (SELECT 'ACTUAL' id_conteo, l_canon sku FROM dual) x
+           ON (s.id_conteo = x.id_conteo AND s.sku = x.sku)
+         WHEN NOT MATCHED THEN INSERT (id_conteo, sku, cantidad_sistema) VALUES ('ACTUAL', l_canon, 0);
+        COMMIT;
+
+        -- Las lecturas que esperaban decision pasan a la cola del batch. Se incluyen las viejas en
+        -- ERROR por SKU_DESCONOCIDO (anteriores a este flujo) para que tambien se resuelvan.
+        UPDATE captura_transito
+           SET estado = 'PENDIENTE', mensaje_error = NULL, fecha_reclamo = NULL
+         WHERE (estado = 'NUEVO_SKU'
+                OR (estado = 'ERROR' AND mensaje_error = 'SKU_DESCONOCIDO'))
+           -- Misma clave que SKU_NORMALIZADO (la expresion de V_NUEVOS_SKU); una funcion privada del
+           -- cuerpo no se puede invocar desde SQL (PLS-00231).
+           AND UPPER(TRIM(UTL_URL.UNESCAPE(
+                   REGEXP_SUBSTR(datos_raw, '([^|]*)(\||$)', 1, 5, NULL, 1), 'UTF-8'))) = l_clave;
+        COMMIT;
+
+        procesar_pendientes('ALTA');
+
+        -- P3: el producto ya aparece en CONCILIACION/Dashboard aunque ninguna lectura haya podido
+        -- procesarse (procesar_pendientes solo concilia si proceso algo).
+        conciliar_interno('ACTUAL');
+        COMMIT;
+    END alta_y_procesar;
+
+    PROCEDURE descartar_nuevo_sku(p_sku IN VARCHAR2) IS
+        l_clave VARCHAR2(4000 CHAR) := UPPER(TRIM(p_sku));
+    BEGIN
+        IF l_clave IS NULL OR LENGTH(l_clave) = 0 OR LENGTH(l_clave) > 30 OR INSTR(l_clave, '|') > 0
+           OR INSTR(l_clave, CHR(10)) > 0 OR INSTR(l_clave, CHR(13)) > 0 THEN
+            RAISE_APPLICATION_ERROR(-20010, 'SKU_INVALIDO');
+        END IF;
+
+        -- Solo NUEVO_SKU: una lectura DESCARTADO es una decision ya tomada y las demas no se tocan.
+        UPDATE captura_transito
+           SET estado = 'DESCARTADO', mensaje_error = NULL, fecha_reclamo = NULL
+         WHERE estado = 'NUEVO_SKU'
+           -- Misma clave que SKU_NORMALIZADO (la expresion de V_NUEVOS_SKU); una funcion privada del
+           -- cuerpo no se puede invocar desde SQL (PLS-00231).
+           AND UPPER(TRIM(UTL_URL.UNESCAPE(
+                   REGEXP_SUBSTR(datos_raw, '([^|]*)(\||$)', 1, 5, NULL, 1), 'UTF-8'))) = l_clave;
+        COMMIT;
+    END descartar_nuevo_sku;
 
 END pkg_batch;
 /
