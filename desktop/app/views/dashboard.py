@@ -30,6 +30,7 @@ from .grafico_personal import GraficoPersonal
 from .iconos import icono
 from .isla import isla
 from .rejilla_personal import Baldosa, RejillaPersonal
+from . import widgets
 from .widgets import VERDE, TarjetaKpi
 
 registrar({
@@ -358,7 +359,7 @@ class DashboardView(QWidget):
         if d.tipo == prefs.KPI:
             color = {"faltantes": self._colores["error"], "con_error": self._colores["error"],
                      "sobrantes": self._colores["aviso"]}.get(d.clave)
-            tarjeta = TarjetaKpi(t(d.nombre), color or VERDE)
+            tarjeta = TarjetaKpi(t(d.nombre), color or widgets.VERDE)   # leído ahora: VERDE cambia con el tema
             tarjeta.clicked.connect(lambda c=d.clave: self.detalle.emit(c))
             self.cards[d.clave] = tarjeta
             contenido: QWidget = tarjeta

@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
         self._colapso_manual = False
         self._auto_colapsada = False
         self._registrar_vistas: Callable[[], None] | None = None
+        self._firma_construida: tuple[str, str] | None = None   # (tema resuelto, idioma) con que están hechas las vistas
         # Aviso flotante «Nuevo SKU»: sondeo propio (2,8 s) y sin solapar consultas.
         self._nuevos_sku: list = []
         self._consultando_nuevos = False
@@ -377,6 +378,14 @@ class MainWindow(QMainWindow):
         self.update()
         QTimer.singleShot(0, self._reconstruir_vistas)
 
+    def esquema_del_sistema_cambio(self, *_args) -> None:
+        """El SO pasó de claro a oscuro (o al revés): con «Sistema» elegido, la app lo sigue."""
+        if tema.modo() == "sistema":
+            self.cambiar_tema("sistema")
+
+    def _firma_vistas(self) -> tuple[str, str]:
+        return tema.resolver(tema.modo()), i18n.idioma()
+
     def cambiar_idioma(self, idioma: str) -> None:
         """Aplica el idioma de inmediato: vuelve a construir las vistas para que cada texto pase por ``t()``."""
         from dataclasses import replace
@@ -414,6 +423,10 @@ class MainWindow(QMainWindow):
         if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
             vista_avisos.set_sesion(sesion)
         self._aplicar_tema_idioma(sesion.tema, sesion.idioma)
+        if self._firma_construida is not None and self._firma_construida != self._firma_vistas():
+            # Las vistas se crearon con el tema de invitado (claro) o el idioma de arranque; los colores y textos
+            # que fijan al construirse (gráficas, tarjetas) ya no valen para esta cuenta.
+            QTimer.singleShot(0, self._reconstruir_vistas)
         self._poner_cuenta(sesion.nombre, i18n.t(auth.NOMBRE_ROL[sesion.rol]))
         self._poner_avatar()
         self._actualizar_boton_tema()
@@ -867,6 +880,7 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         if self._registrar_vistas is not None:
             self._registrar_vistas()
+        self._firma_construida = self._firma_vistas()
         self._aplicar_lateral(self._colapsada)
         self._ajustar_lateral()
         if self._sesion is not None:
@@ -998,6 +1012,13 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
 
     ventana._registrar_vistas = registrar
     registrar()
+    ventana._firma_construida = ventana._firma_vistas()
+    app = QApplication.instance()
+    if app is not None:   # Qt avisa cuando el SO cambia de claro a oscuro (no en X11 sin portal)
+        try:
+            app.styleHints().colorSchemeChanged.connect(ventana.esquema_del_sistema_cambio)
+        except AttributeError:
+            pass
     ventana.conectar_servicio(remoto)
     remoto.listo.connect(ventana.refresh_requested)
     if sesion is not None:
