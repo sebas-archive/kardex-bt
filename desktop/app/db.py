@@ -382,7 +382,7 @@ def fetch_por_categoria() -> list[tuple[str, float]]:
 
 
 def fetch_series(categoria: str | None = None, top: int = 10) -> dict:
-    """Los datos de las seis gráficas, con los dos filtros de la pantalla.
+    """Los datos de las gráficas, con los dos filtros de la pantalla.
 
     ``categoria`` limita las series que se pueden desglosar; ``top`` es cuántas categorías/runs se muestran.
     """
@@ -431,6 +431,51 @@ def fetch_series(categoria: str | None = None, top: int = 10) -> dict:
             c=CONTEO, **binds_cat,
         )
         datos["danados"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT * FROM (SELECT p.categoria, COUNT(*) - COUNT(k.cant_contada) FROM conciliacion k "
+            "  JOIN productos p ON p.sku = k.sku "
+            f" WHERE k.id_conteo = :c {filtro_cat} GROUP BY p.categoria "
+            " HAVING COUNT(*) - COUNT(k.cant_contada) > 0 ORDER BY 2 DESC, 1) WHERE ROWNUM <= :n",
+            c=CONTEO, n=top, **binds_cat,
+        )
+        datos["pendientes"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT * FROM (SELECT NVL(r.operador, '—'), COUNT(*) FROM registros_procesados r "
+            "  JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c {filtro_cat} GROUP BY NVL(r.operador, '—') ORDER BY 2 DESC, 1) "
+            " WHERE ROWNUM <= :n",
+            c=CONTEO, n=top, **binds_cat,
+        )
+        datos["operadores"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT * FROM (SELECT r.sku, COUNT(*) FROM registros_procesados r "
+            "  JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c {filtro_cat} GROUP BY r.sku ORDER BY 2 DESC, 1) WHERE ROWNUM <= :n",
+            c=CONTEO, n=top, **binds_cat,
+        )
+        datos["skus"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT TO_CHAR(r.fecha_captura, 'YYYY-MM-DD'), COUNT(*) "
+            "  FROM registros_procesados r JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c {filtro_cat} "
+            " GROUP BY TO_CHAR(r.fecha_captura, 'YYYY-MM-DD') ORDER BY 1",
+            c=CONTEO, **binds_cat,
+        )
+        datos["por_dia"] = [(r[0], float(r[1])) for r in cur]
+
+        cur.execute(
+            "SELECT NVL(SUM(LEAST(NVL(r.danados, 0), r.cantidad)), 0), "
+            "       NVL(SUM(r.cantidad - LEAST(NVL(r.danados, 0), r.cantidad)), 0) "
+            "  FROM registros_procesados r JOIN productos p ON p.sku = r.sku "
+            f" WHERE r.id_conteo = :c AND r.vigente = 'S' {filtro_cat}",
+            c=CONTEO, **binds_cat,
+        )
+        malas, buenas = cur.fetchone()
+        datos["buenas"] = [("buenas", float(buenas)), ("danadas", float(malas))]
 
         cur.execute(
             "SELECT * FROM (SELECT TO_CHAR(inicio, 'YYYY-MM-DD HH24:MI'), procesados, errores "

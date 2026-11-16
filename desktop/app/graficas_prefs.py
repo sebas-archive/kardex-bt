@@ -1,7 +1,7 @@
 """Qué gráficas pone cada persona en «Gráficas», en qué orden y de qué tamaño (se recuerda por usuario).
 
-Es la versión corta de ``dashboard_prefs``: aquí no hay catálogo de widgets nuevos, solo las seis gráficas del
-conteo continuo, una de cada tipo como máximo.
+Es la versión corta de ``dashboard_prefs``: las seis gráficas del conteo continuo se ven al principio y hay otras
+siete para añadir; una de cada tipo como máximo.
 """
 
 from __future__ import annotations
@@ -10,13 +10,15 @@ import json
 
 from PyQt6.QtCore import QSettings
 
-IDS = ("avance", "dona", "hora", "top", "danados", "batch")   # las seis gráficas, en su orden inicial
+PREDETERMINADAS = ("avance", "dona", "hora", "top", "danados", "batch")   # las que se ven al principio
+EXTRAS = ("global", "acumulado", "dia", "operadores", "pendientes", "skus", "buenas")   # solo si se añaden
+IDS = PREDETERMINADAS + EXTRAS
 TAMS = ("S", "M", "L")
 TAM_INICIAL = "M"   # dos por fila
 
 
 def predeterminado() -> list[tuple[str, str]]:
-    return [(i, TAM_INICIAL) for i in IDS]
+    return [(i, TAM_INICIAL) for i in PREDETERMINADAS]
 
 
 def normalizar(items) -> list[tuple[str, str]]:
