@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 from ..i18n import t
 from ..workers import QueryWorker
 from .isla import isla
+from .motion_global import BarridoCarga
 
 ESTILO = """
 QMainWindow, QWidget { background: #0A0A0A; color: #EDEDED; font-size: 13px; }
@@ -569,6 +570,7 @@ class StateBanner(QFrame):
         self.btn_reintentar = QPushButton(t("Reintentar"), self)
         self.btn_reintentar.clicked.connect(self.retry)
         self.btn_reintentar.hide()
+        self._barrido = BarridoCarga(self)
         self.hide()
 
     def text(self) -> str:
@@ -584,11 +586,14 @@ class StateBanner(QFrame):
 
     def show_loading(self) -> None:
         self._linea(t("Cargando…"))
+        self._barrido.iniciar()   # el barrido dura exactamente lo que dura la consulta
 
     def show_empty(self, texto: str = "Sin datos") -> None:
+        self._barrido.detener()
         self._linea(t(texto))
 
     def show_error(self, mensaje: str) -> None:
+        self._barrido.detener()
         self._label.setText(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
         self.hide()
         self._con_error = True
@@ -596,6 +601,7 @@ class StateBanner(QFrame):
                    accion=(t("Reintentar"), self.retry.emit))
 
     def clear(self) -> None:
+        self._barrido.detener()
         self.hide()
         if self._con_error:
             self._con_error = False

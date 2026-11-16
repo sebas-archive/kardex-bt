@@ -8,10 +8,11 @@ Se instala una vez como filtro de eventos de la aplicación y actúa cuando un w
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, Qt
-from PyQt6.QtWidgets import QApplication, QDialog, QFileDialog, QLabel, QTableView
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
+from PyQt6.QtWidgets import QApplication, QDialog, QFileDialog, QLabel, QMenu, QPushButton, QTableView, QToolButton
 
 from ..i18n import registrar, t
+from . import motion_global
 
 registrar({"Sin datos": "No data"})
 
@@ -68,13 +69,36 @@ def _afinar_dialogo(dialogo: QDialog) -> None:
         dialogo.setMinimumWidth(460)
 
 
+def _animar_tabla(tabla: QTableView) -> None:
+    """Datos nuevos → las filas aparecen con un fundido corto (una vez por tanda de cambios)."""
+    tabla.setProperty("fundidoInstalado", True)
+    modelo = tabla.model()
+    if modelo is None:
+        return
+    pendiente = QTimer(tabla)
+    pendiente.setSingleShot(True)
+    pendiente.setInterval(30)
+    pendiente.timeout.connect(lambda: motion_global.fundir_contenido(tabla))
+    for senal in (modelo.modelReset, modelo.rowsInserted):
+        senal.connect(lambda *_a: pendiente.start())
+
+
 class Vigilante(QObject):
     def eventFilter(self, objeto, evento) -> bool:
         if evento.type() == QEvent.Type.Show:
+            if isinstance(objeto, (QPushButton, QToolButton)) and not objeto.property("presionInstalada"):
+                motion_global.instalar_presion(objeto)
+            elif isinstance(objeto, QMenu) and objeto.isWindow():
+                motion_global.aparecer_popup(objeto)
+            if isinstance(objeto, QTableView) and not objeto.property("fundidoInstalado"):
+                _animar_tabla(objeto)
             if isinstance(objeto, QTableView) and not objeto.property("vacioInstalado"):
                 _instalar_vacio(objeto)
             elif isinstance(objeto, QDialog) and not objeto.property("afinado") and objeto.isWindow():
                 _afinar_dialogo(objeto)
+                # Los modales propios (translúcidos) ya traen su entrada; los estándar nacen con un fundido.
+                if not objeto.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground):
+                    motion_global.aparecer_popup(objeto, 180)
         return False
 
 

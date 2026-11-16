@@ -55,7 +55,7 @@ from .views.sync import SyncView
 from .views.usuarios import UsuariosView
 from .views.bandeja import HojaNotificaciones, PopoverNotificaciones
 from .views.isla import isla
-from .views import vigilante
+from .views import motion_global, vigilante
 from .views.widgets import Transicion
 
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
@@ -368,16 +368,20 @@ class MainWindow(QMainWindow):
     def cambiar_tema(self, modo: str) -> None:
         """Aplica el tema de inmediato y lo recuerda en la sesión (Perfil ya lo guardó en Oracle)."""
         from dataclasses import replace
-        tema.aplicar(QApplication.instance(), modo)
-        if self._sesion is not None:
-            self._sesion = replace(self._sesion, tema=modo)
-        self.btn_colapsar.setIcon(icono("panel"))
-        self.btn_salir.setIcon(icono("salir"))
-        self.btn_avisos.setIcon(icono("campana_aviso" if self._sin_leer else "campana"))
-        self._actualizar_boton_tema()
-        self.aviso_nuevo_sku.reestilizar()
-        self.update()
-        QTimer.singleShot(0, self._reconstruir_vistas)
+
+        def aplicar() -> None:
+            tema.aplicar(QApplication.instance(), modo)
+            if self._sesion is not None:
+                self._sesion = replace(self._sesion, tema=modo)
+            self.btn_colapsar.setIcon(icono("panel"))
+            self.btn_salir.setIcon(icono("salir"))
+            self.btn_avisos.setIcon(icono("campana_aviso" if self._sin_leer else "campana"))
+            self._actualizar_boton_tema()
+            self.aviso_nuevo_sku.reestilizar()
+            self.update()
+            QTimer.singleShot(0, self._reconstruir_vistas)
+
+        motion_global.cruce_tema(self, aplicar)   # el tema cruza con un fundido en vez de saltar
 
     def esquema_del_sistema_cambio(self, *_args) -> None:
         """El SO pasó de claro a oscuro (o al revés): con «Sistema» elegido, la app lo sigue."""
@@ -599,6 +603,8 @@ class MainWindow(QMainWindow):
         if anterior is not None and self.isVisible():
             self._transicion.lanzar(anterior.grab(), 1)
         self.paginas.setCurrentIndex(indice)
+        if anterior is not None and self.isVisible():
+            QTimer.singleShot(0, lambda p=self.paginas.currentWidget(): motion_global.entrada_pagina(p))
         self._secciones[indice][2].setChecked(True)
         self.lbl_titulo.setText(titulo)
         self._cabecera_global(self._secciones[indice][1])
