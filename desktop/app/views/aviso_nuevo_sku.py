@@ -71,7 +71,7 @@ def _estilo(c: dict[str, str]) -> str:
         background: {c['tarjeta']}; border: 1px solid {c['borde_fuerte']}; border-radius: 14px; }}
     QFrame#avisoNuevoSku QLabel {{ background: transparent; color: {c['texto']}; }}
     QFrame#avisoNuevoSku QLabel#tituloAviso {{ color: {c['aviso']}; font-size: 11px; font-weight: 700; }}
-    QFrame#avisoNuevoSku QLabel#skuAviso {{ color: {c['texto_fuerte']}; font-size: 19px; font-weight: 700; }}
+    QFrame#avisoNuevoSku QLabel#skuAviso {{ color: {c['texto_fuerte']}; font-size: 16px; font-weight: 700; }}
     QFrame#avisoNuevoSku QLabel#subAviso {{ color: {c['texto_suave']}; font-size: 11px; }}
     QFrame#avisoNuevoSku QLabel#masAviso {{ color: {c['texto_suave']}; font-size: 11px; font-weight: 600;
         padding: 0 4px; }}
@@ -82,11 +82,11 @@ def _estilo(c: dict[str, str]) -> str:
         border: 1px solid {c['borde']}; border-radius: 10px; padding: 3px 10px; font-size: 11px; font-weight: 600; }}
     QFrame#avisoNuevoSku QPushButton#ocultosAviso:hover {{ color: {c['texto']}; border-color: {c['texto_tenue']}; }}
     QFrame#avisoNuevoSku QPushButton#crearAviso {{ background: {c['acento']}; color: {c['acento_texto']};
-        border: none; border-radius: 8px; padding: 7px 14px; font-weight: 700; }}
+        border: none; border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 700; }}
     QFrame#avisoNuevoSku QPushButton#crearAviso:hover {{ background: {c['acento_suave']}; }}
     QFrame#avisoNuevoSku QPushButton#crearAviso:disabled {{ background: {c['borde']}; color: {c['texto_suave']}; }}
     QFrame#avisoNuevoSku QPushButton#noCrearAviso {{ background: transparent; color: {c['texto_suave']};
-        border: 1px solid {c['borde_fuerte']}; border-radius: 8px; padding: 7px 14px; font-weight: 600; }}
+        border: 1px solid {c['borde_fuerte']}; border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; }}
     QFrame#avisoNuevoSku QPushButton#noCrearAviso:hover {{ color: {c['texto']}; border-color: {c['texto_tenue']}; }}
     """
 
@@ -127,28 +127,28 @@ class _TarjetaNuevoSku(QFrame):
         self.btn_crear.clicked.connect(lambda: self.crear.emit(self.sku))
         self.btn_no_crear.clicked.connect(lambda: self.descartar.emit(self.sku))
 
-        botones = QHBoxLayout()
-        botones.setSpacing(8)
-        botones.addWidget(self.btn_no_crear)
-        botones.addStretch(1)
-        botones.addWidget(self.btn_crear)
-        en_tarjeta = QVBoxLayout(self)
-        en_tarjeta.setContentsMargins(14, 12, 14, 12)
-        en_tarjeta.setSpacing(3)
+        # Compacta, en dos líneas: «Nuevo SKU · 1 lectura · última …» y [×]; debajo el SKU y las dos opciones.
         cabecera = QHBoxLayout()
         cabecera.setContentsMargins(0, 0, 0, 0)
+        cabecera.setSpacing(6)
         cabecera.addWidget(self.lbl_titulo)
-        cabecera.addStretch(1)
+        cabecera.addWidget(self.lbl_subtitulo, 1)
         cabecera.addWidget(self.btn_cerrar)
+        fila = QHBoxLayout()
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(8)
+        fila.addWidget(self.lbl_sku, 1)
+        fila.addWidget(self.btn_no_crear)
+        fila.addWidget(self.btn_crear)
+        en_tarjeta = QVBoxLayout(self)
+        en_tarjeta.setContentsMargins(12, 8, 10, 10)
+        en_tarjeta.setSpacing(2)
         en_tarjeta.addLayout(cabecera)
-        en_tarjeta.addWidget(self.lbl_sku)
-        en_tarjeta.addWidget(self.lbl_subtitulo)
-        en_tarjeta.addSpacing(4)
-        en_tarjeta.addLayout(botones)
+        en_tarjeta.addLayout(fila)
 
 
 class AvisoNuevoSku(QFrame):
-    """Aviso flotante, arriba a la derecha de la ventana: una tarjeta por SKU nuevo (máximo 3 + «+N más»).
+    """Aviso flotante, abajo a la derecha del contenido: una tarjeta compacta por SKU nuevo (máximo 3 + «+N más»).
 
     Se muestra con ``mostrar(filas)`` y desaparece con ``ocultar()``. No se añade a ningún layout: flota sobre
     el contenido y se recoloca cuando la ventana cambia de tamaño (``reubicar``).
@@ -157,7 +157,7 @@ class AvisoNuevoSku(QFrame):
     crear_solicitado = pyqtSignal(str)
     descartar_solicitado = pyqtSignal(str)
 
-    ANCHO = 372
+    ANCHO = 420
     MARGEN = 16
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -237,7 +237,7 @@ class AvisoNuevoSku(QFrame):
             self.reubicar()
 
     def reubicar(self) -> None:
-        """Arriba a la derecha del área de contenido, sin tapar la barra lateral ni el encabezado."""
+        """Abajo a la derecha del área de contenido: no tapa la barra lateral, el encabezado ni «Actualizar»."""
         padre = self.parentWidget()
         if padre is None:
             return
@@ -250,7 +250,8 @@ class AvisoNuevoSku(QFrame):
         alto = min(self.height(), max(120, area.height() - 2 * self.MARGEN))
         self.resize(ancho, alto)
         x = area.right() - ancho - self.MARGEN + 1
-        self.move(max(area.left() + self.MARGEN, x), area.top() + self.MARGEN)
+        y = area.bottom() - alto - self.MARGEN + 1
+        self.move(max(area.left() + self.MARGEN, x), max(area.top() + self.MARGEN, y))
 
     # ------------------------------------------------------------------ para las pruebas
     def skus(self) -> list[str]:
