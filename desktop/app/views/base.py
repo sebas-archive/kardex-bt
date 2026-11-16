@@ -252,6 +252,96 @@ QFrame#separadorAcceso { background: #2E2E2E; max-height: 1px; }
 QScrollArea#scrollAcceso { background: transparent; border: none; }
 QWidget#paginaAcceso { background: transparent; }
 
+
+/* ======================================================================================================
+   Refinamiento visual. Tokens: radio 8 (controles) y 12 (tarjetas); alto de control ~34; espacios 4/8/12/16/24.
+   Solo usa los colores ya definidos arriba; la barra lateral queda fuera (todo va acotado al lienzo o a popups). */
+QToolTip { background: #1A1A1A; color: #EDEDED; border: 1px solid #333333; border-radius: 6px; padding: 5px 8px;
+           font-size: 12px; }
+
+/* Jerarquía tipográfica */
+QLabel#tituloPagina { font-size: 22px; font-weight: 700; }
+QLabel#seccion { font-size: 14px; font-weight: 600; }
+QLabel#cardTitulo { color: #8A8A8A; font-size: 12px; font-weight: 500; }
+QLabel#cardValor { font-size: 28px; font-weight: 600; }
+QLabel#subtitulo, QLabel#ayuda { color: #8A8A8A; font-size: 12px; }
+QLabel#estadoVistaTexto { color: #8A8A8A; font-size: 12px; background: transparent; padding: 18px 0; }
+QFrame#estadoVista { background: transparent; border: none; }
+
+/* Tarjetas */
+QFrame#lienzo QFrame#card { background: #111111; border: 1px solid #232323; border-radius: 12px; }
+
+/* Botones: un solo lenguaje (alto uniforme, hover, presionado, deshabilitado y foco) */
+QFrame#lienzo QPushButton { min-height: 18px; padding: 7px 16px; border-radius: 8px; border: 1px solid #2E2E2E;
+                            background: #111111; font-weight: 600; }
+QFrame#lienzo QPushButton:hover { background: #1C1C1C; border-color: #3A3A3A; }
+QFrame#lienzo QPushButton:pressed { background: #232323; }
+QFrame#lienzo QPushButton:disabled { color: #6E6E6E; background: #161616; border-color: #232323; }
+QFrame#lienzo QPushButton:focus { border: 1px solid #10B981; }
+QFrame#lienzo QPushButton#primario { background: #10B981; color: #04130E; border: 1px solid #10B981; }
+QFrame#lienzo QPushButton#primario:hover { background: #34D399; border-color: #34D399; }
+QFrame#lienzo QPushButton#primario:pressed { background: #10B981; }
+QFrame#lienzo QPushButton#primario:disabled { background: #1E3A32; color: #6E6E6E; border-color: #1E3A32; }
+QFrame#lienzo QPushButton#peligro { color: #F87171; background: transparent; border: 1px solid #7A2A24; }
+QFrame#lienzo QPushButton#peligro:hover { background: #3A1512; }
+QFrame#lienzo QPushButton#peligro:disabled { color: #6E6E6E; border-color: #232323; background: transparent; }
+QFrame#lienzo QPushButton#enlace { border: none; background: transparent; color: #34D399; padding: 4px 8px;
+                                   min-height: 0; }
+QFrame#lienzo QPushButton#enlace:hover { color: #6EE7B7; background: transparent; }
+
+/* Campos: misma altura, borde suave y foco visible */
+QFrame#lienzo QLineEdit, QFrame#lienzo QComboBox, QFrame#lienzo QSpinBox, QFrame#lienzo QDoubleSpinBox,
+QFrame#lienzo QDateEdit { min-height: 18px; padding: 7px 12px; border: 1px solid #2E2E2E; border-radius: 8px;
+                          background: #111111; selection-background-color: #10B981; selection-color: #04130E; }
+QFrame#lienzo QLineEdit:hover, QFrame#lienzo QComboBox:hover, QFrame#lienzo QSpinBox:hover { border-color: #3A3A3A; }
+QFrame#lienzo QLineEdit:focus, QFrame#lienzo QComboBox:focus, QFrame#lienzo QSpinBox:focus,
+QFrame#lienzo QDateEdit:focus { border: 1px solid #10B981; padding: 7px 12px; }
+QFrame#lienzo QLineEdit:disabled, QFrame#lienzo QComboBox:disabled, QFrame#lienzo QSpinBox:disabled {
+    color: #6E6E6E; background: #161616; border-color: #232323; }
+QFrame#lienzo QLineEdit[invalido="true"] { border: 1px solid #F87171; }
+QFrame#lienzo QLineEdit[valido="true"] { border: 1px solid #10B981; }
+QComboBox QAbstractItemView { background: #111111; border: 1px solid #2E2E2E; border-radius: 8px; padding: 4px;
+                              selection-background-color: #10261F; selection-color: #EDEDED; outline: none; }
+QCheckBox, QRadioButton { background: transparent; }
+QRadioButton { color: #CFCFCF; spacing: 8px; }
+QRadioButton::indicator { width: 16px; height: 16px; border-radius: 9px; border: 1px solid #4A4A4A; background: #111111; }
+QRadioButton::indicator:checked { border: 5px solid #10B981; background: #111111; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #10B981; }
+
+/* Tablas: sin rejilla, filas con separador fino, encabezado discreto alineado a la izquierda */
+QFrame#lienzo QTableView, QFrame#lienzo QTableWidget { background: #111111; border: 1px solid #232323; border-radius: 12px;
+                                                       gridline-color: transparent; outline: none; }
+QTableView::item, QTableWidget::item { padding: 0 10px; border: none; border-bottom: 1px solid #1C1C1C; }
+QTableView::item:hover, QTableWidget::item:hover { background: rgba(255,255,255,0.035); }
+QTableView::item:selected, QTableWidget::item:selected { background: #10261F; color: #FFFFFF; }
+QHeaderView { background: transparent; qproperty-defaultAlignment: AlignLeft; }
+QHeaderView::section { background: #0F0F0F; color: #8A8A8A; font-size: 11px; font-weight: 700; padding: 10px 10px;
+                       border: none; border-bottom: 1px solid #232323; }
+QTableView QLabel#insignia, QTableWidget QLabel#insignia { margin: 9px 12px; }
+QTableView QComboBox, QTableWidget QComboBox { margin: 4px 8px; min-height: 16px; padding: 4px 10px; }
+QTableCornerButton::section { background: #0F0F0F; border: none; }
+
+/* Barras de desplazamiento finas */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: #2E2E2E; border-radius: 4px; }
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: #4A4A4A; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+/* Menús */
+QMenu { background: #1A1A1A; border: 1px solid #333333; border-radius: 10px; padding: 6px; }
+QMenu::item { padding: 7px 18px 7px 14px; border-radius: 6px; color: #EDEDED; margin: 1px 0; }
+QMenu::item:selected { background: #133A2C; color: #FFFFFF; }
+QMenu::item:disabled { color: #6E6E6E; }
+QMenu::separator { height: 1px; background: #2E2E2E; margin: 5px 8px; }
+
+/* Diálogos internos */
+QDialog { background: #121212; }
+QDialog QLabel { background: transparent; }
+QDialogButtonBox QPushButton { min-width: 84px; }
+QProgressBar { border: none; background: #232323; border-radius: 4px; max-height: 8px; text-align: center; }
+QProgressBar::chunk { background: #10B981; border-radius: 4px; }
 """
 
 
@@ -277,7 +367,18 @@ def estilo() -> str:
             ruta = carpeta / f"{nombre}.png"
             imagen.save(str(ruta))
             _FLECHAS[nombre] = ruta.as_posix()
+        palomita = QPixmap(16, 16)
+        palomita.fill(Qt.GlobalColor.transparent)
+        pintor = QPainter(palomita)
+        pintor.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pintor.setPen(QPen(QColor("#04130E"), 2.0, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        pintor.drawPolyline(QPointF(3.8, 8.4), QPointF(6.7, 11.2), QPointF(12.2, 4.8))
+        pintor.end()
+        ruta = carpeta / "palomita.png"
+        palomita.save(str(ruta))
+        _FLECHAS["palomita"] = ruta.as_posix()
     return ESTILO + f"""
+QCheckBox::indicator:checked {{ image: url({_FLECHAS["palomita"]}); }}
 QComboBox::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 14px; height: 14px; margin-right: 8px; }}
 QSpinBox::up-arrow {{ image: url({_FLECHAS["arriba"]}); width: 10px; height: 10px; }}
 QSpinBox::down-arrow {{ image: url({_FLECHAS["abajo"]}); width: 10px; height: 10px; }}
@@ -373,21 +474,25 @@ class QueryRunner(QObject):
 
 
 class StateBanner(QFrame):
-    """Estado de una vista: «Cargando…», «Sin datos» o un error de BD con «Reintentar».
-
-    Ya no ocupa lugar en la pantalla: guarda el texto del estado (para consultarlo) y los errores se comunican por la
-    Isla, con un botón «Reintentar» que emite ``retry``. Cargando y «sin datos» son estados de la tabla, no avisos."""
+    """Estado de una vista: «Cargando…» o «Sin datos» en una línea discreta; los errores de BD van a la Isla con un
+    botón «Reintentar» (``retry``)."""
 
     retry = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setObjectName("aviso")
-        self._label = QLabel(self)
+        self.setObjectName("estadoVista")
         self._clave = f"consulta-{id(self)}"
         self._con_error = False
+        self._label = QLabel()
+        self._label.setObjectName("estadoVistaTexto")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 6, 0, 6)
+        lay.addWidget(self._label, 1)
         self.btn_reintentar = QPushButton(t("Reintentar"), self)
         self.btn_reintentar.clicked.connect(self.retry)
+        self.btn_reintentar.hide()
         self.hide()
 
     def text(self) -> str:
@@ -397,19 +502,25 @@ class StateBanner(QFrame):
         """Guarda el texto del estado sin mostrarlo (quien lo llama ya lo comunicó por la Isla)."""
         self._label.setText(texto)
 
+    def _linea(self, texto: str) -> None:
+        self._label.setText(texto)
+        self.show()
+
     def show_loading(self) -> None:
-        self._label.setText(t("Cargando…"))
+        self._linea(t("Cargando…"))
 
     def show_empty(self, texto: str = "Sin datos") -> None:
-        self._label.setText(t(texto))
+        self._linea(t(texto))
 
     def show_error(self, mensaje: str) -> None:
         self._label.setText(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
+        self.hide()
         self._con_error = True
         isla.error(t("No se pudo consultar la base de datos"), mensaje, clave=self._clave,
                    accion=(t("Reintentar"), self.retry.emit))
 
     def clear(self) -> None:
+        self.hide()
         if self._con_error:
             self._con_error = False
             isla.cerrar(clave=self._clave)
