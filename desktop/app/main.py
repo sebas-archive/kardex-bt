@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -181,8 +182,19 @@ class MainWindow(QMainWindow):
         en_lateral.setSpacing(6)
         en_lateral.addLayout(self._cabecera)
         en_lateral.addSpacing(14)
-        en_lateral.addLayout(self._nav)
-        en_lateral.addStretch(1)
+        # La navegación va en un área con scroll: si la ventana es baja, cabecera y pie se quedan fijos y los
+        # ítems se desplazan en vez de recortarse.
+        zona_nav = QWidget()
+        zona_nav.setLayout(self._nav)
+        self._nav.setContentsMargins(0, 0, 0, 0)
+        self._nav.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._scroll_nav = QScrollArea()
+        self._scroll_nav.setObjectName("scrollNav")
+        self._scroll_nav.setWidgetResizable(True)
+        self._scroll_nav.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_nav.setWidget(zona_nav)
+        en_lateral.addWidget(self._scroll_nav, 1)
         en_lateral.addWidget(self._pie)
 
         # ------------------------------------------------------------ encabezado y páginas
