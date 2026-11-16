@@ -730,6 +730,13 @@ class GestorIsla(QObject):
     def cerrar(self, id_: int | None = None, clave: str | None = None) -> None:
         self._ejecutar(lambda: self._cerrar(id_, clave))
 
+    def elevar(self) -> None:
+        """Vuelve a poner la cápsula por encima de lo último que se abrió en la ventana (p. ej. una hoja flotante)."""
+        if self._capsula is not None and not self._capsula.isHidden():
+            if self._velo is not None and not self._velo.isHidden():
+                self._velo.raise_()
+            self._capsula.raise_()
+
     def textos(self) -> list[str]:
         """Lo que está visible o esperando turno (para las pruebas)."""
         vistos = [m for m in [self._actual, *self._cola, *self._estados.values()] if m is not None]
