@@ -48,6 +48,7 @@ from btsync.servicio import DETENIDO, PAUSADO, PAUSANDO
 
 from .. import auth, db, sync_datos
 from ..i18n import registrar, t
+from .. import i18n
 from ..tema import colores
 from . import motion, sync_ui, widgets
 from .base import QueryRunner, StateBanner
@@ -911,7 +912,7 @@ class SyncView(QWidget):
         self._poner_stat("procesadas", sync_ui.formato_miles(sum(act.procesadas)))
         self._poner_stat("errores", sync_ui.formato_miles(sum(act.errores)))
         tasa = sync_datos.lecturas_por_minuto(act)
-        self._poner_stat("minuto", "—" if tasa is None else t("{v} /min", v=f"{tasa:.1f}".replace(".", ",")))
+        self._poner_stat("minuto", "—" if tasa is None else t("{v} /min", v=i18n.decimal(tasa)))
         ultima = self._remoto.status().get("ultima")
         self._poner_stat("ultima", "—" if ultima is None else f"{ultima.fin:%d/%m %H:%M}")
 

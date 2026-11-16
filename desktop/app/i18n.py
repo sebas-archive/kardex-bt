@@ -305,12 +305,35 @@ def set_idioma(nuevo: str) -> None:
     _IDIOMA = nuevo if nuevo in IDIOMAS else "es"
 
 
+def decimal(valor: float, decimales: int = 1) -> str:
+    """Número con decimales según el idioma: «83,3» en español, «83.3» en inglés."""
+    texto = f"{valor:.{decimales}f}"
+    return texto.replace(".", ",") if _IDIOMA == "es" else texto
+
+
+def miles(valor: float, decimales: int = 0) -> str:
+    """Número con separador de miles según el idioma: «11.800» en español, «11,800» en inglés."""
+    texto = f"{valor:,.{decimales}f}"
+    if _IDIOMA == "es":
+        texto = texto.replace(",", "§").replace(".", ",").replace("§", ".")
+    return texto
+
+
+def porcentaje(valor: float, decimales: int = 1) -> str:
+    """«83,3 %» en español, «83.3%» en inglés."""
+    return decimal(valor, decimales) + (" %" if _IDIOMA == "es" else "%")
+
+
 def nombre_idioma(codigo: str) -> str:
     return NOMBRE_IDIOMA.get(codigo, codigo)
 
 
 # Traducciones de las vistas de identidad y navegación (se registran al importar el módulo).
 registrar({
+    "Accede con tu cuenta del PC.": "Sign in with your PC account.",
+    "escuchando": "listening", "esperando el código": "waiting for the code", "celular conectado": "phone connected",
+    "recibiendo": "receiving", "procesando": "processing", "listo": "ready", "error": "error",
+    "pausando": "pausing", "en pausa": "paused", "servicio detenido": "service stopped",
     "Apariencia": "Appearance",
     "Ajustar": "Fit",
     "Cerrar": "Close",
