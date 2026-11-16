@@ -601,7 +601,8 @@ class MainWindow(QMainWindow):
         indice = next(i for i, s in enumerate(self._secciones) if s[0] == titulo)
         anterior = self.paginas.currentWidget()
         if anterior is not None and self.isVisible():
-            self._transicion.lanzar(anterior.grab(), 1)
+            sentido = 1 if indice >= self.paginas.currentIndex() else -1
+            self._transicion.lanzar(anterior.grab(), sentido)
         self.paginas.setCurrentIndex(indice)
         if anterior is not None and self.isVisible():
             QTimer.singleShot(0, lambda p=self.paginas.currentWidget(): motion_global.entrada_pagina(p))
