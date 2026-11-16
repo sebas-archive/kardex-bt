@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLay
 
 from .. import auth, fortaleza, i18n, tema
 from ..i18n import t
-from . import motion, widgets
+from . import motion, motion_global, widgets
 from .base import QueryRunner
 from .iconos import icono
 from .isla import isla
@@ -649,7 +649,7 @@ class AccesoView(QWidget):
     # ------------------------------------------------------------------ API
     def mostrar_formulario(self, indice: int) -> None:
         """0 = iniciar sesión, 1 = crear cuenta, 2 = contraseña olvidada."""
-        self.formularios.setCurrentIndex(indice)
+        motion_global.cambiar_pila(self.formularios, indice)
         self._scroll_form.verticalScrollBar().setValue(0)
         self._error_actual = ""
         self._error("")
