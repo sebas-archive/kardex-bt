@@ -64,12 +64,12 @@ def test_cada_widget_tiene_descripcion_categoria_y_tamano_valido():
 
 # ----------------------------------------------------------------------------- persistencia por usuario
 def test_la_distribucion_se_guarda_por_usuario_y_se_restaura():
-    items = prefs.predeterminado() + [prefs.nuevo("exactitud")]
+    items = prefs.predeterminado() + [prefs.nuevo("sin_contar")]
     prefs.guardar("ana.gomez", items)
-    assert [i.clave for i in prefs.cargar("ana.gomez", ANA)][-1] == "exactitud"
+    assert [i.clave for i in prefs.cargar("ana.gomez", ANA)][-1] == "sin_contar"
     assert [i.clave for i in prefs.cargar("luis", LUIS)] == [i.clave for i in prefs.predeterminado()]   # no se mezcla
     assert [i.clave for i in prefs.restaurar("ana.gomez")] == [i.clave for i in prefs.predeterminado()]
-    assert "exactitud" not in [i.clave for i in prefs.cargar("ana.gomez", ANA)]
+    assert "sin_contar" not in [i.clave for i in prefs.cargar("ana.gomez", ANA)]
 
 
 def test_una_preferencia_dañada_no_rompe_el_dashboard():
@@ -155,9 +155,9 @@ def test_en_ventanas_estrechas_un_grande_ocupa_el_ancho():
 # ----------------------------------------------------------------------------- la vista
 def test_agregar_y_quitar_widgets_persisten(qtbot):
     v = vista(qtbot, ANA)
-    assert v.agregar_widget("exactitud") is not None
-    assert v.agregar_widget("exactitud") is None                     # un indicador no se repite
-    assert "exactitud" in v.cards
+    assert v.agregar_widget("sin_contar") is not None
+    assert v.agregar_widget("sin_contar") is None                     # un indicador no se repite
+    assert "sin_contar" in v.cards
     g = v.agregar_widget("lecturas_tiempo")
     assert g is not None and v.agregar_widget("lecturas_tiempo") is not None   # los gráficos sí se repiten
     assert [i.clave for i in prefs.cargar("ana.gomez", ANA)].count("lecturas_tiempo") == 2
@@ -197,12 +197,45 @@ def test_arrastrar_y_soltar_reordena(qtbot):
     assert [i.id for i in prefs.cargar("ana.gomez", ANA)] == v.rejilla.ids()
 
 
+def test_un_fallo_suelto_de_oracle_se_reintenta_y_no_deja_el_widget_vacio(monkeypatch):
+    from app.views import dashboard as dash
+    monkeypatch.setattr(dash.time, "sleep", lambda _s: None)
+    llamadas = []
+
+    def inestable():
+        llamadas.append(1)
+        if len(llamadas) < dash.INTENTOS:
+            raise RuntimeError("ORA-12516")
+        return "datos"
+
+    assert dash._con_reintentos(inestable) == "datos" and len(llamadas) == dash.INTENTOS
+
+
+def test_si_oracle_sigue_fallando_se_propaga_el_error_tras_los_reintentos(monkeypatch):
+    from app.views import dashboard as dash
+    monkeypatch.setattr(dash.time, "sleep", lambda _s: None)
+
+    def roto():
+        raise RuntimeError("ORA-12516")
+
+    with pytest.raises(RuntimeError):
+        dash._con_reintentos(roto)
+
+
+def test_un_grafico_recien_agregado_dice_cargando_y_no_sin_datos(qtbot):
+    v = vista(qtbot, ANA)
+    item = v.agregar_widget("lecturas_tiempo")
+    assert v._graficos[item.id].cargando                              # su consulta aún no ha vuelto
+    v._fallo_carga("ORA-12516")
+    assert not v._graficos[item.id].cargando                          # si falló, ya no finge que está cargando
+
+
 def test_cada_usuario_tiene_su_propio_dashboard(qtbot):
     a = vista(qtbot, ANA)
-    a.agregar_widget("exactitud")
+    a.agregar_widget("sin_contar")
     b = vista(qtbot, LUIS)
-    assert "exactitud" not in [i.clave for i in b.items()]
-    assert "exactitud" in [i.clave for i in vista(qtbot, ANA).items()]       # al volver, ana recupera lo suyo
+    assert "sin_contar" not in [i.clave for i in b.items()]
+    assert "sin_contar" in [i.clave for i in vista(qtbot, ANA).items()]       # al volver, ana recupera lo suyo
 
 
 def test_un_rol_sin_permiso_no_puede_agregar_el_widget(qtbot):
@@ -212,9 +245,9 @@ def test_un_rol_sin_permiso_no_puede_agregar_el_widget(qtbot):
 
 def test_restaurar_pide_confirmacion_y_vuelve_a_lo_inicial(qtbot, monkeypatch):
     v = vista(qtbot, ANA)
-    v.agregar_widget("exactitud")
+    v.agregar_widget("sin_contar")
     monkeypatch.setattr(components.Confirmacion, "pedir", classmethod(lambda *a, **k: False))
-    assert v.restaurar() is False and "exactitud" in [i.clave for i in v.items()]
+    assert v.restaurar() is False and "sin_contar" in [i.clave for i in v.items()]
     monkeypatch.setattr(components.Confirmacion, "pedir", classmethod(lambda *a, **k: True))
     assert v.restaurar() is True
     assert [i.clave for i in v.items()] == [i.clave for i in prefs.predeterminado()]

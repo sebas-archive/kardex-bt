@@ -78,19 +78,15 @@ class Def:
 CATALOGO: tuple[Def, ...] = (
     # ------------------------------------------------------------- inventario
     Def("avance", KPI, "Avance del conteo", "Porcentaje de productos que ya tienen una lectura.", "Inventario"),
-    Def("total", KPI, "Total de productos", "Productos del catálogo incluidos en el conteo.", "Inventario"),
     Def("contados", KPI, "Productos contados", "Productos con al menos una lectura registrada.", "Inventario"),
     Def("sin_contar", KPI, "Productos sin contar", "Productos que todavía no tienen lectura.", "Inventario"),
     # ------------------------------------------------------------- conciliación
-    Def("coincidentes", KPI, "Coinciden con el sistema", "Contados cuya cantidad es igual a la del sistema.",
+    Def("coincidentes", KPI, "Coinciden con el sistema", "Contados cuya cantidad es igual a la del sistema (y su exactitud).",
         "Conciliación"),
     Def("faltantes", KPI, "Faltantes", "Productos contados con menos unidades que el sistema.", "Conciliación"),
     Def("sobrantes", KPI, "Sobrantes", "Productos contados con más unidades que el sistema.", "Conciliación"),
-    Def("exactitud", KPI, "Exactitud del conteo", "Porcentaje de contados que coinciden con el sistema.",
-        "Conciliación"),
     # ------------------------------------------------------------- sincronización
     Def("con_error", KPI, "Lecturas con error", "Lecturas recibidas que no pudieron procesarse.", "Sincronización"),
-    Def("pendientes_sync", KPI, "Lecturas por procesar", "Datos recibidos que esperan al batch.", "Sincronización"),
     Def("batch", PANEL, "Última sincronización", "Cuándo corrió el último procesamiento y cómo terminó.",
         "Sincronización", tams=("M", "L"), tam="L"),
     # ------------------------------------------------------------- actividad
@@ -127,10 +123,10 @@ CATALOGO: tuple[Def, ...] = (
 POR_CLAVE = {d.clave: d for d in CATALOGO}
 
 registrar({
-    "Avance del conteo": "Count progress", "Total de productos": "Total products", "Productos contados": "Counted products",
+    "Avance del conteo": "Count progress", "Productos contados": "Counted products",
     "Productos sin contar": "Uncounted products", "Coinciden con el sistema": "Match the system",
-    "Faltantes": "Short", "Sobrantes": "Over", "Exactitud del conteo": "Count accuracy",
-    "Lecturas con error": "Readings with error", "Lecturas por procesar": "Readings to process",
+    "Faltantes": "Short", "Sobrantes": "Over", 
+    "Lecturas con error": "Readings with error", 
     "Última sincronización": "Last synchronization", "Actividad reciente": "Recent activity",
     "Diferencia por categoría": "Difference by category", "Avance por categoría": "Progress by category",
     "Lecturas por categoría": "Readings by category", "Dañados por categoría": "Damaged by category",
@@ -141,7 +137,7 @@ registrar({
     "Productos del catálogo incluidos en el conteo.": "Catalog products included in the count.",
     "Productos con al menos una lectura registrada.": "Products with at least one reading.",
     "Productos que todavía no tienen lectura.": "Products that do not have a reading yet.",
-    "Contados cuya cantidad es igual a la del sistema.": "Counted products whose quantity equals the system's.",
+    "Contados cuya cantidad es igual a la del sistema (y su exactitud).": "Counted products whose quantity equals the system's (and their accuracy).",
     "Productos contados con menos unidades que el sistema.": "Counted products with fewer units than the system.",
     "Productos contados con más unidades que el sistema.": "Counted products with more units than the system.",
     "Porcentaje de contados que coinciden con el sistema.": "Share of counted products that match the system.",
