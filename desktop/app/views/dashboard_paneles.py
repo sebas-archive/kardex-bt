@@ -9,16 +9,22 @@ from __future__ import annotations
 from collections import Counter
 from typing import Callable
 
-from PyQt6.QtCore import QDate, QEvent, QPointF, QRectF, Qt, pyqtSignal
+from functools import partial
+
+from PyQt6 import sip
+from PyQt6.QtCore import QDate, QEvent, QPointF, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QGraphicsOpacityEffect, QGridLayout,
+                             QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSpinBox, QToolButton,
+                             QVBoxLayout, QWidget)
 
 from .. import dashboard_prefs as prefs
 from ..dashboard_datos import Datos
 from ..i18n import registrar, t
 from ..tema import colores
+from . import motion, motion_global, widgets
 from .grafico_personal import GraficoPersonal
+from .motion import Dur
 from .selector_fecha import SelectorFecha
 from .isla import isla
 
@@ -47,6 +53,10 @@ class Hoja(QWidget):
         super().__init__(ventana)
         self._ventana = ventana
         self._ancho, self._alto = ancho, alto
+        self._velo = 0.0                 # 0 = cerrada, 1 = abierta del todo (atenúa el fondo y eleva la tarjeta)
+        self._anim_hoja = None
+        self._cerrando = False
+        self._final = QRect()            # dónde descansa la tarjeta
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.caja = QFrame(self)
         self.caja.setObjectName("modalCaja")
@@ -57,22 +67,67 @@ class Hoja(QWidget):
         self.hide()
 
     def abrir(self) -> None:
+        """La hoja nace con el fondo atenuándose y la tarjeta subiendo unos píxeles mientras se funde (una sola
+        animación gobierna ambos, de modo que no se contradicen)."""
+        ya_abierta = self.isVisible() and not self._cerrando
+        motion.detener(self._anim_hoja)
+        self._cerrando = False
         self._reubicar()
         self.show()
         self.raise_()
         self.setFocus()
         isla.elevar()
+        if ya_abierta or not widgets.ANIMAR:
+            self._velo = 1.0
+            self.caja.setGraphicsEffect(None)
+            self.update()
+            return
+        self._velo = 0.0
+        efecto, _ = motion.opacidad(self.caja)
+        efecto.setOpacity(0.0)
+        self._anim_hoja = motion.animar(self, 0.0, 1.0, motion.dur(Dur.ENTRADA - 80), self._paso_hoja,
+                                        self._fin_abrir, motion.CURVA_SUAVE)
 
     def cerrar(self) -> None:
-        if self.isVisible():
-            self.hide()
-            self.cerrada.emit()
+        if not self.isVisible() or self._cerrando:
+            return
+        if not widgets.ANIMAR:
+            self._ocultar()
+            return
+        self._cerrando = True
+        motion.detener(self._anim_hoja)
+        motion.opacidad(self.caja)
+        self._anim_hoja = motion.animar(self, self._velo, 0.0, motion.dur(Dur.SALIDA - 80), self._paso_hoja,
+                                        self._ocultar, motion.CURVA)
+
+    def _paso_hoja(self, v: float) -> None:
+        self._velo = v
+        efecto = self.caja.graphicsEffect()
+        if isinstance(efecto, QGraphicsOpacityEffect):
+            efecto.setOpacity(min(1.0, v * 1.5))
+        self.caja.move(self._final.x(), self._final.y() + int(16 * (1.0 - v)))
+        self.update()
+
+    def _fin_abrir(self) -> None:
+        self._velo = 1.0
+        self.caja.setGraphicsEffect(None)       # en reposo la tarjeta no lleva efecto: sus hijos pueden tener los suyos
+        self.caja.setGeometry(self._final)
+        self.update()
+
+    def _ocultar(self) -> None:
+        self._cerrando = False
+        self._velo = 0.0
+        self.caja.setGraphicsEffect(None)
+        self.caja.setGeometry(self._final)
+        self.hide()
+        self.cerrada.emit()
 
     def _reubicar(self) -> None:
         self.setGeometry(self._ventana.rect())
         w = min(self._ancho, max(420, self.width() - 60))
         h = min(self._alto, max(320, self.height() - 60))
-        self.caja.setGeometry(QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h).toRect())
+        self._final = QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h).toRect()
+        self.caja.setGeometry(self._final)
 
     def eventFilter(self, objeto, evento) -> bool:
         if objeto is self._ventana and evento.type() == QEvent.Type.Resize and self.isVisible():
@@ -81,11 +136,11 @@ class Hoja(QWidget):
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor(0, 0, 0, 120))
+        p.fillRect(self.rect(), QColor(0, 0, 0, int(120 * self._velo)))
         p.end()
 
     def mousePressEvent(self, evento) -> None:
-        if not self.caja.geometry().contains(evento.position().toPoint()):
+        if not self._cerrando and not self.caja.geometry().contains(evento.position().toPoint()):
             self.cerrar()
         evento.accept()
 
@@ -207,6 +262,7 @@ class CatalogoWidgets(Hoja):
         super().__init__(ventana, 820, 600)
         self._sesion = None
         self._en_uso: Counter[str] = Counter()     # clave -> cuántas veces está ya en el dashboard
+        self._marcos: dict[str, QFrame] = {}
         self._categoria = "Todos"
         self._cabecera(t("Catálogo de widgets"), t("Elige qué quieres ver en tu dashboard. Solo hay información real del sistema."))
         cuerpo = QHBoxLayout()
@@ -255,31 +311,57 @@ class CatalogoWidgets(Hoja):
         self.abrir()
 
     def marcar_en_uso(self, clave: str) -> None:
+        """Un widget más en el dashboard: la lista se actualiza donde está (sin perder el desplazamiento) y la tarjeta
+        recién agregada destella una vez."""
         self._en_uso[clave] += 1
-        self._pintar()
+        self._pintar(conservar=True)
+        marco = self._marcos.get(clave)
+        if marco is not None and widgets.ANIMAR and self.isVisible():
+            motion.destello(marco)
 
     def _elegir(self, nombre: str) -> None:
         self._categoria = nombre
-        self._pintar()
+        self._pintar(transicion=True)
 
-    def _pintar(self) -> None:
+    def _pintar(self, transicion: bool = False, conservar: bool = False) -> None:
+        """Rehace la lista. ``transicion`` (cambio de categoría): lo anterior se funde y las tarjetas nuevas entran en
+        cascada corta; ``conservar``: mantiene el desplazamiento."""
+        barra = self._scroll.verticalScrollBar()
+        pos = barra.value() if conservar else 0
         for n, b in self._botones.items():
             b.setChecked(n == self._categoria)
-        while self._contenido.count():
-            item = self._contenido.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        for d in prefs.CATALOGO:
-            if not prefs.permitido(d, self._sesion):
-                continue
-            if self._categoria != "Todos" and d.categoria != self._categoria:
-                continue
-            self._contenido.addWidget(self._tarjeta(d))
-        self._contenido.addStretch(1)
+
+        def reconstruir() -> None:
+            self._marcos = {}
+            while self._contenido.count():
+                item = self._contenido.takeAt(0)
+                if item.widget() is not None:
+                    item.widget().deleteLater()
+            for d in prefs.CATALOGO:
+                if not prefs.permitido(d, self._sesion):
+                    continue
+                if self._categoria != "Todos" and d.categoria != self._categoria:
+                    continue
+                marco = self._tarjeta(d)
+                self._marcos[d.clave] = marco
+                self._contenido.addWidget(marco)
+            self._contenido.addStretch(1)
+
+        if transicion:
+            motion_global.cruzar_contenido(self._scroll.viewport(), reconstruir, 170)
+        else:
+            reconstruir()
+        if conservar:
+            QTimer.singleShot(0, partial(_poner_valor, barra, pos))
+        # La cascada solo si la tarjeta de la hoja ya está en reposo (sin efecto): así no se anidan efectos.
+        if transicion and widgets.ANIMAR and self.isVisible() and self.caja.graphicsEffect() is None:
+            for i, marco in enumerate(self._marcos.values()):
+                motion.entrar(marco, retardo=min(i, 7) * 26, dy=8, ms_=230, radio=12)
 
     def _tarjeta(self, d: prefs.Def) -> QFrame:
         marco = QFrame()
         marco.setObjectName("itemCatalogo")
+        motion.hacer_interactiva(marco, 12)             # se eleva suavemente al pasar el cursor
         fila = QHBoxLayout(marco)
         fila.setContentsMargins(12, 10, 12, 10)
         fila.setSpacing(14)
@@ -327,6 +409,7 @@ class ConfigGrafico(Hoja):
         self._proveedor = proveedor
         self._id = ""
         self._cargando = False
+        self._campos: dict[int, bool] = {}        # visibilidad actual de cada fila (para animar solo los cambios)
         self._tipos: dict[str, QToolButton] = {}
         self._cabecera(t("Configurar gráfico"))
         cuerpo = QHBoxLayout()
@@ -441,6 +524,7 @@ class ConfigGrafico(Hoja):
         self.chk_etiquetas.setChecked(bool(o.get("etiquetas", True)))
         self.cmb_tam.setCurrentIndex(max(0, self.cmb_tam.findData(item.tam)))
         self._cargando = False
+        self.previa.limpiar()
         self._reconstruir_tipos()
         self._visibilidad()
         self._refrescar_previa()
@@ -494,10 +578,25 @@ class ConfigGrafico(Hoja):
         self._mostrar(self.chk_etiquetas, self._tipo not in ("lineas", "area", "evolucion"))
 
     def _mostrar(self, campo: QWidget, si: bool) -> None:
-        campo.setVisible(si)
-        rotulo = self._rotulos.get(id(campo))
-        if rotulo is not None:
-            rotulo.setVisible(si)
+        """Una opción aparece o se va con un fundido corto; si ya estaba así, no hace nada."""
+        previo = self._campos.get(id(campo))
+        if previo is si:
+            return
+        self._campos[id(campo)] = si
+        animado = previo is not None and widgets.ANIMAR and self.isVisible()
+        for w in (campo, self._rotulos.get(id(campo))):
+            if w is None:
+                continue
+            if si or not animado:
+                motion.cancelar_entrada(w)       # nunca queda una opacidad parcial de una salida anterior
+            if si:
+                w.setVisible(True)
+                if animado and self.caja.graphicsEffect() is None:
+                    motion.entrar(w, dy=6, ms_=Dur.ENTRADA - 100, radio=8)
+            elif animado:
+                motion.salir(w, ms_=110, escala=1.0, radio=8, al_terminar=partial(_ocultar_widget, w))
+            else:
+                w.setVisible(False)
 
     # ------------------------------------------------------------------ cambios
     def opciones(self) -> dict:
@@ -522,4 +621,15 @@ class ConfigGrafico(Hoja):
     def _refrescar_previa(self) -> None:
         d = self._definicion()
         o = self.opciones()
-        self.previa.poner(self._proveedor(d.clave, o), self._tipo, o["leyenda"], o["etiquetas"], False, animar=False)
+        # La vista previa conserva su historia: otro tipo → se funde; otros valores → se interpolan; mismos → quieta.
+        self.previa.poner(self._proveedor(d.clave, o), self._tipo, o["leyenda"], o["etiquetas"], False, animar=True)
+
+
+def _poner_valor(barra, valor: int) -> None:
+    if not sip.isdeleted(barra):
+        barra.setValue(valor)
+
+
+def _ocultar_widget(w: QWidget) -> None:
+    if not sip.isdeleted(w):
+        w.setVisible(False)

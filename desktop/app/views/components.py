@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer, QVariantAnimation, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
     QFrame,
-    QGraphicsBlurEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -136,6 +136,47 @@ class TarjetaHover(QFrame):
 
 
 # ----------------------------------------------------------------------------- drawer
+class _FondoDrawer(QWidget):
+    """Fondo del drawer: la ventana de atrás, difuminada y oscurecida, que aparece a medida que el panel entra.
+
+    El difuminado se hace una sola vez al abrir (reducir y reescalar con suavizado: barato y sin efectos gráficos que
+    se recalculen en cada fotograma); ``set_avance`` solo cambia la opacidad, sincronizada con la posición del panel."""
+
+    def __init__(self, padre: QWidget) -> None:
+        super().__init__(padre)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._imagen: QPixmap | None = None
+        self._t = 0.0
+
+    def poner_imagen(self, imagen: QPixmap) -> None:
+        if imagen.isNull():
+            self._imagen = None
+            return
+        tam = imagen.deviceIndependentSize().toSize()
+        chico = imagen.scaled(max(1, tam.width() // 9), max(1, tam.height() // 9), Qt.AspectRatioMode.IgnoreAspectRatio,
+                              Qt.TransformationMode.SmoothTransformation)
+        self._imagen = chico
+
+    def set_avance(self, t: float) -> None:
+        self._t = max(0.0, min(1.0, t))
+        self.update()
+
+    def avance(self) -> float:
+        return self._t
+
+    def paintEvent(self, _evento) -> None:
+        if self._t <= 0.001:
+            return
+        p = QPainter(self)
+        if self._imagen is not None:
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            p.setOpacity(self._t)
+            p.drawPixmap(self.rect(), self._imagen)
+        p.setOpacity(1.0)
+        p.fillRect(self.rect(), QColor(0, 0, 0, int(140 * self._t)))
+        p.end()
+
+
 class Drawer(QWidget):
     """Panel lateral con backdrop difuminado; se abre desde la derecha y se cierra con Esc, clic fuera o ✕."""
 
@@ -149,14 +190,8 @@ class Drawer(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.hide()
 
-        self._fondo = QLabel(self)
-        self._fondo.setObjectName("drawerFondo")
-        self._fondo.setScaledContents(True)
-        self._fondo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._velo = QFrame(self)
-        self._velo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._velo.setObjectName("drawerVelo")
-        self._velo.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        self._fondo = _FondoDrawer(self)
+        self._velo = self._fondo          # el velo oscuro y el difuminado son una sola capa
 
         self._panel = QFrame(self)
         self._panel.setObjectName("drawerPanel")
@@ -195,34 +230,35 @@ class Drawer(QWidget):
         self._area.setWidget(contenido)
         self.setGeometry(self._host.rect())
         self._reubicar()
-        self._fondo.setPixmap(self._host.grab())
-        desenfoque = QGraphicsBlurEffect(self._fondo)
-        desenfoque.setBlurRadius(9)
-        self._fondo.setGraphicsEffect(desenfoque)
-        self._velo.setStyleSheet("background: rgba(0, 0, 0, 0.55);")
+        self._fondo.poner_imagen(self._host.grab())
+        self._fondo.set_avance(0.0)
         self.show()
         self.raise_()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
         motion.detener(self._anim)
         inicio, fin = float(self._host.width()), float(self._host.width() - self.ancho)
         self._panel.move(self._host.width(), 0)
-        self._velo.setGeometry(self.rect())
-        self._velo.show()
-        self._anim = motion.animar(self, inicio, fin, motion.LENTO,
-                                   lambda v: self._panel.move(int(v), 0),
+        self._fondo.setGeometry(self.rect())
+        self._fondo.show()
+        self._anim = motion.animar(self, inicio, fin, motion.dur(motion.LENTO), self._mover_panel,
                                    None, motion.CURVA_SUAVE)
+
+    def _mover_panel(self, x: float) -> None:
+        """Una sola animación gobierna panel y fondo: el difuminado crece exactamente al ritmo con que entra el panel."""
+        self._panel.move(int(x), 0)
+        self._fondo.set_avance((self._host.width() - x) / max(1, self.ancho))
 
     def cerrar(self) -> None:
         if self.isHidden():
             return
         motion.detener(self._anim)
         inicio = float(self._panel.x())
-        self._anim = motion.animar(self, inicio, float(self._host.width()), motion.NORMAL,
-                                   lambda v: self._panel.move(int(v), 0), self._terminar,
-                                   motion.CURVA)
+        self._anim = motion.animar(self, inicio, float(self._host.width()), motion.dur(motion.NORMAL),
+                                   self._mover_panel, self._terminar, motion.CURVA)
 
     def _terminar(self) -> None:
         self.hide()
+        self._fondo.set_avance(0.0)
         self._velo.hide()
         if self._contenido is not None:
             self._contenido.deleteLater()
@@ -232,7 +268,6 @@ class Drawer(QWidget):
 
     def _reubicar(self) -> None:
         self._fondo.setGeometry(self.rect())
-        self._velo.setGeometry(self.rect())
         self._panel.setGeometry(self._host.width(), 0, self.ancho, self.height())
 
     def resizeEvent(self, evento) -> None:
