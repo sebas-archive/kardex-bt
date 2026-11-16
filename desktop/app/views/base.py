@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
 from ..i18n import t
 from ..workers import QueryWorker
+from .isla import isla
 
 ESTILO = """
 QMainWindow, QWidget { background: #0A0A0A; color: #EDEDED; font-size: 13px; }
@@ -185,11 +186,6 @@ QLabel#ayudaCategoria { color: #10B981; font-size: 11px; font-weight: 700; lette
 QLabel#ayudaAtajo { color: #EDEDED; font-size: 13px; background: transparent; }
 QLabel#ayudaTecla { background: #1C1C1C; border: 1px solid #383838; border-radius: 6px; padding: 2px 8px;
     color: #CFCFCF; font-family: "DejaVu Sans Mono"; font-size: 11px; min-width: 42px; }
-
-/* Toasts */
-QPushButton#accionToast { background: #10B981; color: #04130E; border: none; border-radius: 6px; padding: 4px 10px;
-    font-size: 11px; font-weight: 600; }
-QPushButton#accionToast:hover { background: #34D399; }
 
 /* Chips de filtros activos */
 QFrame#chipActivo { background: #132A22; border: 1px solid #2F6B57; border-radius: 13px; }
@@ -377,42 +373,43 @@ class QueryRunner(QObject):
 
 
 class StateBanner(QFrame):
-    """Aviso de estado de una vista: «Cargando…», «Sin datos» o un error de BD con «Reintentar»."""
+    """Estado de una vista: «Cargando…», «Sin datos» o un error de BD con «Reintentar».
+
+    Ya no ocupa lugar en la pantalla: guarda el texto del estado (para consultarlo) y los errores se comunican por la
+    Isla, con un botón «Reintentar» que emite ``retry``. Cargando y «sin datos» son estados de la tabla, no avisos."""
 
     retry = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("aviso")
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 8, 12, 8)
-        self._label = QLabel()
-        self._label.setWordWrap(True)
-        self.btn_reintentar = QPushButton(t("Reintentar"))
+        self._label = QLabel(self)
+        self._clave = f"consulta-{id(self)}"
+        self._con_error = False
+        self.btn_reintentar = QPushButton(t("Reintentar"), self)
         self.btn_reintentar.clicked.connect(self.retry)
-        lay.addWidget(self._label, 1)
-        lay.addWidget(self.btn_reintentar)
         self.hide()
 
     def text(self) -> str:
         return self._label.text()
 
-    def _mostrar(self, texto: str, error: bool) -> None:
+    def registrar(self, texto: str) -> None:
+        """Guarda el texto del estado sin mostrarlo (quien lo llama ya lo comunicó por la Isla)."""
         self._label.setText(texto)
-        self.setProperty("error", error)
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.btn_reintentar.setVisible(error)
-        self.show()
 
     def show_loading(self) -> None:
-        self._mostrar(t("Cargando…"), False)
+        self._label.setText(t("Cargando…"))
 
     def show_empty(self, texto: str = "Sin datos") -> None:
-        self._mostrar(t(texto), False)
+        self._label.setText(t(texto))
 
     def show_error(self, mensaje: str) -> None:
-        self._mostrar(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje), True)
+        self._label.setText(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
+        self._con_error = True
+        isla.error(t("No se pudo consultar la base de datos"), mensaje, clave=self._clave,
+                   accion=(t("Reintentar"), self.retry.emit))
 
     def clear(self) -> None:
-        self.hide()
+        if self._con_error:
+            self._con_error = False
+            isla.cerrar(clave=self._clave)

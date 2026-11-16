@@ -17,6 +17,13 @@ from ..i18n import t
 from . import motion, widgets
 from .base import QueryRunner
 from .iconos import icono
+from .isla import isla
+
+
+# Textos del proceso en la Isla: (mientras trabaja, al terminar bien, al fallar).
+OP_ENTRAR = ("Iniciando sesión…", "Inicio de sesión exitoso", "No se pudo iniciar sesión")
+OP_REGISTRO = ("Registrando usuario…", "Usuario registrado correctamente", "No se pudo crear la cuenta")
+OP_RECUPERAR = ("Enviando solicitud…", "Solicitud enviada", "No se pudo recuperar la contraseña")
 
 
 class FondoAcceso(QWidget):
@@ -252,11 +259,13 @@ class AccesoView(QWidget):
         self._runner = QueryRunner(self)
         self._primero = False
         self._error_actual = ""
+        self._op = OP_ENTRAR
+        self._id_proceso: int | None = None
         self._pregunta_actual: str | None = None
         self._pregunta_texto = ""
         self._ajustes = QSettings("GestionInventario", "Acceso")
         self._guest_tema = str(self._ajustes.value("tema_invitado", "claro") or "claro")
-        if self._guest_tema not in ("claro", "oscuro"):
+        if self._guest_tema not in tema.MODOS:
             self._guest_tema = "claro"
         self._guest_idioma = str(self._ajustes.value("idioma_invitado", "es") or "es")
         if self._guest_idioma not in i18n.IDIOMAS:
@@ -528,7 +537,7 @@ class AccesoView(QWidget):
         menu = QMenu(self)
         self._menu_config_acciones: dict[str, dict[str, object]] = {"tema": {}, "idioma": {}}
         apariencia = menu.addMenu(t("Apariencia"))
-        for modo in ("claro", "oscuro"):
+        for modo in ("claro", "sistema", "oscuro"):
             accion = apariencia.addAction(t(tema.NOMBRE_MODO[modo]))
             accion.setCheckable(True)
             accion.setChecked(self._guest_tema == modo)
@@ -548,7 +557,7 @@ class AccesoView(QWidget):
         menu.exec(self.btn_config.mapToGlobal(QPoint(0, self.btn_config.height() + 4)))
 
     def _elegir_tema_invitado(self, modo: str) -> None:
-        if modo not in ("claro", "oscuro"):
+        if modo not in tema.MODOS:
             return
         self._guest_tema = modo
         self._ajustes.setValue("tema_invitado", modo)
@@ -706,17 +715,19 @@ class AccesoView(QWidget):
         accion.setToolTip(t("Mostrar contraseña") if visible else t("Ocultar contraseña"))
 
     # ------------------------------------------------------------- flujos
-    def _error(self, mensaje: str) -> None:
-        self.lbl_error.setObjectName("errorFormulario")
-        self.lbl_error.setText(mensaje)
-        self.lbl_error.setVisible(bool(mensaje))
-        self.lbl_error.setStyleSheet("")
+    def _error(self, mensaje: str, validacion: bool = False) -> None:
+        """Errores y validaciones del formulario van a la Isla; ``""`` cierra el que quedó abierto."""
+        self.lbl_error.setText(mensaje)  # el texto sigue consultable; la etiqueta ya no se muestra
+        if not mensaje:
+            isla.cerrar(clave="acceso-error")
+        elif validacion:
+            isla.advertencia(mensaje, clave="acceso-error")
+        else:
+            isla.error(t(self._op[2]), mensaje, clave="acceso-error")
 
     def _aviso(self, mensaje: str) -> None:
-        self.lbl_error.setObjectName("avisoFormulario")
         self.lbl_error.setText(mensaje)
-        self.lbl_error.setStyleSheet("color: #34D399; background: transparent;")
-        self.lbl_error.show()
+        isla.exito(t(self._op[1]), mensaje)
 
     def _ocupado(self, ocupado: bool) -> None:
         for boton in (self.btn_entrar, self.btn_crear, self.btn_pedir_clave):
@@ -725,6 +736,7 @@ class AccesoView(QWidget):
     def _lanzar(self, operacion, *args) -> None:
         self._error("")
         self._ocupado(True)
+        self._id_proceso = isla.cargando(t(self._op[0]))
         self._runner.run(operacion, self._listo, self._fallo, *args, key="acceso")
 
     def _ir_a_registro(self) -> None:
@@ -739,19 +751,21 @@ class AccesoView(QWidget):
 
     def _entrar(self) -> None:
         if not self.txt_usuario.text().strip() or not self.txt_clave.text():
-            self._error(t("Escribe tu usuario y tu contraseña."))
+            self._error(t("Escribe tu usuario y tu contraseña."), validacion=True)
             motion.sacudir(self._tarjeta, 9)
             return
+        self._op = OP_ENTRAR
         self._lanzar(_entrar_o_estado, self.txt_usuario.text(), self.txt_clave.text())
 
     def _crear(self) -> None:
         if self.txt_clave_nueva.text() != self.txt_confirmacion.text():
-            self._error(t("Las contraseñas no coinciden."))
+            self._error(t("Las contraseñas no coinciden."), validacion=True)
             motion.sacudir(self._tarjeta, 9)
             return
         if self._primero and not self.combo_pregunta.currentData():
-            self._error(t("Elige una pregunta de seguridad."))
+            self._error(t("Elige una pregunta de seguridad."), validacion=True)
             return
+        self._op = OP_REGISTRO
         self._lanzar(_registrar_o_estado, self.txt_usuario_nuevo.text(), self.txt_nombre.text(),
                      self.txt_clave_nueva.text(), self.txt_confirmacion.text(), self.txt_correo.text(),
                      self.combo_pregunta.currentData() or "", self.txt_respuesta.text())
@@ -759,7 +773,7 @@ class AccesoView(QWidget):
     def _ver_pregunta(self) -> None:
         usuario = self.txt_usuario_olvido.text().strip()
         if not usuario:
-            self._error(t("Escribe tu usuario."))
+            self._error(t("Escribe tu usuario."), validacion=True)
             return
         self._runner.run(auth.pregunta_de, self._mostrar_pregunta, lambda _m: None, usuario, key="pregunta")
 
@@ -773,27 +787,44 @@ class AccesoView(QWidget):
             self.txt_respuesta_olvido.clear()
 
     def _pedir_clave(self) -> None:
+        self._op = OP_RECUPERAR
         self._lanzar(auth.recuperar, self.txt_usuario_olvido.text(), self.txt_clave_olvido.text(),
                      self.txt_confirmacion_olvido.text(), self.txt_respuesta_olvido.text())
+
+    def _cerrar_proceso(self, tipo: str | None = None, titulo: str = "", descripcion: str = "") -> None:
+        """Termina el «Procesando…» de la Isla: lo transforma en éxito o error, o lo cierra si no hay nada que decir."""
+        id_, self._id_proceso = self._id_proceso, None
+        if id_ is None:
+            if tipo:
+                getattr(isla, tipo)(titulo, descripcion)
+        elif tipo:
+            # Los errores comparten clave con las validaciones: el más reciente sustituye al anterior.
+            isla.actualizar(id_, tipo, titulo, descripcion, **({"clave": "acceso-error"} if tipo == "error" else {}))
+        else:
+            isla.cerrar(id_)
 
     def _listo(self, resultado) -> None:
         self._ocupado(False)
         if isinstance(resultado, auth.Sesion):
+            self._cerrar_proceso("exito", t(self._op[1]), t("Bienvenido, {nombre}", nombre=resultado.nombre))
             self._guardar_recordado()
             self.limpiar()
             self.entro.emit(resultado)
             return
         if isinstance(resultado, auth.CuentaSinAcceso):
+            self._cerrar_proceso()
             self.limpiar()
             self.sin_acceso.emit(resultado)
             return
+        self._cerrar_proceso("exito", t(self._op[1]), t(str(resultado)))
         self.limpiar()
-        self._aviso(t(str(resultado)))
+        self.lbl_error.setText(t(str(resultado)))
 
     def _fallo(self, mensaje: str) -> None:
         self._ocupado(False)
         self._error_actual = mensaje
-        self._error(t(mensaje))
+        self.lbl_error.setText(t(mensaje))
+        self._cerrar_proceso("error", t(self._op[2]), t(mensaje))
         motion.sacudir(self._tarjeta, 9)
 
 
