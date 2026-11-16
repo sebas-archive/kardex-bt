@@ -73,6 +73,11 @@ class PanelMarca(QFrame):
         lay.addWidget(self.lbl_imagen)
         lay.addStretch(2)
 
+    def retraducir(self) -> None:
+        self.lbl_marca.setText(t("GESTIÓN DE INVENTARIO"))
+        self.lbl_bienvenida.setText(t("BIENVENIDO"))
+        self.lbl_imagen.setText(t("Conteo físico sin red.\nEl PC recibe por Bluetooth y Oracle concilia."))
+
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -607,6 +612,7 @@ class AccesoView(QWidget):
             pagina = self.formularios.widget(0)
             self.formularios.removeWidget(pagina)
             pagina.deleteLater()
+        self._marca_panel.retraducir()
         self._montar_paginas()
         self._conectar()
         for nombre, texto in valores.items():

@@ -392,6 +392,11 @@ class MainWindow(QMainWindow):
         i18n.set_idioma(idioma)
         if self._sesion is not None:
             self._sesion = replace(self._sesion, idioma=idioma)
+        self._retraducir_cromo()
+        QTimer.singleShot(0, self._reconstruir_vistas)
+
+    def _retraducir_cromo(self) -> None:
+        """Vuelve a poner en el idioma activo los textos fijos de la ventana (título, barra lateral, tooltips)."""
         self.setWindowTitle(i18n.t("Gestión de inventario"))
         self.marca.setText(i18n.t("Inventario"))
         self.marca.setToolTip(i18n.t("Volver al inicio"))
@@ -402,7 +407,8 @@ class MainWindow(QMainWindow):
         self.btn_actualizar.setToolTip(i18n.t("Volver a consultar (F5)"))
         self._actualizar_boton_tema()
         self.aviso_nuevo_sku.retraducir()
-        QTimer.singleShot(0, self._reconstruir_vistas)
+        if self._sesion is not None:
+            self._poner_cuenta(self._sesion.nombre, i18n.t(auth.NOMBRE_ROL[self._sesion.rol]))
 
     def retranslate(self) -> None:
         self.cambiar_idioma(i18n.idioma())
@@ -423,6 +429,7 @@ class MainWindow(QMainWindow):
         if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
             vista_avisos.set_sesion(sesion)
         self._aplicar_tema_idioma(sesion.tema, sesion.idioma)
+        self._retraducir_cromo()
         if self._firma_construida is not None and self._firma_construida != self._firma_vistas():
             # Las vistas se crearon con el tema de invitado (claro) o el idioma de arranque; los colores y textos
             # que fijan al construirse (gráficas, tarjetas) ya no valen para esta cuenta.
@@ -745,7 +752,7 @@ class MainWindow(QMainWindow):
         }
         estado = status["estado"]
         texto, tono = textos.get(estado, (estado.lower(), ""))
-        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=texto), tono)
+        self._poner_chip(self.chip_bluetooth, i18n.t("Bluetooth: {estado}", estado=i18n.t(texto)), tono)
         self._avisar_bluetooth(estado, status)
 
     def _avisar_bluetooth(self, estado: str, status: dict) -> None:
