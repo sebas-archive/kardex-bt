@@ -249,3 +249,24 @@ def test_la_ventana_no_repite_su_cabecera_en_sincronizacion(qtbot):
     assert not ventana.btn_actualizar.isVisible() and not ventana.chip_oracle.isVisible()
     ventana.ir_a("Dashboard")
     assert ventana.btn_actualizar.isVisible() and ventana.chip_oracle.isVisible()
+
+
+def test_pausar_y_reanudar_no_mueven_el_scroll(qtbot, admin, escenario):
+    """Pulsar Pausar/Reanudar no debe cambiar la posición de lo que se está viendo."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    v, r = _vista(qtbot, admin, estado="PAUSADO")
+    v.resize(900, 420)
+    qtbot.wait(300)
+    barra = v._desplazable.verticalScrollBar()
+    assert barra.maximum() > 120
+    for _ in range(2):   # reanuda y vuelve a pausar
+        barra.setValue(70)
+        QTest.mouseClick(v.btn_pausar, Qt.MouseButton.LeftButton)
+        qtbot.wait(400)
+        assert barra.value() == 70
+    v.btn_procesar.setFocus()
+    barra.setValue(70)
+    QTest.mouseClick(v.btn_procesar, Qt.MouseButton.LeftButton)
+    qtbot.wait(400)
+    assert barra.value() == 70

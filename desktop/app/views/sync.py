@@ -448,6 +448,7 @@ class SyncView(QWidget):
         self._esperando_resultado = False
         self._antes_reproceso: int | None = None
         self._intencion: str | None = None
+        self._servicio_ocupado = False   # orden pausar/reanudar en curso: se ignoran clics (sin quitar el foco al botón)
         self._ultimo_recibidos = -1
         self._ultimo_estado = ""
         self._entrada_hecha = False
@@ -944,8 +945,11 @@ class SyncView(QWidget):
 
     # ------------------------------------------------------------- procesar / reprocesar
     def _accion(self, operacion, reprocesa: bool = False) -> None:
+        barra = self._desplazable.verticalScrollBar()
+        posicion = barra.value()
         self.btn_procesar.setEnabled(False)
         self.btn_reprocesar.setEnabled(False)
+        barra.setValue(posicion)   # deshabilitar el botón con foco lo pasa a otro widget y el scroll saltaba
         self.progreso.show()
         self._antes_reproceso = len(self._errores) if reprocesa else None
         self._proceso = isla.cargando(t("Reprocesando errores…") if reprocesa else t("Procesando lecturas…"))
@@ -983,10 +987,12 @@ class SyncView(QWidget):
         return self._sesion is not None and self._sesion.puede("sync", "GESTION")
 
     def _clic_pausar(self) -> None:
-        if self._sesion is None:
+        if self._sesion is None or self._servicio_ocupado:
             return
         self.lbl_aviso.hide()
-        self.btn_pausar.setEnabled(False)
+        # No se deshabilita el botón: al perder el foco, Qt lo pasa a un widget de más abajo y el QScrollArea
+        # desplaza la pantalla hasta él (la vista saltaba al pulsar Pausar/Reanudar).
+        self._servicio_ocupado = True
         if self._remoto.status()["estado"] in (PAUSADO, PAUSANDO):
             self._intencion = "reanudar"
             self._remoto.reanudar(self._sesion)
@@ -1000,7 +1006,7 @@ class SyncView(QWidget):
 
     def _fallo_servicio(self, mensaje: str) -> None:
         self._intencion = None
-        self.btn_pausar.setEnabled(True)
+        self._servicio_ocupado = False
         self.lbl_aviso.setText(mensaje)
         self.lbl_aviso.setVisible(bool(mensaje))
         if mensaje:
@@ -1062,7 +1068,7 @@ class SyncView(QWidget):
 
         self.btn_pausar.setText(t("Reanudar servicio") if estado in (PAUSADO, PAUSANDO) else t("Pausar servicio"))
         self.btn_pausar.setVisible(gestiona and estado != DETENIDO)
-        self.btn_pausar.setEnabled(True)
+        self._servicio_ocupado = False
         if self._intencion == "reanudar" and estado not in (PAUSADO, PAUSANDO):
             self._intencion = None
             isla.exito(t("Bluetooth reanudado"))
