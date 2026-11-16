@@ -40,7 +40,7 @@ from btsync.controller import (
 )
 from btsync.servicio import DETENIDO, PAUSADO, PAUSANDO
 
-from .. import auth, db
+from .. import auth, db, isla
 from ..i18n import registrar, t
 from ..tema import colores
 from .base import QueryRunner, StateBanner
@@ -481,6 +481,7 @@ class SyncView(QWidget):
         self._accion(db.reprocesar_errores)
 
     def _alta_fallo(self, mensaje: str) -> None:
+        isla.error("No se pudo guardar", mensaje)
         self.btn_alta.setEnabled(True)
         self.banner.show_error(mensaje)
 
@@ -493,15 +494,22 @@ class SyncView(QWidget):
     def _accion(self, operacion) -> None:
         self.btn_procesar.setEnabled(False)
         self.btn_reprocesar.setEnabled(False)
-        self._runner.run(operacion, self._accion_lista, self._accion_fallo)
+        id_ = isla.cargando("Sincronizando inventario…")
+        self._runner.run(operacion, lambda r, i=id_: self._accion_lista(r, i), lambda m, i=id_: self._accion_fallo(m, i))
 
-    def _accion_lista(self, _resultado) -> None:
+    def _accion_lista(self, _resultado, id_: int | None = None) -> None:
+        if id_ is not None:
+            isla.actualizar(id_, isla.NotificationType.SUCCESS, "Sincronización completada")
         self.btn_procesar.setEnabled(True)
         self.btn_reprocesar.setEnabled(True)
         self.refresh()
         self.datos_cambiados.emit()
 
-    def _accion_fallo(self, mensaje: str) -> None:
+    def _accion_fallo(self, mensaje: str, id_: int | None = None) -> None:
+        if id_ is not None:
+            isla.actualizar(id_, isla.NotificationType.ERROR, "Error al sincronizar", mensaje)
+        else:
+            isla.error("Error al sincronizar", mensaje)
         self.btn_procesar.setEnabled(True)
         self.btn_reprocesar.setEnabled(True)
         self.banner.show_error(mensaje)
@@ -524,6 +532,7 @@ class SyncView(QWidget):
             self._remoto.responder(self._sesion, aceptar)
 
     def _fallo_servicio(self, mensaje: str) -> None:
+        isla.error("No se pudo completar la operación", mensaje)
         self.btn_pausar.setEnabled(True)
         self.lbl_aviso.setText(mensaje)
         self.lbl_aviso.setVisible(bool(mensaje))

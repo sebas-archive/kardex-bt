@@ -13,7 +13,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import auth, notificaciones
+from .. import auth, isla, notificaciones
 from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
 
@@ -167,7 +167,11 @@ class NotificacionesView(QWidget):
 
     def _marcar_todas(self) -> None:
         if self._sesion is not None:
-            self._runner.run(notificaciones.marcar_todas, self._marcado, self.banner.show_error, self._sesion)
+            self._runner.run(notificaciones.marcar_todas, self._todas_marcadas, self.banner.show_error, self._sesion)
+
+    def _todas_marcadas(self, _r) -> None:
+        isla.exito("Notificaciones marcadas como leídas")
+        self._marcado(_r)
 
     def _marcado(self, _r) -> None:
         self.cambiaron.emit()

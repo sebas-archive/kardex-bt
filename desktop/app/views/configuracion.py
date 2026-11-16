@@ -9,7 +9,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                              QWidget)
 
-from .. import auth, configuracion
+from .. import auth, configuracion, isla
 from ..i18n import registrar, t
 from .base import QueryRunner, StateBanner
 
@@ -149,10 +149,13 @@ class ConfiguracionView(QWidget):
     def _guardado(self, valores: dict[str, str]) -> None:
         self.btn_guardar.setEnabled(True)
         self._mostrar(valores)
+        isla.exito("Datos guardados")
         self.lbl_info.setText(t("Guardado."))
         self.lbl_info.show()
 
     def _error(self, mensaje: str) -> None:
+        if mensaje:
+            isla.error("No se pudo guardar", mensaje)
         self.btn_guardar.setEnabled(True)
         self.lbl_error.setText(mensaje)
         self.lbl_error.setVisible(bool(mensaje))
