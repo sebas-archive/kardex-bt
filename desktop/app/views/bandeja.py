@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QEvent, QPoint, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QGuiApplication, QPainter
-from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from .. import auth, notificaciones, tema
 from ..i18n import registrar, t
@@ -105,7 +105,7 @@ class PopoverNotificaciones(QFrame):
     ir_a = pyqtSignal(str)      # una notificación con destino: el título de la pantalla
     cambiaron = pyqtSignal()    # se marcó algo como leído (la campana se actualiza)
 
-    ANCHO = 380
+    ANCHO = 440
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
@@ -127,6 +127,7 @@ class PopoverNotificaciones(QFrame):
         self.btn_marcar = QPushButton(t("Marcar todas como leídas"))
         self.btn_marcar.setObjectName("marcarTodas")
         self.btn_marcar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_marcar.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         cabecera = QFrame()
         cabecera.setObjectName("cabeceraBandeja")
         en_cabecera = QHBoxLayout(cabecera)

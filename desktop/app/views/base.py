@@ -40,8 +40,8 @@ QFrame#pieCuenta QLabel, QFrame#pieCuenta QWidget { background: transparent; }
 QPushButton#cuenta { border: none; background: transparent; text-align: left; border-radius: 8px; }
 QPushButton#cuenta:hover { background: rgba(255,255,255,0.06); }
 QFrame#pieCuenta QLabel#avatar { background: #10B981; color: #04130E; border-radius: 18px; font-weight: 700; font-size: 14px; }
-QLabel#usuarioNombre { font-weight: 600; color: #FFFFFF; }
-QLabel#usuarioRol { color: #8A8A8A; font-size: 12px; }
+QLabel#usuarioNombre { font-weight: 600; font-size: 12px; color: #FFFFFF; }
+QLabel#usuarioRol { color: #8A8A8A; font-size: 11px; }
 
 /* Lienzo principal encajado en el marco */
 QFrame#lienzo { background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; }

@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Callable
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
+from PyQt6.QtGui import QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -385,8 +385,7 @@ class MainWindow(QMainWindow):
         if vista_avisos is not None and hasattr(vista_avisos, "set_sesion"):
             vista_avisos.set_sesion(sesion)
         self._aplicar_tema_idioma(sesion.tema, sesion.idioma)
-        self.lbl_usuario.setText(sesion.nombre)
-        self.lbl_rol.setText(i18n.t(auth.NOMBRE_ROL[sesion.rol]))
+        self._poner_cuenta(sesion.nombre, i18n.t(auth.NOMBRE_ROL[sesion.rol]))
         self._poner_avatar()
         self._actualizar_boton_tema()
         self.btn_avisos.setVisible(sesion.puede("notificaciones"))
@@ -670,12 +669,38 @@ class MainWindow(QMainWindow):
         self._auto_colapsada = False
         self.alternar_lateral()
 
+    TEXTO_CUENTA_MAX = 116   # ancho máximo del texto del pie; más allá se abrevia con «…»
+    RESTO_PIE = 184          # lo que ocupan en el pie el avatar, los botones y los márgenes
+
+    def _poner_cuenta(self, nombre: str, rol: str) -> None:
+        """Nombre y rol en el pie: si no caben ni con el ancho máximo de la barra, se abrevian con «…» (y tooltip)."""
+        for etiqueta, texto in ((self.lbl_usuario, nombre), (self.lbl_rol, rol)):
+            etiqueta.ensurePolished()
+            elidido = QFontMetrics(etiqueta.font()).elidedText(texto, Qt.TextElideMode.ElideRight, self.TEXTO_CUENTA_MAX)
+            etiqueta.setText(elidido)
+            etiqueta.setToolTip(texto if elidido != texto else "")
+        self._ajustar_lateral()
+
+    def _ancho_lateral(self) -> int:
+        """El ancho que necesita la barra con la fuente real del sistema: nunca menos que el original ni más de 300."""
+        ancho = ANCHO_LATERAL
+        for _t, _v, boton, _m, _r in self._secciones:
+            boton.ensurePolished()
+            texto = QFontMetrics(boton.font()).horizontalAdvance(boton.toolTip() or boton.text().strip())
+            ancho = max(ancho, texto + 12 + 3 + 20 + 12 + 20 + 16)      # relleno + borde + icono + hueco + márgenes + holgura
+        for etiqueta in (self.lbl_usuario, self.lbl_rol):
+            etiqueta.ensurePolished()
+            ancho = max(ancho, QFontMetrics(etiqueta.font()).horizontalAdvance(etiqueta.text()) + self.RESTO_PIE)
+        return min(300, ancho)
+
+    def _ajustar_lateral(self) -> None:
+        self._lateral.setFixedWidth(ANCHO_LATERAL_CONTRAIDA if self._colapsada else self._ancho_lateral())
+
     def alternar_lateral(self) -> None:
         self._colapsada = not self._colapsada
         c = self._colapsada
-        destino = ANCHO_LATERAL_CONTRAIDA if c else ANCHO_LATERAL
         self._aplicar_lateral(c)
-        self._lateral.setFixedWidth(destino)
+        self._ajustar_lateral()
         QTimer.singleShot(0, self._centrar_contenido)
 
     def _aplicar_lateral(self, c: bool) -> None:
@@ -724,6 +749,7 @@ class MainWindow(QMainWindow):
         if self._registrar_vistas is not None:
             self._registrar_vistas()
         self._aplicar_lateral(self._colapsada)
+        self._ajustar_lateral()
         if self._sesion is not None:
             self.iniciar(self._sesion)
             titulo = next((t for t, _v, _b, modulo, _r in self._secciones if modulo == actual), None)

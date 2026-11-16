@@ -79,6 +79,21 @@ def test_collapsed_sidebar_survives_a_theme_change(qtbot, puente):
     assert all(boton.text() == "" for _t, _v, boton, _m, _r in ventana._secciones)
 
 
+def test_the_footer_text_and_sidebar_labels_are_never_cut(qtbot, puente):
+    """El nombre y el rol del pie caben (o se abrevian con «…») y la barra se ensancha lo que pida la fuente."""
+    larga = Sesion("ana.gomez", "Administrador de Prueba Muy Largo", ADMIN, correo="ana@example.com")
+    ventana = abrir(qtbot, puente, larga)
+    ventana.resize(1300, 800)
+    qtbot.wait(100)
+    for etiqueta in (ventana.lbl_usuario, ventana.lbl_rol):
+        assert etiqueta.fontMetrics().horizontalAdvance(etiqueta.text()) <= etiqueta.width() + 1
+    assert "…" in ventana.lbl_usuario.text() and ventana.lbl_usuario.toolTip() == "Administrador de Prueba Muy Largo"
+    for _t, _v, boton, _m, _r in ventana._secciones:
+        if boton.isVisible():
+            assert boton.fontMetrics().horizontalAdvance(boton.text().strip()) + 60 <= boton.width()
+    assert 230 <= ventana._lateral.width() <= 300
+
+
 def test_no_removed_screens_are_registered(qtbot, puente):
     ventana = abrir(qtbot, puente, ANA)
     for retirada in ("Tareas", "Tareas de conteo", "Diferencias", "Movimientos", "Ajustes", "Existencias",
