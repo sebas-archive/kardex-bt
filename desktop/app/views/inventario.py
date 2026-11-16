@@ -32,6 +32,7 @@ from ..i18n import registrar, t
 from ..models import Lectura, fmt_num
 from ..tema import colores
 from .base import QueryRunner, StateBanner
+from .capas import abrir_capa
 from .lecturas import DetalleLecturas
 
 registrar({
@@ -79,6 +80,7 @@ class InventarioView(QWidget):
         self._cargado = False
         self._filas: list = []
         self.detalle: DetalleLecturas | None = None
+        self._capa_detalle = None
 
         ayuda = QLabel(t("SKU, producto, categoría, cantidad contada y cantidad del sistema. "
                          "Haz doble clic para ver las lecturas."))
@@ -162,9 +164,22 @@ class InventarioView(QWidget):
         fila = next((f for f in self._filas if f.sku == sku), None)
         if fila is None:
             return
-        self.detalle = DetalleLecturas(sku, fila.nombre, self, categoria=fila.categoria,
-                                       contada=fila.cant_contada, sistema=fila.cant_sistema)
-        self.detalle.show()
+        if self._capa_detalle is not None and self._capa_detalle.esta_abierta():
+            self._capa_detalle.cerrar()
+        panel = DetalleLecturas(sku, fila.nombre, None, categoria=fila.categoria,
+                                contada=fila.cant_contada, sistema=fila.cant_sistema)
+        self.detalle = panel
+        ventana = self.window()
+        if ventana is self:        # la vista sola (sin ventana principal): el panel queda suelto
+            panel.show()
+            return
+        # Un panel flotante dentro de la ventana principal, centrado en el área de contenido y sobre la tabla.
+        self._capa_detalle = abrir_capa(ventana, panel, area="contenido", oscuridad=0.30, radio=18)
+        self._capa_detalle.cerrada.connect(self._detalle_cerrado)
+
+    def _detalle_cerrado(self) -> None:
+        self.detalle = None
+        self._capa_detalle = None
 
     def exportar_csv(self, ruta: str | Path) -> None:
         """Las filas que se están viendo, con separador «;» y BOM: abre bien en Excel."""

@@ -7,14 +7,11 @@ miniatura de la foto y menú contextual) y un estado vacío cuando el producto n
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, QRectF, QSize, Qt, QTimer
+from PyQt6.QtCore import QPoint, QRect, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
-    QDialog,
     QFrame,
-    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -33,8 +30,8 @@ from PyQt6.QtWidgets import (
 from .. import db, tema
 from ..i18n import registrar, t
 from ..models import Lectura, fmt_num
-from . import widgets
 from .base import QueryRunner, StateBanner
+from .capas import abrir_capa, superficie
 from .foto import leer_foto
 from .iconos import icono
 from .visor_foto import FotoLectura, ver_fotos
@@ -80,16 +77,20 @@ def _mix(a: str, b: str, k: float) -> QColor:
 
 def _qss(c: dict[str, str]) -> str:
     return f"""
-    QDialog#lecturas {{ background: {c['fondo']}; }}
+    QWidget#lecturas {{ background: transparent; }}
     QLabel#lecTitulo {{ font-size: 21px; font-weight: 700; color: {c['texto_fuerte']}; background: transparent; }}
     QLabel#lecSub {{ font-size: 13px; color: {c['texto_suave']}; background: transparent; }}
     QLabel#lecSku {{ font-size: 12px; font-weight: 700; color: {c['texto_tenue']}; background: {c['tarjeta_alt']};
         border: 1px solid {c['borde']}; border-radius: 7px; padding: 2px 8px; }}
-    QFrame#lecTarjeta {{ background: {c['tarjeta']}; border: 1px solid {c['borde']}; border-radius: 14px; }}
+    QFrame#lecTarjeta {{ background: {c['tarjeta_alt']}; border: 1px solid {c['borde']}; border-radius: 14px; }}
     QLabel#lecCifra {{ font-size: 19px; font-weight: 700; color: {c['texto_fuerte']}; background: transparent; }}
     QLabel#lecCifraSuave {{ font-size: 15px; font-weight: 700; color: {c['texto_fuerte']}; background: transparent; }}
     QLabel#lecLeyenda {{ font-size: 11px; color: {c['texto_suave']}; background: transparent; }}
-    QFrame#lecTabla {{ background: {c['tarjeta']}; border: 1px solid {c['borde']}; border-radius: 14px; }}
+    QFrame#lecTabla {{ background: transparent; border: 1px solid {c['borde']}; border-radius: 14px; }}
+    QPushButton#lecX {{ background: transparent; border: none; border-radius: 15px; min-width: 30px; max-width: 30px;
+        min-height: 30px; max-height: 30px; padding: 0; }}
+    QPushButton#lecX:hover {{ background: {c['tarjeta_alt']}; }}
+    QPushButton#lecX:pressed {{ background: {c['borde']}; }}
     QTableWidget#lecLista {{ background: transparent; border: none; outline: 0; gridline-color: transparent; }}
     QTableWidget#lecLista QHeaderView {{ background: transparent; }}
     QTableWidget#lecLista QHeaderView::section {{ background: transparent; color: {c['texto_suave']}; border: none;
@@ -307,17 +308,19 @@ class _Delegado(QStyledItemDelegate):
 
 
 # ------------------------------------------------------------------ detalle de una lectura
-class DetalleLectura(QDialog):
-    """Todos los datos de una lectura (también su nota completa)."""
+class DetalleLectura(QWidget):
+    """Todos los datos de una lectura (también su nota completa). Panel para una capa flotante."""
+
+    cerrar_pedido = pyqtSignal()
 
     def __init__(self, lectura: Lectura, producto: str, sku: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         c = tema.colores()
         self.setObjectName("detalleLectura")
-        self.setWindowTitle(t("Detalles de la lectura"))
         self.setMinimumWidth(380)
+        self._c = c
         self.setStyleSheet(f"""
-            QDialog#detalleLectura {{ background: {c['tarjeta']}; }}
+            QWidget#detalleLectura {{ background: transparent; }}
             QLabel {{ background: transparent; color: {c['texto']}; font-size: 13px; }}
             QLabel#dEtiqueta {{ color: {c['texto_suave']}; font-size: 10px; font-weight: 700; }}
             QLabel#dTitulo {{ color: {c['texto_fuerte']}; font-size: 17px; font-weight: 700; }}""")
@@ -345,7 +348,7 @@ class DetalleLectura(QDialog):
         cerrar = QPushButton(t("Cerrar"))
         cerrar.setObjectName("lecCerrar")
         cerrar.setStyleSheet(_qss(c))
-        cerrar.clicked.connect(self.accept)
+        cerrar.clicked.connect(lambda: self.cerrar_pedido.emit())
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 22, 24, 20)
         lay.setSpacing(12)
@@ -353,26 +356,34 @@ class DetalleLectura(QDialog):
         lay.addLayout(rejilla)
         lay.addWidget(cerrar, 0, Qt.AlignmentFlag.AlignRight)
 
+    def paintEvent(self, _evento) -> None:
+        p = QPainter(self)
+        superficie(p, QRectF(self.rect()), self._c["tarjeta"], self._c["borde"], 16)
+
 
 # ------------------------------------------------------------------ ventana
-class DetalleLecturas(QDialog):
-    """Todas las lecturas de un SKU, marcando cuál es la vigente (la más reciente)."""
+class DetalleLecturas(QWidget):
+    """Todas las lecturas de un SKU, marcando cuál es la vigente (la más reciente).
+
+    Es el panel de una capa flotante (``capas.CapaFlotante``): no es una ventana del sistema. Los datos, la
+    selección y el desplazamiento de la tabla se conservan mientras haya otra capa (el visor) encima."""
+
+    cerrar_pedido = pyqtSignal()
 
     def __init__(self, sku: str, nombre: str, parent: QWidget | None = None, categoria: str = "",
                  contada: float | None = None, sistema: float | None = None) -> None:
         super().__init__(parent)
         self._sku, self._nombre, self._categoria = sku, nombre, categoria
         self._lecturas: list[Lectura] = []
-        self._cerrando = False
-        self._abierto = False
         self._miniaturas: dict[int, QPixmap] = {}
-        self._popup: QDialog | None = None
+        self._popup: QWidget | None = None
+        self._capa_popup = None
         c = tema.colores()
         self.setObjectName("lecturas")
         self.setWindowTitle(t("Lecturas de {sku} — {nombre}", sku=sku, nombre=nombre))
         self.setStyleSheet(_qss(c))
-        self.setMinimumSize(760, 480)
-        self._tamano_inicial(parent)
+        self.setMinimumSize(560, 380)
+        self._c = c
         self._runner = QueryRunner(self)
 
         # ------------------------------------------------------------ encabezado
@@ -396,9 +407,19 @@ class DetalleLecturas(QDialog):
         izquierda.addWidget(self.lbl_nombre)
         izquierda.addLayout(meta)
         self.estado = _Etiqueta()
+        self.btn_cerrar = QPushButton()
+        self.btn_cerrar.setObjectName("lecX")
+        self.btn_cerrar.setIcon(icono("cerrar", color=c["texto_suave"], color_activo=c["texto_fuerte"], tam=16))
+        self.btn_cerrar.setIconSize(QSize(16, 16))
+        self.btn_cerrar.setToolTip(t("Cerrar"))
+        self.btn_cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cerrar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_cerrar.clicked.connect(lambda: self.cerrar_pedido.emit())
         cabecera = QHBoxLayout()
+        cabecera.setSpacing(10)
         cabecera.addLayout(izquierda, 1)
         cabecera.addWidget(self.estado, 0, Qt.AlignmentFlag.AlignTop)
+        cabecera.addWidget(self.btn_cerrar, 0, Qt.AlignmentFlag.AlignTop)
 
         # ------------------------------------------------------------ indicadores
         self.ind_total = _Indicador("lista", t("Total de lecturas"), c["info"])
@@ -453,8 +474,6 @@ class DetalleLecturas(QDialog):
         interior = QVBoxLayout(self._marco)
         interior.setContentsMargins(6, 4, 6, 6)
         interior.addLayout(self._pila)
-        self._efecto = QGraphicsOpacityEffect(self._marco)
-        self._efecto.setOpacity(1.0)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(26, 22, 26, 22)
@@ -466,59 +485,12 @@ class DetalleLecturas(QDialog):
         self._poner_resumen([])
         self._cargar(sku)
 
-    # ------------------------------------------------------------- tamaño, apertura y cierre
-    def _tamano_inicial(self, parent: QWidget | None) -> None:
-        ventana = parent.window() if parent is not None else None
-        pantalla = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else QRect(0, 0, 1280, 800)
-        marco = ventana.geometry() if ventana is not None and ventana.isVisible() else pantalla
-        ancho = max(760, min(int(marco.width() * 0.78), 1080))
-        alto = max(500, min(int(marco.height() * 0.80), 700))
-        self.resize(ancho, alto)
-        self.move(marco.center().x() - ancho // 2, marco.center().y() - alto // 2)
-
-    def showEvent(self, evento) -> None:
-        super().showEvent(evento)
-        if self._abierto:
-            return
-        self._abierto = True
-        if not widgets.ANIMAR:
-            return
-        self.setWindowOpacity(0.0)
-        a = QPropertyAnimation(self, b"windowOpacity", self)
-        a.setDuration(240)
-        a.setStartValue(0.0)
-        a.setEndValue(1.0)
-        a.setEasingCurve(QEasingCurve.Type.OutCubic)
-        a.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-        # El contenido aparece un instante después, con un leve desvanecido.
-        self._marco.setGraphicsEffect(self._efecto)
-        self._efecto.setOpacity(0.0)
-        QTimer.singleShot(90, lambda: widgets.animar(
-            self, 0.0, 1.0, 260, self._efecto.setOpacity, self._quitar_efecto, QEasingCurve.Type.OutCubic))
-
-    def _quitar_efecto(self) -> None:
-        self._efecto.setOpacity(1.0)
-        try:
-            self._marco.setGraphicsEffect(None)
-        except RuntimeError:
-            pass
-
-    def closeEvent(self, evento) -> None:
-        if self._cerrando or not widgets.ANIMAR or not self.isVisible():
-            super().closeEvent(evento)
-            return
-        evento.ignore()
-        self._cerrando = True
-        a = QPropertyAnimation(self, b"windowOpacity", self)
-        a.setDuration(160)
-        a.setStartValue(self.windowOpacity())
-        a.setEndValue(0.0)
-        a.setEasingCurve(QEasingCurve.Type.InCubic)
-        a.finished.connect(self.close)
-        a.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+    def paintEvent(self, _evento) -> None:
+        p = QPainter(self)
+        superficie(p, QRectF(self.rect()), self._c["tarjeta"], self._c["borde"], 18)
 
     def reject(self) -> None:
-        self.close()
+        self.cerrar_pedido.emit()
 
     # ------------------------------------------------------------- datos
     def _cargar(self, sku: str) -> None:
@@ -679,8 +651,13 @@ class DetalleLecturas(QDialog):
     def ver_detalles(self, fila: int) -> None:
         if not 0 <= fila < len(self._lecturas):
             return
-        self._popup = DetalleLectura(self._lecturas[fila], self._nombre, self._sku, self)
-        self._popup.show()
+        self._popup = DetalleLectura(self._lecturas[fila], self._nombre, self._sku)
+        ventana = self.window()
+        if ventana is self:       # sin ventana principal (pruebas de la vista sola): queda como widget suelto
+            self._popup.show()
+            return
+        self._capa_popup = abrir_capa(ventana, self._popup, area="ventana", oscuridad=0.34, radio=16,
+                                      tamano=lambda a: QSize(min(460, a.width() - 40), self._popup.sizeHint().height()))
 
     def _menu(self, pos) -> None:
         fila = self.tabla.rowAt(pos.y())

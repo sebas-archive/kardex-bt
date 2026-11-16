@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QFrame, QGraphicsOpacityEffe
 from ..i18n import registrar, t
 from . import widgets
 from .base import QueryRunner
+from .capas import abrir_capa
 from .iconos import icono
 
 registrar({
@@ -50,7 +51,7 @@ registrar({
 
 ESCALA_MINIMA, ESCALA_MAXIMA = 0.05, 10.0
 ESCALA_AJUSTE_MAX = 2.0          # una foto pequeña no se agranda más del doble (se vería borrosa)
-SOMBRA = 14
+SOMBRA = 0
 RADIO = 18
 ANCHO_PANEL = 300
 MARGENES = (28, 76, 28, 96)      # izquierda, arriba, derecha, abajo del área de la foto (respeta cabecera y barra)
@@ -376,22 +377,17 @@ class LienzoFoto(QWidget):
 
 # ------------------------------------------------------------------ piezas del visor
 class _Superficie(QWidget):
-    """Fondo oscuro con esquinas redondeadas y sombra suave (el diálogo es translúcido y sin marco)."""
+    """Fondo oscuro con esquinas redondeadas (la sombra y el velo los pone la capa que contiene al visor)."""
 
     cambio_tamano = pyqtSignal()
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        caja = QRectF(self.rect()).adjusted(SOMBRA, SOMBRA, -SOMBRA, -SOMBRA)
-        for i in range(SOMBRA - 2, 0, -2):
-            ruta = QPainterPath()
-            ruta.addRoundedRect(caja.adjusted(-i, -i + 4, i, i + 4), RADIO + i, RADIO + i)
-            p.fillPath(ruta, QColor(0, 0, 0, int(34 * (1 - i / SOMBRA) ** 2)))
         ruta = QPainterPath()
-        ruta.addRoundedRect(caja, RADIO, RADIO)
+        ruta.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), RADIO, RADIO)
         p.fillPath(ruta, QColor("#0A0A0C"))
-        p.setPen(QColor(255, 255, 255, 22))
+        p.setPen(QColor(255, 255, 255, 26))
         p.drawPath(ruta)
 
     def resizeEvent(self, evento) -> None:
@@ -399,36 +395,8 @@ class _Superficie(QWidget):
         self.cambio_tamano.emit()
 
 
-class _Agarre(QWidget):
-    """Esquina inferior derecha para cambiar el tamaño de la ventana sin marco."""
-
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
-        self.setFixedSize(22, 22)
-        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-
-    def mousePressEvent(self, evento) -> None:
-        ventana = self.window().windowHandle()
-        if evento.button() == Qt.MouseButton.LeftButton and ventana is not None:
-            ventana.startSystemResize(Qt.Edge.RightEdge | Qt.Edge.BottomEdge)
-
-    def paintEvent(self, _evento) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QColor(255, 255, 255, 70))
-        for d in (6, 11, 16):
-            p.drawLine(self.width() - 3, self.height() - 3 - d, self.width() - 3 - d, self.height() - 3)
-
-
 class _Cabecera(QFrame):
-    """Cabecera que también sirve para mover la ventana."""
-
-    def mousePressEvent(self, evento) -> None:
-        ventana = self.window().windowHandle()
-        if evento.button() == Qt.MouseButton.LeftButton and ventana is not None:
-            ventana.startSystemMove()
-        else:
-            super().mousePressEvent(evento)
+    """Franja superior con el producto y los datos de la lectura."""
 
 
 def _boton(nombre: str, ayuda: str, objeto: str = "visorBtn", tam: int = 18) -> QPushButton:
@@ -443,16 +411,17 @@ def _boton(nombre: str, ayuda: str, objeto: str = "visorBtn", tam: int = 18) -> 
 
 
 # ------------------------------------------------------------------ visor
-class VisorFoto(QDialog):
+class VisorFoto(QWidget):
     """Visor premium. ``fotos`` son las fotografías navegables (solo las que existen); ``indice`` la que se abre."""
 
     cambio_indice = pyqtSignal(int)
+    cerrar_pedido = pyqtSignal()
 
     def __init__(self, padre: QWidget | None, fotos: list[FotoLectura], indice: int = 0,
                  origen: QRect | None = None) -> None:
         super().__init__(padre)
-        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle(t("Foto de evidencia"))
         self.setStyleSheet(QSS)
         self._fotos = list(fotos)
@@ -460,11 +429,8 @@ class VisorFoto(QDialog):
         self._origen = origen
         self._cache: dict[str, QPixmap | str] = {}     # ruta -> foto, o el texto de por qué no se pudo
         self._runner = QueryRunner(self)
-        self._cerrando = False
-        self._abierto = False
         self._controles_visibles = True
         self._panel_abierto = False
-        self._anims: list = []
 
         # ------------------------------------------------------------ estructura
         raiz = QVBoxLayout(self)
@@ -554,7 +520,6 @@ class VisorFoto(QDialog):
             fila_n += 3
         rejilla.setRowStretch(fila_n, 1)
         self.panel.hide()
-        self.agarre = _Agarre(self.superficie)
 
         # efectos de opacidad de lo que se esconde solo
         self._efectos: list[QGraphicsOpacityEffect] = []
@@ -574,7 +539,7 @@ class VisorFoto(QDialog):
 
         # ------------------------------------------------------------ señales
         self.superficie.cambio_tamano.connect(self._acomodar)
-        self.btn_cerrar.clicked.connect(self.reject)
+        self.btn_cerrar.clicked.connect(lambda: self.cerrar_pedido.emit())
         self.btn_info.clicked.connect(self.alternar_info)
         self.btn_menos.clicked.connect(lambda: self.lienzo.alejar())
         self.btn_mas.clicked.connect(lambda: self.lienzo.acercar())
@@ -586,7 +551,7 @@ class VisorFoto(QDialog):
         self.btn_sig.clicked.connect(lambda: self.ir_a(self._indice + 1))
         self.lienzo.cambio.connect(lambda e: self.lbl_zoom.setText(f"{e * 100:.0f} %"))
 
-        self._tamano_inicial(padre)
+        self.setMinimumSize(420, 340)
         self._mostrar_datos()
         self._cargar_actual()
 
@@ -623,88 +588,26 @@ class VisorFoto(QDialog):
         if self._panel_abierto:
             self.panel.show()
             self.panel.raise_()
-            self.agarre.raise_()
             self._deslizar_panel(True)
         else:
             self._deslizar_panel(False)
 
-    # ------------------------------------------------------------- tamaño y apertura
-    def _tamano_inicial(self, padre: QWidget | None) -> None:
-        ventana = padre.window() if padre is not None else None
-        if ventana is not None and ventana.isVisible():
-            marco = ventana.geometry()
-        else:
-            pantalla = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else QRect(0, 0, 1280, 800)
-            marco = pantalla
-        ancho = max(760, min(int(marco.width() * 0.84), 1500))
-        alto = max(540, min(int(marco.height() * 0.86), 1000))
-        self.setMinimumSize(620, 460)
-        self.resize(ancho + 2 * SOMBRA, alto + 2 * SOMBRA)
-        self.move(marco.center().x() - self.width() // 2, marco.center().y() - self.height() // 2)
-
+    # ------------------------------------------------------------- vida
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
         self._acomodar()
         self.setFocus()
         QApplication.instance().installEventFilter(self)
-        if not self._abierto:
-            self._abierto = True
-            self._animar_apertura()
         self._reposo.start()
 
-    def _animar_apertura(self) -> None:
-        if not widgets.ANIMAR:
-            return
-        final = self.geometry()
-        self.setWindowOpacity(0.0)
-        a = QPropertyAnimation(self, b"windowOpacity", self)
-        a.setDuration(260)
-        a.setStartValue(0.0)
-        a.setEndValue(1.0)
-        a.setEasingCurve(QEasingCurve.Type.OutCubic)
-        if self._origen is not None and self._origen.width() > 0:
-            # De la miniatura a la foto: la ventana crece desde el rectángulo que se pulsó.
-            g = QPropertyAnimation(self, b"geometry", self)
-            g.setDuration(340)
-            g.setStartValue(self._origen.adjusted(-SOMBRA, -SOMBRA, SOMBRA, SOMBRA))
-            g.setEndValue(final)
-            g.setEasingCurve(QEasingCurve.Type.OutCubic)
-            g.start()
-            self._anims.append(g)
-        else:
-            reducida = QRect(0, 0, round(final.width() * 0.94), round(final.height() * 0.94))
-            reducida.moveCenter(final.center())
-            g = QPropertyAnimation(self, b"geometry", self)
-            g.setDuration(300)
-            g.setStartValue(reducida)
-            g.setEndValue(final)
-            g.setEasingCurve(QEasingCurve.Type.OutCubic)
-            g.start()
-            self._anims.append(g)
-        a.start()
-        self._anims.append(a)
+    def hideEvent(self, evento) -> None:
+        QApplication.instance().removeEventFilter(self)
+        self._reposo.stop()
+        super().hideEvent(evento)
 
     def reject(self) -> None:
-        """Cierra con un desvanecido suave."""
-        if self._cerrando:
-            return
-        self._cerrando = True
-        QApplication.instance().removeEventFilter(self)
-        if not widgets.ANIMAR or not self.isVisible():
-            super().reject()
-            return
-        a = QPropertyAnimation(self, b"windowOpacity", self)
-        a.setDuration(170)
-        a.setStartValue(self.windowOpacity())
-        a.setEndValue(0.0)
-        a.setEasingCurve(QEasingCurve.Type.InCubic)
-        a.finished.connect(lambda: QDialog.reject(self))
-        a.start()
-        self._anims.append(a)
-
-    def done(self, resultado: int) -> None:
-        QApplication.instance().removeEventFilter(self)
-        super().done(resultado)
+        """Pide cerrar el visor (lo cierra la capa que lo contiene, con su animación)."""
+        self.cerrar_pedido.emit()
 
     # ------------------------------------------------------------- disposición
     def _acomodar(self) -> None:
@@ -720,8 +623,7 @@ class VisorFoto(QDialog):
         self.btn_sig.setGeometry(derecha - 44, s.center().y() - 22, 44, 44)
         self.lbl_contador.setGeometry(s.left() + (s.width() - 120) // 2, s.bottom() - 28 - alto_barra - 20, 120, 22)
         self.panel.setGeometry(s.right() - ANCHO_PANEL - 14, s.top() + 62, ANCHO_PANEL, min(420, s.height() - 150))
-        self.agarre.move(s.right() - 18, s.bottom() - 18)
-        for w in (self.cabecera, self.barra, self.btn_ant, self.btn_sig, self.lbl_contador, self.panel, self.agarre):
+        for w in (self.cabecera, self.barra, self.btn_ant, self.btn_sig, self.lbl_contador, self.panel):
             w.raise_()
 
     def _deslizar_panel(self, entrar: bool) -> None:
@@ -866,11 +768,18 @@ class VisorFoto(QDialog):
 
 
 def ver_fotos(padre: QWidget | None, fotos: list[FotoLectura], indice: int = 0, origen: QRect | None = None,
-              al_cambiar=None) -> None:
-    """Abre el visor (modal) con las fotos dadas. ``al_cambiar(indice)`` avisa al navegar, y al cerrar con la última vista."""
+              al_cambiar=None):
+    """Abre el visor como una capa flotante sobre la ventana de ``padre`` (encima de las lecturas, si están abiertas).
+
+    No bloquea ni abre ventanas del sistema. ``al_cambiar(indice)`` avisa al navegar. Devuelve la capa."""
     if not fotos:
-        return
-    visor = VisorFoto(padre, fotos, indice, origen)
+        return None
+    ventana = padre.window() if padre is not None else None
+    visor = VisorFoto(None, fotos, indice, origen)
     if al_cambiar is not None:
         visor.cambio_indice.connect(al_cambiar)
-    visor.exec()
+    if ventana is None:
+        visor.show()
+        return None
+    return abrir_capa(ventana, visor, area="ventana", oscuridad=0.58, radio=RADIO, origen=origen,
+                      tamano=lambda a: QSize(a.width() - 56, a.height() - 56))
