@@ -7,12 +7,15 @@ Así una prueba o un refresco nunca dependen de que una animación haya terminad
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Callable
 
-from PyQt6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
-from PyQt6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QStackedLayout, QVBoxLayout, QWidget
+from PyQt6 import sip
+from PyQt6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QRectF, Qt, QTimer, QVariantAnimation, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QRegion
+from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QStackedLayout, QToolButton, QVBoxLayout,
+                             QWidget)
 
 from .. import tema
 from .. import i18n
@@ -73,6 +76,24 @@ def animar(dueno: QWidget, inicio: float, fin: float, ms: int, al_cambiar: Calla
     return anim
 
 
+def _ms(ms: int) -> int:
+    """Duración efectiva: con «reducir movimiento» las transiciones esenciales se acortan (``motion.dur``)."""
+    from . import motion
+    return motion.dur(ms)
+
+
+def _px(px: float) -> float:
+    """Desplazamiento efectivo: con «reducir movimiento» casi no hay recorrido (``motion.desp``)."""
+    from . import motion
+    return motion.desp(px)
+
+
+def _decorativo() -> bool:
+    """¿Se permiten ciclos continuos (respiración, destellos)? No con movimiento reducido."""
+    from . import motion
+    return motion.decorativo()
+
+
 def _detener(anim: QVariantAnimation | None) -> None:
     if anim is not None:
         try:
@@ -81,14 +102,121 @@ def _detener(anim: QVariantAnimation | None) -> None:
             pass
 
 
+class _Fundible:
+    """Mixin de QLabel/QToolButton: opacidad y desplazamiento vertical propios, **sin** ``QGraphicsEffect``.
+
+    Un efecto en el hijo se anida con el de la tarjeta/baldosa que lo contiene (entrada, hover, arrastre) y Qt lo dibuja
+    mal. Aquí el widget solo se «congela» en una imagen mientras está a medio fundir; en reposo pinta como siempre, sin
+    coste. La imagen se genera **fuera** del evento de pintado (``render`` dentro de ``paintEvent`` es recursivo en Qt) y
+    se invalida si cambia el contenido, el tamaño o el estilo. ``opacity``/``setOpacity`` imitan la API de
+    ``QGraphicsOpacityEffect``.
+    """
+
+    _alfa = 1.0
+    _desp = 0.0
+    _renderizando = False
+    _cache: QPixmap | None = None
+
+    def opacity(self) -> float:
+        return self._alfa
+
+    def _en_reposo(self) -> bool:
+        return self._alfa >= 0.999 and abs(self._desp) < 0.05
+
+    def _a_medias(self) -> None:
+        """Se prepara la imagen congelada antes de pintar a medio fundir (siempre desde fuera de ``paintEvent``)."""
+        if self._cache is None and not self._en_reposo():
+            self._rehacer()
+        self.update()                           # type: ignore[attr-defined]
+
+    def setOpacity(self, valor: float) -> None:
+        valor = max(0.0, min(1.0, float(valor)))
+        if valor != self._alfa:
+            self._alfa = valor
+            self._a_medias()
+
+    def set_desp(self, dy: float) -> None:
+        if dy != self._desp:
+            self._desp = float(dy)
+            self._a_medias()
+
+    def _rehacer(self) -> None:
+        w, h = self.width(), self.height()      # type: ignore[attr-defined]
+        if w <= 0 or h <= 0 or self._renderizando:
+            return
+        dpr = self.devicePixelRatioF()          # type: ignore[attr-defined]
+        pm = QPixmap(math.ceil(w * dpr), math.ceil(h * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.GlobalColor.transparent)
+        self._renderizando = True
+        try:
+            self.render(pm, QPoint(), QRegion(), QWidget.RenderFlag.DrawWindowBackground)   # type: ignore[attr-defined]
+        finally:
+            self._renderizando = False
+        self._cache = pm
+
+    def _rehacer_y_pintar(self) -> None:
+        if not sip.isdeleted(self):
+            self._rehacer()
+            self.update()                       # type: ignore[attr-defined]
+
+    def event(self, evento) -> bool:
+        tipo = evento.type()
+        if tipo in _EVENTOS_QUE_INVALIDAN:
+            self._cache = None                  # cambió algo que se ve (estilo, fuente, hover, tamaño…)
+        return super().event(evento)            # type: ignore[misc]
+
+    def paintEvent(self, evento) -> None:
+        if self._renderizando or self._en_reposo():
+            super().paintEvent(evento)          # type: ignore[misc]
+            return
+        if self._alfa <= 0.001:
+            return
+        if self._cache is None:                 # contenido nuevo a medio fundir: se rehace tras este fotograma
+            QTimer.singleShot(0, self._rehacer_y_pintar)
+            return
+        p = QPainter(self)                      # type: ignore[arg-type]
+        p.setOpacity(self._alfa)
+        p.drawPixmap(QPointF(0.0, self._desp), self._cache)
+        p.end()
+
+
+_EVENTOS_QUE_INVALIDAN = frozenset({
+    QEvent.Type.Resize, QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.EnabledChange,
+    QEvent.Type.PaletteChange, QEvent.Type.LanguageChange, QEvent.Type.Enter, QEvent.Type.Leave,
+    QEvent.Type.HoverEnter, QEvent.Type.HoverLeave, QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+    QEvent.Type.ToolTipChange, QEvent.Type.WindowIconChange,
+})
+
+
+class EtiquetaFundible(_Fundible, QLabel):
+    """QLabel con opacidad y desplazamiento propios (cifras y detalle de las tarjetas, indicador de tendencia)."""
+
+    def setText(self, texto: str) -> None:
+        if texto != self.text():
+            self._cache = None
+        super().setText(texto)
+
+
+class BotonFundible(_Fundible, QToolButton):
+    """QToolButton con opacidad propia (menú ⋯ y quitar de las baldosas: aparecen y se van con un fundido)."""
+
+    def setIcon(self, icono) -> None:
+        self._cache = None
+        super().setIcon(icono)
+
+
 class TarjetaKpi(QFrame):
     """Tarjeta de un indicador: título y una cifra que cuenta hasta su valor.
 
-    Al pasar el mouse la cifra se voltea y muestra el detalle desglosado (``set_detalle``), la tarjeta se eleva y un
-    clic avisa para abrir el panel lateral. El dato final (``texto``) está disponible aunque el dibujo esté animado.
+    Al pasar el mouse la cifra se desliza hacia arriba y se funde con el detalle desglosado (``set_detalle``), y un clic
+    avisa para abrir el panel lateral. El dato final (``texto``) está disponible aunque el dibujo esté animado.
+    Estados (``set_estado``): ``cargando`` (la cifra respira), ``vacio``, ``error`` y ``ok``. La elevación y la presión
+    las pone la baldosa que la contiene (un único ``EfectoMovimiento``); aquí no hay efectos gráficos que se anidarían.
     """
 
     clicked = pyqtSignal()
+    DESLIZAMIENTO = 6.0     # px que se desplaza la cifra al ceder su sitio al detalle
 
     def __init__(self, titulo: str, color: str = VERDE, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -96,15 +224,19 @@ class TarjetaKpi(QFrame):
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._final, self._numero, self._anim = "—", 0.0, None
+        self._ultimo: float | None = None      # último valor real mostrado (para el indicador de tendencia)
         self._detalle_texto = ""
         self._volteada = False
         self._anim_volteo = None
+        self._estado = "inicial"
+        self._anim_estado: QVariantAnimation | None = None
+        self._anim_tend = None
         self._titulo = QLabel(titulo)
         self._titulo.setObjectName("cardTitulo")
-        self._valor = QLabel("—")
+        self._valor = EtiquetaFundible("—")
         self._valor.setObjectName("cardValor")
         self._valor.setMinimumHeight(34)
-        self._detalle = QLabel("")
+        self._detalle = EtiquetaFundible("")
         self._detalle.setObjectName("cardDetalle")
         self._detalle.setMinimumHeight(34)
         self._detalle.setWordWrap(True)
@@ -112,19 +244,25 @@ class TarjetaKpi(QFrame):
         self._pista = QLabel("↗  Ver detalle")
         self._pista.setObjectName("cardPista")
         self._pista.hide()
-        self._op_valor = QGraphicsOpacityEffect(self._valor)
-        self._valor.setGraphicsEffect(self._op_valor)
-        self._op_detalle = QGraphicsOpacityEffect(self._detalle)
-        self._detalle.setGraphicsEffect(self._op_detalle)
+        # Compatibilidad: las «opacidades» son las propias etiquetas (misma API opacity()/setOpacity()).
+        self._op_valor = self._valor
+        self._op_detalle = self._detalle
         self._op_detalle.setOpacity(0.0)
+        self._tendencia = EtiquetaFundible("")
+        self._tendencia.setObjectName("cardDetalle")
+        self._tendencia.setOpacity(0.0)
+        self._tendencia.hide()
         self._capa = QStackedLayout()
         self._capa.setStackingMode(QStackedLayout.StackingMode.StackAll)
         self._capa.addWidget(self._valor)
         self._capa.addWidget(self._detalle)
+        cabecera = QHBoxLayout()
+        cabecera.setContentsMargins(0, 0, 0, 0)
+        cabecera.addWidget(self._titulo, 1)
+        cabecera.addWidget(self._tendencia, 0, Qt.AlignmentFlag.AlignRight)
         texto = QVBoxLayout()
         texto.setSpacing(2)
-        for w in (self._titulo,):
-            texto.addWidget(w)
+        texto.addLayout(cabecera)
         texto.addLayout(self._capa)
         texto.addWidget(self._pista)
         lay = QHBoxLayout(self)
@@ -143,6 +281,41 @@ class TarjetaKpi(QFrame):
     def detalle(self) -> str:
         return self._detalle_texto
 
+    def estado(self) -> str:
+        return self._estado
+
+    def tendencia_visible(self) -> str:
+        """El texto del indicador de tendencia si está a la vista («▲ 3»), o ``""``."""
+        return self._tendencia.text() if self._tendencia.isVisibleTo(self) and self._tendencia.opacity() > 0.01 else ""
+
+    # ------------------------------------------------------------------ estados
+    def set_estado(self, estado: str) -> None:
+        """``cargando`` (la consulta sigue en curso), ``vacio`` (sin dato), ``error`` (falló) u ``ok`` (dato real)."""
+        if estado == self._estado:
+            return
+        self._estado = estado
+        _detener(self._anim_estado)
+        self._anim_estado = None
+        if estado == "cargando" and _decorativo() and self.isVisible():
+            anim = QVariantAnimation(self)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setDuration(1300)
+            anim.setLoopCount(-1)
+            anim.setEasingCurve(QEasingCurve.Type.Linear)
+            anim.valueChanged.connect(lambda v: self._valor.setOpacity(0.42 + 0.36 * math.sin(math.pi * float(v))))
+            anim.start()
+            self._anim_estado = anim
+        elif estado == "ok":
+            self._valor.setOpacity(1.0)
+        elif estado in ("vacio", "error"):
+            self._valor.setOpacity(0.55)
+            if estado == "error" and ANIMAR and self.isVisible():
+                from . import motion
+                motion.sacudir(self, amplitud=3, ms=260)
+        else:
+            self._valor.setOpacity(1.0)
+
     def _normalizar(self) -> None:
         """Si el cursor ya no está encima, la tarjeta vuelve a mostrar la cifra.
 
@@ -154,8 +327,11 @@ class TarjetaKpi(QFrame):
         _detener(self._anim_volteo)
         self._volteada = False
         self._detalle.setVisible(False)
-        self._op_detalle.setOpacity(0.0)
-        self._op_valor.setOpacity(1.0)
+        self._detalle.setOpacity(0.0)
+        self._detalle.set_desp(0.0)
+        self._valor.set_desp(0.0)
+        if self._anim_estado is None:            # si la cifra está respirando, el ciclo manda sobre su opacidad
+            self._valor.setOpacity(1.0 if self._estado in ("ok", "inicial", "cargando") else 0.55)
         self._pista.hide()
 
     def set_detalle(self, texto: str) -> None:
@@ -171,31 +347,68 @@ class TarjetaKpi(QFrame):
         self._valor.setText(texto)
 
     def set_valor(self, numero: float | None, formato: Callable[[float], str]) -> None:
-        """Muestra ``formato(numero)`` contando desde la cifra anterior; ``None`` deja «—»."""
+        """Muestra ``formato(numero)`` contando desde la cifra anterior; ``None`` deja «—» (estado vacío)."""
         if numero is None:
             self.set_texto("—")
+            self._ultimo = None
+            self.set_estado("vacio")
             return
+        self.set_estado("ok")
         self._normalizar()
         _detener(self._anim)
         self._final = formato(numero)
         inicio, self._numero = self._numero, float(numero)
+        previo, self._ultimo = self._ultimo, float(numero)
+        if previo is not None and previo != float(numero):
+            self._mostrar_tendencia(float(numero) - previo, formato)
         if self._final == self._valor.text():
             return
-        self._anim = animar(self, inicio, float(numero), 650, lambda v: self._valor.setText(formato(v)),
-                            lambda: self._valor.setText(self._final))
+        ms = _ms(650 if previo is None else 480)
+        self._anim = animar(self, inicio, float(numero), ms, lambda v: self._valor.setText(formato(v)),
+                            lambda: self._valor.setText(self._final), QEasingCurve.Type.OutQuint)
+
+    # ------------------------------------------------------------------ tendencia
+    def _mostrar_tendencia(self, delta: float, formato: Callable[[float], str]) -> None:
+        """«▲ 3» / «▼ 3» junto al título cuando el dato real cambia respecto al anterior; se va solo tras unos segundos.
+
+        Es la diferencia real entre dos lecturas, sin interpretar si es bueno o malo (no lleva color)."""
+        texto = f"{'▲' if delta > 0 else '▼'} {formato(abs(delta))}"
+        _detener(self._anim_tend)
+        self._tendencia.setText(texto)
+        if not ANIMAR or not self.isVisible():
+            self._tendencia.hide()
+            return
+        self._tendencia.show()
+        salto = _px(4.0)
+        self._tendencia.set_desp(salto)
+        self._tendencia.setOpacity(0.0)
+        self._anim_tend = animar(self, 0.0, 1.0, _ms(260),
+                                 lambda v: (self._tendencia.setOpacity(v), self._tendencia.set_desp(salto * (1 - v))),
+                                 lambda: QTimer.singleShot(3200, self._ocultar_tendencia),
+                                 QEasingCurve.Type.OutCubic)
+
+    def _ocultar_tendencia(self) -> None:
+        if sip.isdeleted(self):
+            return
+        if not ANIMAR or not self.isVisible():
+            self._tendencia.hide()
+            return
+        inicio = self._tendencia.opacity()
+        _detener(self._anim_tend)
+        self._anim_tend = animar(self, inicio, 0.0, _ms(320), self._tendencia.setOpacity, self._tendencia.hide,
+                                 QEasingCurve.Type.InCubic)
 
     # ------------------------------------------------------------------ hover y clic
     def enterEvent(self, evento) -> None:
         self.setProperty("hover", True)
         self.style().unpolish(self)
         self.style().polish(self)
-        # Sin QGraphicsDropShadowEffect aquí: el hover ya cambia borde/fondo por QSS y este widget tiene
-        # efectos de opacidad en sus hijos; anidar efectos provoca avisos de QPainter y artefactos.
         if not ANIMAR:
             self._voltear(True)
         else:
             _detener(self._anim_volteo)
-            self._anim_volteo = animar(self, 0.0, 1.0, 220, lambda v: self._mezclar(v, True))
+            self._anim_volteo = animar(self, 0.0, 1.0, _ms(240), lambda v: self._mezclar(v, True),
+                                       curva=QEasingCurve.Type.OutCubic)
         self._pista.setVisible(bool(self._detalle_texto))
         super().enterEvent(evento)
 
@@ -208,30 +421,48 @@ class TarjetaKpi(QFrame):
             self._voltear(False)
         else:
             _detener(self._anim_volteo)
-            self._anim_volteo = animar(self, 0.0, 1.0, 220, lambda v: self._mezclar(v, False))
+            self._anim_volteo = animar(self, 0.0, 1.0, _ms(240), lambda v: self._mezclar(v, False),
+                                       curva=QEasingCurve.Type.OutCubic)
         super().leaveEvent(evento)
 
     def _mezclar(self, v: float, hacia_detalle: bool) -> None:
-        """Volteo 2D: la cifra se desvanece mientras el detalle aparece (sin bloquear el dato)."""
+        """La cifra sube y se funde mientras el detalle sube desde abajo (sin bloquear el dato)."""
         hay = bool(self._detalle_texto)
         self._detalle.setVisible(hay)
-        if hacia_detalle and not hay:
-            self._op_valor.setOpacity(1.0)            # sin detalle que mostrar, la cifra nunca se desvanece
-            self._op_detalle.setOpacity(0.0)
-        elif hacia_detalle:
-            self._op_valor.setOpacity(max(0.0, 1.0 - v))
-            self._op_detalle.setOpacity(v if hay else 0.0)
-        else:
-            self._op_valor.setOpacity(v)
-            self._op_detalle.setOpacity(max(0.0, 1.0 - v) if hay else 0.0)
+        if not hay:
+            self._detalle.setOpacity(0.0)             # sin detalle que mostrar, la cifra nunca se desvanece
+            self._detalle.set_desp(0.0)
+            self._valor.set_desp(0.0)
+            if self._anim_estado is None:
+                self._valor.setOpacity(1.0 if self._estado in ("ok", "inicial") else 0.55)
+            return
+        x = v if hacia_detalle else 1.0 - v            # 0 = se ve la cifra, 1 = se ve el detalle
+        if self._anim_estado is None:
+            self._valor.setOpacity(1.0 - x)
+        desliz = _px(self.DESLIZAMIENTO)
+        self._valor.set_desp(-desliz * x)
+        self._detalle.setOpacity(x)
+        self._detalle.set_desp(desliz * (1.0 - x))
 
     def _voltear(self, hacia_detalle: bool) -> None:
         self._volteada = hacia_detalle and bool(self._detalle_texto)
         self._detalle.setVisible(self._volteada)
-        self._op_detalle.setOpacity(1.0 if self._volteada else 0.0)
-        self._op_valor.setOpacity(0.0 if self._volteada else 1.0)
+        self._detalle.setOpacity(1.0 if self._volteada else 0.0)
+        self._detalle.set_desp(0.0)
+        self._valor.set_desp(0.0)
+        self._valor.setOpacity(0.0 if self._volteada else (1.0 if self._estado in ("ok", "inicial") else 0.55))
+
+    def showEvent(self, evento) -> None:
+        super().showEvent(evento)
+        if self._estado == "cargando" and self._anim_estado is None:
+            estado, self._estado = self._estado, "inicial"
+            self.set_estado(estado)
 
     def hideEvent(self, evento) -> None:
+        if self._anim_estado is not None:           # la respiración solo corre con la tarjeta a la vista
+            _detener(self._anim_estado)
+            self._anim_estado = None
+            self._valor.setOpacity(1.0)
         self._normalizar()
         super().hideEvent(evento)
 
@@ -305,6 +536,8 @@ class BarraSegmentada(QWidget):
         self._colores, self._nombres = colores, nombres or {}
         self._segmentos: list[tuple[str, int]] = []
         self._avance, self._anim = 1.0, None
+        self._prev: dict[str, float] = {}      # cuánto se dibujaba de cada serie al empezar una transición
+        self._mezcla = 1.0
         self._ocultas: set[str] = set()
         self._leyenda: list[tuple[QRectF, str]] = []
         self.setMinimumHeight(58)
@@ -315,11 +548,31 @@ class BarraSegmentada(QWidget):
         return list(self._segmentos)
 
     def set_segmentos(self, segmentos: list[tuple[str, int]]) -> None:
+        """Dato nuevo: si ya había segmentos, los reales anteriores se interpolan hacia los nuevos (sin vaciarse);
+        la primera vez la barra crece desde la izquierda. El estado final es siempre exactamente ``segmentos``."""
         cambio = segmentos != self._segmentos
+        previos = {c: self._n_vis(c, n) for c, n in self._segmentos} if self._segmentos else {}
         self._segmentos = list(segmentos)
         if cambio:
             _detener(self._anim)
-            self._anim = animar(self, 0.0, 1.0, 700, self._pintar_hasta)
+            if previos:
+                self._prev, self._mezcla, self._avance = previos, 0.0, 1.0
+                self._anim = animar(self, 0.0, 1.0, _ms(460), self._mezclar)
+            else:
+                self._prev, self._mezcla, self._avance = {}, 1.0, 0.0
+                self._anim = animar(self, 0.0, 1.0, _ms(700), self._pintar_hasta)
+        self.update()
+
+    def _n_vis(self, clave: str, n: float) -> float:
+        if self._mezcla >= 1.0 or not self._prev:
+            return n
+        ant = self._prev.get(clave, 0.0)
+        return ant + (n - ant) * self._mezcla
+
+    def _mezclar(self, v: float) -> None:
+        self._mezcla = v
+        if v >= 1.0:
+            self._prev = {}
         self.update()
 
     def _pintar_hasta(self, v: float) -> None:
@@ -333,7 +586,7 @@ class BarraSegmentada(QWidget):
         fondo = QPainterPath()
         fondo.addRoundedRect(QRectF(0, 4, ancho, alto), 8, 8)
         p.fillPath(fondo, QColor(PISTA))
-        visibles = [(c, n) for c, n in self._segmentos if c not in self._ocultas]
+        visibles = [(c, self._n_vis(c, n)) for c, n in self._segmentos if c not in self._ocultas]
         total = sum(n for _, n in visibles)
         if total > 0:
             p.setClipPath(fondo)
@@ -367,28 +620,51 @@ class BarraSegmentada(QWidget):
 class Dona(QWidget):
     """Gráfica de dona: los sectores se abren en abanico hasta su tamaño; el total va en el centro."""
 
+    alternada = pyqtSignal(str)       # clic en la leyenda: clave del sector que se oculta o muestra
+
     def __init__(self, colores: dict[str, str], nombres: dict[str, str] | None = None, parent: QWidget | None = None,
                  unidad: str = "SKU") -> None:
         super().__init__(parent)
         self._colores, self._nombres, self._unidad = colores, nombres or {}, unidad
         self._datos: list[tuple[str, float]] = []
         self._avance, self._anim = 1.0, None
+        self._prev: dict[str, float] = {}
+        self._mezcla = 1.0
         self._ocultas: set[str] = set()
         self._leyenda: list[tuple[QRectF, str]] = []
         self.setMinimumHeight(230)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.alternada = pyqtSignal(str)
 
     def datos(self) -> list[tuple[str, float]]:
         return list(self._datos)
 
     def set_datos(self, datos: list[tuple[str, float]]) -> None:
+        """Distribución nueva: los sectores reales anteriores se interpolan hacia los nuevos (el total del centro los
+        sigue); la primera vez se abren en abanico. El estado final es exactamente ``datos``."""
         cambio = datos != self._datos
+        previos = {c: self._v_vis(c, v) for c, v in self._datos} if self._datos else {}
         self._datos = list(datos)
         if cambio:
             _detener(self._anim)
-            self._anim = animar(self, 0.0, 1.0, 850, self._pintar_hasta)
+            if previos:
+                self._prev, self._mezcla, self._avance = previos, 0.0, 1.0
+                self._anim = animar(self, 0.0, 1.0, _ms(520), self._mezclar)
+            else:
+                self._prev, self._mezcla, self._avance = {}, 1.0, 0.0
+                self._anim = animar(self, 0.0, 1.0, _ms(850), self._pintar_hasta)
+        self.update()
+
+    def _v_vis(self, clave: str, v: float) -> float:
+        if self._mezcla >= 1.0 or not self._prev:
+            return v
+        ant = self._prev.get(clave, 0.0)
+        return ant + (v - ant) * self._mezcla
+
+    def _mezclar(self, v: float) -> None:
+        self._mezcla = v
+        if v >= 1.0:
+            self._prev = {}
         self.update()
 
     def _pintar_hasta(self, v: float) -> None:
@@ -402,7 +678,7 @@ class Dona(QWidget):
         caja = QRectF(16, (self.height() - lado) / 2, lado, lado)
         grosor = lado * 0.2
         aro = caja.adjusted(grosor / 2, grosor / 2, -grosor / 2, -grosor / 2)
-        visibles = [(c, v) for c, v in self._datos if c not in self._ocultas]
+        visibles = [(c, self._v_vis(c, v)) for c, v in self._datos if c not in self._ocultas]
         total = sum(v for _, v in visibles)
         p.setPen(QPen(QColor(PISTA), grosor))
         p.drawArc(aro, 0, 360 * 16)
@@ -465,6 +741,8 @@ class MapaUbicaciones(QWidget):
         super().__init__(parent)
         self._datos: list[tuple[str, str, int]] = []
         self._avance, self._anim = 1.0, None
+        self._prev: dict[str, float] = {}      # intensidad (SKU) que tenía cada ubicación al empezar la transición
+        self._mezcla = 1.0
         self.setMinimumHeight(170)
 
     def datos(self) -> list[tuple[str, str, int]]:
@@ -472,12 +750,30 @@ class MapaUbicaciones(QWidget):
 
     def set_datos(self, datos: list[tuple[str, str, int]]) -> None:
         cambio = datos != self._datos
+        previos = {c: self._sk_vis(c, k) for c, _z, k in self._datos} if self._datos else {}
         self._datos = list(datos)
         zonas = len({z for _, z, _ in datos})
         self.setMinimumHeight(max(170, 30 + 62 * zonas))
         if cambio:
             _detener(self._anim)
-            self._anim = animar(self, 0.0, 1.0, 700, self._pintar_hasta)
+            if previos:                       # cambio de filtro: la intensidad de cada celda se interpola
+                self._prev, self._mezcla, self._avance = previos, 0.0, 1.0
+                self._anim = animar(self, 0.0, 1.0, 460, self._mezclar)
+            else:                             # primera vez: las celdas se revelan
+                self._prev, self._mezcla, self._avance = {}, 1.0, 0.0
+                self._anim = animar(self, 0.0, 1.0, 700, self._pintar_hasta)
+        self.update()
+
+    def _sk_vis(self, cod: str, skus: float) -> float:
+        if self._mezcla >= 1.0 or not self._prev:
+            return skus
+        ant = self._prev.get(cod, 0.0)
+        return ant + (skus - ant) * self._mezcla
+
+    def _mezclar(self, v: float) -> None:
+        self._mezcla = v
+        if v >= 1.0:
+            self._prev = {}
         self.update()
 
     def _pintar_hasta(self, v: float) -> None:
@@ -506,7 +802,7 @@ class MapaUbicaciones(QWidget):
             p.setPen(QColor(TINTA_SUAVE))
             p.drawText(QRectF(0, y, margen - 8, alto), Qt.AlignmentFlag.AlignVCenter, f"Zona {zona}")
             for col, (cod, skus) in enumerate(celdas):
-                t = (skus / maximo) * self._avance
+                t = (self._sk_vis(cod, skus) / maximo) * self._avance
                 color = QColor(int(base.red() + (tope.red() - base.red()) * t),
                                int(base.green() + (tope.green() - base.green()) * t),
                                int(base.blue() + (tope.blue() - base.blue()) * t))

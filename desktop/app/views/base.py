@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 from ..i18n import t
 from ..workers import QueryWorker
 from .isla import isla
+from . import motion, widgets
 from .motion_global import BarridoCarga
 
 ESTILO = """
@@ -576,18 +577,102 @@ class StateBanner(QFrame):
         self.btn_reintentar.clicked.connect(self.retry)
         self.btn_reintentar.hide()
         self._barrido = BarridoCarga(self)
+        self._a_banner = None        # animación de aparición/salida (altura + opacidad)
+        self._avance = 0.0           # 0 = plegado, 1 = desplegado
         self.hide()
 
     def text(self) -> str:
         return self._label.text()
+
+    # ------------------------------------------------------------------ aparición y salida
+    # Cargando → contenido es una sola transición continua: la línea se despliega (altura + opacidad) y se pliega,
+    # en vez de aparecer y desaparecer de golpe y empujar el resto de la pantalla.
+    _MAX = 16777215
+
+    def _sin_animacion(self) -> bool:
+        padre = self.parentWidget()
+        return not widgets.ANIMAR or padre is None or not padre.isVisible()
+
+    def _restablecer(self) -> None:
+        self.setGraphicsEffect(None)
+        self.setMaximumHeight(self._MAX)
+
+    def _desplegar(self) -> None:
+        motion.detener(self._a_banner)
+        if self._sin_animacion():
+            self._restablecer()
+            self._avance = 1.0
+            self.show()
+            return
+        if self.isVisible() and self._avance >= 1.0:
+            return                                    # ya está a la vista: solo cambia el texto
+        efecto, _ = motion.opacidad(self)
+        inicio = self._avance if self.isVisible() else 0.0
+        self.setMaximumHeight(0 if inicio <= 0 else int(max(self.sizeHint().height(), 1) * inicio))
+        efecto.setOpacity(inicio)
+        self.show()
+        alto = max(self.sizeHint().height(), 1)
+
+        def paso(v: float) -> None:
+            if sip.isdeleted(self):
+                return
+            self._avance = v
+            self.setMaximumHeight(int(alto * v) if v < 1.0 else self._MAX)
+            e = self.graphicsEffect()
+            if isinstance(e, motion.QGraphicsOpacityEffect):
+                e.setOpacity(v)
+
+        def fin() -> None:
+            if not sip.isdeleted(self):
+                self._avance = 1.0
+                self._restablecer()
+
+        self._a_banner = motion.animar(self, inicio, 1.0, motion.dur(motion.Dur.ESTADO - 80), paso, fin,
+                                       motion.CURVA_SUAVE)
+
+    def _plegar(self) -> None:
+        motion.detener(self._a_banner)
+        if self._sin_animacion() or not self.isVisible():
+            self._restablecer()
+            self._avance = 0.0
+            self.hide()
+            return
+        efecto, _ = motion.opacidad(self)
+        alto = max(self.height(), 1)
+        inicio = min(1.0, self._avance if self._avance > 0 else 1.0)
+
+        def paso(v: float) -> None:
+            if sip.isdeleted(self):
+                return
+            self._avance = v
+            self.setMaximumHeight(int(alto * v))
+            e = self.graphicsEffect()
+            if isinstance(e, motion.QGraphicsOpacityEffect):
+                e.setOpacity(v)
+
+        def fin() -> None:
+            if not sip.isdeleted(self):
+                self._avance = 0.0
+                self._restablecer()
+                self.hide()
+
+        self._a_banner = motion.animar(self, inicio, 0.0, motion.dur(motion.Dur.SALIDA - 40), paso, fin, motion.CURVA)
+
+    def resizeEvent(self, evento) -> None:
+        super().resizeEvent(evento)
+        if self._barrido.isVisible():                 # el barrido vive en el borde inferior, aunque la altura cambie
+            self._barrido.setGeometry(0, self.height() - 2, self.width(), 2)
 
     def registrar(self, texto: str) -> None:
         """Guarda el texto del estado sin mostrarlo (quien lo llama ya lo comunicó por la Isla)."""
         self._label.setText(texto)
 
     def _linea(self, texto: str) -> None:
-        self._label.setText(texto)
-        self.show()
+        if self.isVisible() and self._avance >= 1.0:
+            motion.cruzar_texto(self._label, texto)    # mismo banner, otro mensaje: el texto se cruza sin parpadeo
+        else:
+            self._label.setText(texto)
+        self._desplegar()
 
     def show_loading(self) -> None:
         self._linea(t("Cargando…"))
@@ -600,14 +685,14 @@ class StateBanner(QFrame):
     def show_error(self, mensaje: str) -> None:
         self._barrido.detener()
         self._label.setText(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
-        self.hide()
+        self._plegar()
         self._con_error = True
         isla.error(t("No se pudo consultar la base de datos"), mensaje, clave=self._clave,
                    accion=(t("Reintentar"), self.retry.emit))
 
     def clear(self) -> None:
         self._barrido.detener()
-        self.hide()
+        self._plegar()
         if self._con_error:
             self._con_error = False
             isla.cerrar(clave=self._clave)

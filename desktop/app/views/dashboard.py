@@ -14,10 +14,10 @@ import time
 from functools import partial
 
 from PyQt6 import sip
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor
-from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
-                             QWidget)
+from PyQt6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea,
+                             QSizePolicy, QVBoxLayout, QWidget)
 
 from .. import auth, db
 from .. import dashboard_prefs as prefs
@@ -25,7 +25,7 @@ from ..dashboard_datos import Datos, construir
 from ..i18n import registrar, t
 from ..models import fmt_num, fmt_pct
 from ..tema import colores
-from . import components
+from . import components, motion
 from .base import QueryRunner, StateBanner
 from .dashboard_paneles import CatalogoWidgets, ConfigGrafico
 from .grafico_personal import GraficoPersonal
@@ -33,6 +33,7 @@ from .iconos import icono
 from .isla import isla
 from .rejilla_personal import Baldosa, RejillaPersonal
 from . import widgets
+from .motion import Dur
 from .widgets import VERDE, TarjetaKpi
 
 registrar({
@@ -69,6 +70,13 @@ FUENTES_SERIES = {"avance_categoria", "lecturas_categoria", "danados", "contados
                   "batch_corridas"}
 FUENTES_ACTIVIDAD = {"operador", "operador_tiempo"}
 
+
+# Coreografía de entrada (ms): cabecera → banner → baldosas en cascada corta. Todo cabe en ~0,5 s.
+T_ENTRADA = 270            # duración de cada elemento
+RETARDO_CABECERA = 30      # entre título, subtítulo y botón
+RETARDO_BALDOSAS = 70      # las baldosas arrancan cuando la cabecera ya va de camino
+PASO_BALDOSAS, TOPE_BALDOSAS = 26, 6
+MAX_ALTO = 16777215        # QWIDGETSIZE_MAX
 
 ENTRADAS_ACTIVIDAD = 40   # el panel «Actividad reciente» se desplaza: no hace falta cortar en seis
 INTENTOS = 3        # un fallo suelto de Oracle (p. ej. ORA-12516 al abrir conexiones seguidas) no deja el widget vacío
@@ -222,6 +230,8 @@ class DashboardView(QWidget):
         raiz.addStretch(1)
 
         desplazable = QScrollArea()
+        self._scroll = desplazable
+        self._a_barra = None       # animación de la barra de edición
         desplazable.setWidgetResizable(True)
         desplazable.setFrameShape(QFrame.Shape.NoFrame)
         desplazable.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -229,6 +239,8 @@ class DashboardView(QWidget):
         exterior = QVBoxLayout(self)
         exterior.setContentsMargins(0, 0, 0, 0)
         exterior.addWidget(desplazable)
+        motion.instalar_scroll_suave(desplazable)                 # rueda con inercia (solo con animaciones)
+        desplazable.verticalScrollBar().valueChanged.connect(lambda _v: self._revelar_visibles())
 
     # ------------------------------------------------------------------ API de la vista
     def set_sesion(self, sesion: auth.Sesion | None) -> None:
@@ -240,7 +252,7 @@ class DashboardView(QWidget):
             self.banner.show_empty(t("Sin datos"))
             return
         self._items = prefs.cargar(sesion.usuario, sesion)
-        self._reconstruir()
+        self._reconstruir(entrada=True)
         self.refresh()
 
     def refresh(self) -> None:
@@ -248,15 +260,23 @@ class DashboardView(QWidget):
             return
         if not self._cargado:
             self.banner.show_loading()
+            self._estado_tarjetas("cargando")
         claves = {i.clave for i in self._items}
         audit = self._sesion if "actividad_reciente" in claves else None
         self._fallo = False
         self._runner.run(_cargar, self._mostrar, self._fallo_carga, bool(claves & FUENTES_SERIES),
                          bool(claves & FUENTES_ACTIVIDAD), audit, key="dashboard")
 
+    def _estado_tarjetas(self, estado: str) -> None:
+        """Pone el estado (cargando, vacío, error) solo a las tarjetas que aún no tienen dato real."""
+        for tarjeta in self.cards.values():
+            if not sip.isdeleted(tarjeta) and tarjeta.texto() == "—":
+                tarjeta.set_estado(estado)
+
     def _fallo_carga(self, mensaje: str) -> None:
         self._fallo = True
         self.banner.show_error(mensaje)
+        self._estado_tarjetas("error")
         for item in self._items:
             if item.definicion.tipo == prefs.GRAFICO:
                 self._pintar_grafico(item)
@@ -301,10 +321,68 @@ class DashboardView(QWidget):
         return next((i for i in self._items if i.id == id_), None)
 
     def set_edicion(self, si: bool) -> None:
+        """Entra o sale del modo edición: la barra se despliega, el botón cede su sitio y las baldosas muestran sus
+        controles en cascada (sin mover ni redimensionar nada)."""
         self._edicion = si
         self.rejilla.set_edicion(si)
-        self.barra_edicion.setVisible(si)
-        self.btn_personalizar.setVisible(not si)
+        self._barra_edicion(si)
+        self._boton_personalizar(not si)
+
+    def _barra_edicion(self, si: bool) -> None:
+        barra = self.barra_edicion
+        motion.detener(self._a_barra)
+        if not widgets.ANIMAR or not self.isVisible():
+            barra.setGraphicsEffect(None)
+            barra.setMaximumHeight(MAX_ALTO)
+            barra.setVisible(si)
+            return
+        efecto, _ = motion.opacidad(barra)       # la barra solo lleva botones: su efecto no se anida con otros
+        if si:
+            barra.setMaximumHeight(0)
+            efecto.setOpacity(0.0)
+            barra.show()
+            alto = max(barra.sizeHint().height(), 1)
+            inicio = 0.0
+        else:
+            alto = max(barra.height(), 1)
+            inicio = 1.0
+
+        def paso(v: float) -> None:
+            if sip.isdeleted(barra):
+                return
+            e = barra.graphicsEffect()
+            barra.setMaximumHeight(int(alto * v) if v < 1.0 else MAX_ALTO)
+            if isinstance(e, QGraphicsOpacityEffect):
+                e.setOpacity(v)
+
+        def fin() -> None:
+            if sip.isdeleted(barra):
+                return
+            barra.setGraphicsEffect(None)
+            barra.setMaximumHeight(MAX_ALTO)
+            barra.setVisible(self._edicion)
+
+        self._a_barra = motion.animar(barra, inicio, 1.0 if si else 0.0, motion.dur(Dur.ESTADO), paso, fin,
+                                      motion.CURVA_SUAVE if si else motion.CURVA)
+
+    def _boton_personalizar(self, visible: bool) -> None:
+        b = self.btn_personalizar
+        if not widgets.ANIMAR or not self.isVisible():
+            b.setGraphicsEffect(None)
+            b.setVisible(visible)
+            return
+        if visible:
+            b.show()
+            motion.desvanecer(b, 0.0, 1.0, motion.dur(Dur.ESTADO))
+        else:
+            motion.desvanecer(b, 1.0, 0.0, motion.RAPIDO, self._ocultar_personalizar)
+
+    def _ocultar_personalizar(self) -> None:
+        if sip.isdeleted(self):
+            return
+        if self._edicion:                    # si mientras tanto se salió del modo edición, el botón debe seguir a la vista
+            self.btn_personalizar.setVisible(False)
+        self.btn_personalizar.setGraphicsEffect(None)
 
     def en_edicion(self) -> bool:
         return self._edicion
@@ -384,7 +462,7 @@ class DashboardView(QWidget):
             return None
         copia = prefs.Item(item.clave, item.tam, copy.deepcopy(item.opciones), cols=item.cols, alto=item.alto)
         self._items.insert(self._items.index(item) + 1, copia)
-        self._reconstruir()
+        self._reconstruir(transicion=True)
         self._persistir()
         return copia
 
@@ -397,7 +475,7 @@ class DashboardView(QWidget):
                                              t("Restaurar"), peligro=False):
             return False
         self._items = prefs.normalizar(prefs.restaurar(self._sesion.usuario), self._sesion)
-        self._reconstruir()
+        self._reconstruir(transicion=True)      # la distribución actual se funde hacia la predeterminada (sin salto)
         self.refresh()
         isla.exito(t("Dashboard restaurado"))
         return True
@@ -411,13 +489,72 @@ class DashboardView(QWidget):
     def _precisa_datos(self, item: prefs.Item) -> bool:
         return item.clave in FUENTES_SERIES or item.clave in FUENTES_ACTIVIDAD or item.clave == "actividad_reciente"
 
-    def _reconstruir(self) -> None:
+    def _reconstruir(self, transicion: bool = False, entrada: bool = False) -> None:
+        """Reconstruye la rejilla. ``transicion``: la distribución vieja se funde hacia la nueva; ``entrada``: las
+        baldosas nuevas entran en cascada (primera carga de la sesión)."""
         self.cards.clear()
         self._graficos.clear()
         self._marcos.clear()
         self._etiquetas.clear()
-        self.rejilla.poner([self._baldosa(i) for i in self._items])
+        self.rejilla.poner([self._baldosa(i) for i in self._items], transicion=transicion)
         self._aplicar_datos()
+        if entrada and widgets.ANIMAR and self.isVisible():
+            QTimer.singleShot(0, self._entrada_baldosas)      # tras el layout: así se sabe cuáles se ven
+
+    # ------------------------------------------------------------------ coreografía de entrada
+    def entrada_motion(self) -> None:
+        """Entrada del Dashboard al abrir la sección: cabecera → banner → baldosas, en cascada corta (~0,5 s).
+
+        Cada elemento conserva su posición final: solo viaja unos píxeles y se funde. Lo que cae fuera de la pantalla
+        no se anima: se revela una sola vez cuando el desplazamiento lo trae a la vista."""
+        if not widgets.ANIMAR or not self.isVisible():
+            return
+        cabecera = [self.titulo, self.subtitulo]
+        if self.btn_personalizar.isVisible():
+            cabecera.append(self.btn_personalizar)
+        for i, w in enumerate(cabecera):
+            motion.entrar(w, retardo=i * RETARDO_CABECERA, dy=8, ms_=T_ENTRADA, radio=6)
+        if self.banner.isVisible():
+            motion.entrar(self.banner, retardo=len(cabecera) * RETARDO_CABECERA, dy=6, ms_=T_ENTRADA, radio=6)
+        self._entrada_baldosas()
+
+    def _en_pantalla(self, b: Baldosa) -> bool:
+        """¿La baldosa cae (al menos en parte) dentro de la zona visible del desplazable?"""
+        vista = self._scroll.viewport()
+        origen = b.destino.topLeft() if not b.destino.isEmpty() else b.pos()
+        y = self.rejilla.mapTo(vista, origen).y()
+        return y < vista.height() and y + b.height() > 0
+
+    def _entrada_baldosas(self) -> None:
+        if sip.isdeleted(self):
+            return
+        orden = sorted(self.rejilla.baldosas(), key=lambda b: (b.destino.y(), b.destino.x()))
+        k = 0
+        for b in orden:
+            if self._en_pantalla(b):
+                self._revelar(b, RETARDO_BALDOSAS + min(k, TOPE_BALDOSAS) * PASO_BALDOSAS)
+                k += 1
+            else:
+                b._entrada_pendiente = True
+                motion.preparar_entrada(b, 14)
+        QTimer.singleShot(900, self._revelar_visibles)      # por si el layout cambió bajo los pendientes
+
+    def _revelar(self, b: Baldosa, retardo: int) -> None:
+        b._entrada_pendiente = False
+        motion.entrar(b, retardo=retardo, dy=10, ms_=T_ENTRADA, radio=14)
+        grafico = self._graficos.get(b.id)
+        if grafico is not None:
+            QTimer.singleShot(retardo + 60, partial(_revelar_grafico, grafico))   # se dibuja cuando su tarjeta ya asoma
+
+    def _revelar_visibles(self) -> None:
+        """Revela (una sola vez cada una) las baldosas pendientes que el desplazamiento ya trajo a la pantalla."""
+        if sip.isdeleted(self):
+            return
+        k = 0
+        for b in self.rejilla.baldosas():
+            if b._entrada_pendiente and self._en_pantalla(b):
+                self._revelar(b, min(k, TOPE_BALDOSAS) * PASO_BALDOSAS)
+                k += 1
 
     def _baldosa(self, item: prefs.Item) -> Baldosa:
         d = item.definicion
@@ -445,6 +582,7 @@ class DashboardView(QWidget):
                 cuerpo.setStyleSheet("QScrollArea#desplazableTransparente, QScrollArea#desplazableTransparente > QWidget > QWidget"
                                      " { background: transparent; }")
                 cuerpo.setWidget(etiqueta)
+                motion.instalar_scroll_suave(cuerpo)
             marco = _Marco(t(d.nombre), cuerpo)
             self._marcos[item.id] = marco
             contenido = marco
@@ -456,6 +594,8 @@ class DashboardView(QWidget):
             self._marcos[item.id] = marco
             contenido = marco
         b = Baldosa(item.id, prefs.tipo_baldosa(d), item.tam, contenido, item.cols, item.alto, prefs.cols_min(d))
+        if d.tipo == prefs.KPI:       # elevación y presión de la tarjeta; el efecto lo lleva la baldosa
+            motion.hacer_interactiva(contenido, 14, destino=b)
         b.menu_pedido.connect(self._menu)
         b.quitar.connect(self.quitar_widget)
         return b
@@ -465,6 +605,7 @@ class DashboardView(QWidget):
         resumen, batch, por_categoria, extra = datos
         if resumen is None:
             self.banner.show_empty(t("Sin datos"))
+            self._estado_tarjetas("vacio")
             return
         self.banner.clear()
         self._cargado = True
@@ -498,6 +639,8 @@ class DashboardView(QWidget):
         for clave, tarjeta in self.cards.items():
             v = self._valor_kpi(clave)
             if v is None:
+                if self._cargado:                       # ya llegó la consulta y este indicador no tiene dato
+                    tarjeta.set_estado("vacio")
                 continue
             tarjeta.set_valor(v[0], v[1])
             tarjeta.set_detalle(v[2])
@@ -630,12 +773,17 @@ class DashboardView(QWidget):
             item.tam = tam
             item.cols = item.alto = 0
         if cambia_fuente:
-            self._reconstruir()
+            self._reconstruir(transicion=True)
             self.refresh()
         else:
             self.rejilla.cambiar_tam(id_, item.tam)
             self._pintar_grafico(item)
         self._persistir()
+
+
+def _revelar_grafico(grafico: GraficoPersonal) -> None:
+    if not sip.isdeleted(grafico):
+        grafico.revelar()
 
 
 def _borrar(hoja: QWidget, *_args) -> None:
