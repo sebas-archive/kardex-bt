@@ -183,3 +183,48 @@ def test_window_title_and_oracle_chip(qtbot, puente):
     ventana._oracle_fallo("ORA-12541")
     assert ventana.chip_oracle.text() == "Oracle: sin conexión"
     assert "ORA-12541" in ventana.banner.text()
+
+
+def _tema_db(usuario: str) -> str:
+    from app import auth as auth_mod, db
+    with db._conexion() as conn:
+        cur = conn.cursor()
+        cur.execute(f"SELECT tema FROM {auth_mod.TABLA} WHERE usuario = :u", u=usuario)
+        return cur.fetchone()[0]
+
+
+def test_collapsed_footer_centers_avatar_theme_and_logout(qtbot, puente):
+    ventana = abrir(qtbot, puente, ANA)
+    qtbot.wait(50)
+    ventana.btn_colapsar.click()
+    qtbot.wait(50)
+    assert ventana.lateral_contraida()
+    pie = ventana._pie
+    for boton in (ventana.btn_cuenta, ventana.btn_tema, ventana.btn_salir):
+        assert not boton.isHidden()
+        centro = boton.mapTo(pie, boton.rect().center()).x()
+        assert abs(centro - pie.width() / 2) <= 2, (boton.objectName(), centro, pie.width())
+    assert ventana._en_cuenta.contentsMargins().left() == 0
+    ventana.btn_colapsar.click()
+    qtbot.wait(50)
+    assert ventana._en_cuenta.contentsMargins().left() == 6
+
+
+def test_footer_theme_menu_applies_and_persists_per_user(qtbot, puente, cuentas):
+    ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026", "ana@example.com",
+                            auth.PREGUNTAS[0], "Firulais")
+    ventana = abrir(qtbot, puente, ana)
+    ventana._construir_menu_tema()
+    assert set(ventana._menu_tema_acciones) == {"claro", "sistema", "oscuro"}
+    assert ventana._menu_tema_acciones["sistema"].isChecked()
+    ventana._elegir_tema("claro")
+    assert tema.modo() == "claro"
+    assert "Claro" in ventana.btn_tema.toolTip()
+    qtbot.waitUntil(lambda: _tema_db(ana.usuario) == "claro", timeout=5000)
+    ventana._construir_menu_tema()
+    assert ventana._menu_tema_acciones["claro"].isChecked()
+    assert not ventana._menu_tema_acciones["sistema"].isChecked()
+    ventana._elegir_tema("oscuro")
+    assert tema.modo() == "oscuro"
+    assert "Oscuro" in ventana.btn_tema.toolTip()
+    qtbot.waitUntil(lambda: _tema_db(ana.usuario) == "oscuro", timeout=5000)
