@@ -10,6 +10,8 @@ import json
 
 from PyQt6.QtCore import QSettings
 
+from .dashboard_prefs import COLS_MAX, LIMITES_ALTO     # los mismos límites que el dashboard
+
 PREDETERMINADAS = ("avance", "dona", "hora", "top", "danados", "batch")   # las que se ven al principio
 EXTRAS = ("global", "acumulado", "dia", "operadores", "pendientes", "skus", "buenas")   # solo si se añaden
 IDS = PREDETERMINADAS + EXTRAS
@@ -50,9 +52,37 @@ def cargar(usuario: str) -> list[tuple[str, str]]:
         return predeterminado()
 
 
-def guardar(usuario: str, items: list[tuple[str, str]]) -> None:
+def limitar_medidas(cols, alto) -> tuple[int, int]:
+    """Una medida propia (columnas, alto en px) dentro de lo razonable; 0 = la del tamaño S/M/L."""
+    try:
+        cols, alto = max(0, int(cols or 0)), max(0, int(alto or 0))
+    except (TypeError, ValueError):
+        return 0, 0
+    bajo, alto_max = LIMITES_ALTO["grafico"]
+    return (min(cols, COLS_MAX) if cols else 0), (max(bajo, min(alto, alto_max)) if alto else 0)
+
+
+def cargar_medidas(usuario: str) -> dict[str, tuple[int, int]]:
+    """Las medidas propias guardadas (solo las gráficas que se redimensionaron con el asa)."""
+    texto = _ajustes().value(_clave(usuario), "")
+    try:
+        datos = json.loads(str(texto)) if texto else {"items": []}
+        medidas = {str(x["id"]): limitar_medidas(x.get("cols"), x.get("alto")) for x in datos["items"]}
+    except (ValueError, KeyError, TypeError):
+        return {}
+    return {c: m for c, m in medidas.items() if c in IDS and any(m)}
+
+
+def guardar(usuario: str, items: list[tuple[str, str]], medidas: dict[str, tuple[int, int]] | None = None) -> None:
+    medidas = medidas or {}
+    filas = []
+    for c, t in items:
+        fila = {"id": c, "tam": t}
+        if any(medidas.get(c, (0, 0))):
+            fila["cols"], fila["alto"] = medidas[c]
+        filas.append(fila)
     ajustes = _ajustes()
-    ajustes.setValue(_clave(usuario), json.dumps({"v": 1, "items": [{"id": c, "tam": t} for c, t in items]}))
+    ajustes.setValue(_clave(usuario), json.dumps({"v": 1, "items": filas}))
     ajustes.sync()
 
 
