@@ -87,25 +87,25 @@ class PanelMarca(QFrame):
         # convexa continua que se queda dentro del panel; debajo de él se ve la superficie.
         cx, cy, radio = 40.0, alto * 0.39, 305.0
         g = QLinearGradient(0, 0, ancho * 0.45, cy + radio)
-        g.setColorAt(0.0, QColor("#172554"))
-        g.setColorAt(0.55, QColor("#1E40AF"))
-        g.setColorAt(1.0, QColor("#2563EB"))
+        g.setColorAt(0.0, QColor("#052E25"))
+        g.setColorAt(0.55, QColor("#07503F"))
+        g.setColorAt(1.0, QColor("#059669"))
         p.setBrush(g)
         p.drawEllipse(QPointF(cx, cy), radio, radio)
 
         # Círculo azul parcial desde la esquina inferior izquierda (se solapa con el grande).
         gradiente = QRadialGradient(40, alto * 0.80, 260)
-        gradiente.setColorAt(0.0, QColor("#3B82F6"))
-        gradiente.setColorAt(1.0, QColor("#1D4ED8"))
+        gradiente.setColorAt(0.0, QColor("#10B981"))
+        gradiente.setColorAt(1.0, QColor("#047857"))
         p.setBrush(gradiente)
         p.drawEllipse(QPointF(-20, alto * 0.90), 210, 210)
 
         # Esfera azul clara abajo a la derecha, recortada por el borde del panel.
         esfera = QPointF(222, alto * 0.85)
         gradiente = QRadialGradient(QPointF(esfera.x() - 45, esfera.y() - 60), 190)
-        gradiente.setColorAt(0.0, QColor("#60A5FA"))
-        gradiente.setColorAt(0.6, QColor("#3B82F6"))
-        gradiente.setColorAt(1.0, QColor("#2563EB"))
+        gradiente.setColorAt(0.0, QColor("#6EE7B7"))
+        gradiente.setColorAt(0.6, QColor("#10B981"))
+        gradiente.setColorAt(1.0, QColor("#059669"))
         p.setBrush(gradiente)
         p.drawEllipse(esfera, 130, 130)
         p.end()
@@ -146,7 +146,7 @@ class CasillaAcceso(QCheckBox):
         caja = QRectF(1, y, self.LADO - 2, self.LADO - 2)
         if self.isChecked():
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor("#2563EB"))
+            p.setBrush(QColor(c["acento"]))
             p.drawRoundedRect(caja, 5, 5)
             pluma = QPen(QColor("#FFFFFF"), 2.0)
             pluma.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -160,7 +160,7 @@ class CasillaAcceso(QCheckBox):
             p.setBrush(QColor(c["tarjeta"]))
             p.drawRoundedRect(caja, 5, 5)
         if self.hasFocus():
-            p.setPen(QPen(QColor("#2563EB"), 1.5))
+            p.setPen(QPen(QColor(c["acento"]), 1.5))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRoundedRect(caja.adjusted(-2, -2, 2, 2), 7, 7)
         p.setPen(QColor(c["texto"]))

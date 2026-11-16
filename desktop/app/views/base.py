@@ -242,15 +242,15 @@ QFrame#campoAcceso QLabel { background: transparent; }
 QLineEdit#campoTexto { border: none; background: transparent; padding: 7px 0; font-size: 13px; }
 QLineEdit#campoTexto:focus { border: none; }
 QComboBox#campoCombo { background: #0F0F0F; border: 1px solid #2E2E2E; border-radius: 10px; padding: 8px 10px; }
-QPushButton#botonPrincipal { background: #2563EB; color: #F8FAFC; border: none; border-radius: 10px;
+QPushButton#botonPrincipal { background: #10B981; color: #04130E; border: none; border-radius: 10px;
                              padding: 11px 18px; font-weight: 700; }
-QPushButton#botonPrincipal:hover { background: #1D4ED8; }
-QPushButton#botonPrincipal:disabled { background: #1E3A5F; color: #8A8A8A; }
-QPushButton#botonSecundario { background: transparent; color: #3B82F6; border: 1px solid #2563EB;
+QPushButton#botonPrincipal:hover { background: #34D399; }
+QPushButton#botonPrincipal:disabled { background: #1E3A32; color: #8A8A8A; }
+QPushButton#botonSecundario { background: transparent; color: #10B981; border: 1px solid #10B981;
                               border-radius: 10px; padding: 9px 16px; font-weight: 600; }
-QPushButton#botonSecundario:hover { background: rgba(37, 99, 235, 0.12); }
-QPushButton#enlaceAzul { border: none; background: transparent; color: #3B82F6; font-weight: 600; padding: 2px; }
-QPushButton#enlaceAzul:hover { color: #2563EB; }
+QPushButton#botonSecundario:hover { background: rgba(16, 185, 129, 0.12); }
+QPushButton#enlaceAzul { border: none; background: transparent; color: #10B981; font-weight: 600; padding: 2px; }
+QPushButton#enlaceAzul:hover { color: #34D399; }
 QLabel#oAcceso { color: #8A8A8A; background: transparent; }
 QFrame#separadorAcceso { background: #2E2E2E; max-height: 1px; }
 QScrollArea#scrollAcceso { background: transparent; border: none; }
