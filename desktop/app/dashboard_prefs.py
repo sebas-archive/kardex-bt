@@ -32,6 +32,10 @@ NOMBRE_TIPO = {
     "evolucion": "Evolución temporal",
 }
 
+COLS_MAX = 4
+# Alto libre de cada tipo de baldosa (px): mínimo y máximo al redimensionar con el asa.
+LIMITES_ALTO = {"kpi": (90, 220), "panel": (100, 420), "lista": (140, 640), "grafico": (180, 720)}
+
 PERIODOS = ("todo", "hoy", "7d", "30d", "90d", "mes", "anio", "personalizado")
 NOMBRE_PERIODO = {
     "todo": "Todo el conteo", "hoy": "Hoy", "7d": "Últimos 7 días", "30d": "Últimos 30 días",
@@ -165,10 +169,31 @@ class Item:
     tam: str = "S"
     opciones: dict = field(default_factory=dict)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:10])
+    cols: int = 0      # medida propia (al arrastrar el asa): columnas que ocupa; 0 = la del tamaño S/M/L
+    alto: int = 0      # alto propio en px; 0 = el del tamaño S/M/L
 
     @property
     def definicion(self) -> Def:
         return POR_CLAVE[self.clave]
+
+
+def tipo_baldosa(d: Def) -> str:
+    """Cómo se dimensiona la baldosa de un widget (la actividad reciente es una lista que se desplaza)."""
+    return "lista" if d.clave == "actividad_reciente" else d.tipo
+
+
+def cols_min(d: Def) -> int:
+    return 1 if "S" in d.tams else 2
+
+
+def limitar_medidas(d: Def, cols: int, alto: int) -> tuple[int, int]:
+    """Deja una medida propia dentro de lo razonable para ese widget; 0 sigue significando «la del tamaño»."""
+    if cols:
+        cols = max(cols_min(d), min(int(cols), COLS_MAX))
+    if alto:
+        bajo, alto_max = LIMITES_ALTO[tipo_baldosa(d)]
+        alto = max(bajo, min(int(alto), alto_max))
+    return cols, alto
 
 
 def opciones_por_defecto(d: Def) -> dict:
@@ -208,7 +233,8 @@ def normalizar(items: list[Item], sesion=None) -> list[Item]:
         opciones = {**base, **{k: v for k, v in (it.opciones or {}).items() if k in base}}
         if d.tipo == GRAFICO and opciones["tipo"] not in d.tipos:
             opciones["tipo"] = d.tipo_defecto
-        salida.append(Item(d.clave, tam, opciones, it.id))
+        cols, alto = limitar_medidas(d, it.cols, it.alto)
+        salida.append(Item(d.clave, tam, opciones, it.id, cols, alto))
     return salida
 
 
@@ -222,15 +248,23 @@ def _clave(usuario: str) -> str:
 
 
 def a_json(items: list[Item]) -> str:
-    return json.dumps({"v": 1, "items": [{"id": i.id, "clave": i.clave, "tam": i.tam, "opciones": i.opciones}
-                                         for i in items]}, ensure_ascii=False)
+    return json.dumps({"v": 1, "items": [{"id": i.id, "clave": i.clave, "tam": i.tam, "opciones": i.opciones,
+                                          "cols": i.cols, "alto": i.alto} for i in items]}, ensure_ascii=False)
+
+
+def _entero(valor) -> int:
+    try:
+        return max(0, int(valor or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def de_json(texto: str) -> list[Item] | None:
     try:
         datos = json.loads(texto)
         return [Item(str(x["clave"]), str(x.get("tam", "S")), dict(x.get("opciones") or {}),
-                     str(x.get("id") or uuid.uuid4().hex[:10])) for x in datos["items"]]
+                     str(x.get("id") or uuid.uuid4().hex[:10]), _entero(x.get("cols")), _entero(x.get("alto")))
+                for x in datos["items"]]
     except (ValueError, KeyError, TypeError):
         return None
 
