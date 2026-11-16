@@ -486,7 +486,7 @@ class MainWindow(QMainWindow):
     def add_view(self, view: QWidget, title: str, modulo: str, en_barra: bool = True,
                  roles: tuple[str, ...] | None = None, icono_id: str | None = None) -> QPushButton:
         """Registra una sección en la barra lateral y la incluye en el refresco."""
-        boton = QPushButton(f"  {title}")
+        boton = QPushButton("" if self._colapsada else f"  {title}")
         boton.setIcon(icono(icono_id or title))
         boton.setToolTip(title)
         boton.setObjectName("nav")
@@ -721,6 +721,7 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         if self._registrar_vistas is not None:
             self._registrar_vistas()
+        self._aplicar_lateral(self._colapsada)
         if self._sesion is not None:
             self.iniciar(self._sesion)
             titulo = next((t for t, _v, _b, modulo, _r in self._secciones if modulo == actual), None)

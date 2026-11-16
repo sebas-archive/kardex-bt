@@ -133,12 +133,10 @@ QToolButton:focus { border: 1px solid #10B981; }
 /* Barra lateral: ítem activo con indicador y glow del color primario (sin cambiar la identidad) */
 QPushButton#nav { padding-left: 12px; border-left: 3px solid transparent; }
 QPushButton#nav:hover { background: rgba(255,255,255,0.07); color: #FFFFFF; }
-QPushButton#nav:checked { border-left: 3px solid #10B981;
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16,185,129,0.16), stop:1 rgba(16,185,129,0.02));
-    color: #FFFFFF; }
-QPushButton#nav:checked:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16,185,129,0.22), stop:1 rgba(16,185,129,0.03)); }
+QPushButton#nav:checked { border-left: 3px solid transparent; background: rgba(255,255,255,0.10); color: #FFFFFF; }
+QPushButton#nav:checked:hover { background: rgba(255,255,255,0.13); }
 QFrame#lateral[contraida="true"] QPushButton#nav { text-align: center; padding-left: 0; border-left: 3px solid transparent; }
-QFrame#lateral[contraida="true"] QPushButton#nav:checked { border-left: 3px solid #10B981; }
+QFrame#lateral[contraida="true"] QPushButton#nav:checked { border-left: 3px solid transparent; }
 QFrame#separadorNav { background: rgba(255,255,255,0.07); max-height: 1px; margin: 6px 10px; }
 
 /* Tarjetas con hover rico */
