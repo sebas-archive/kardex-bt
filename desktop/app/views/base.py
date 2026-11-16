@@ -376,6 +376,17 @@ QSlider::handle:horizontal:hover { background: #34D399; }
 QDialog QLabel { color: #CFCFCF; }
 QDialog QPushButton { min-width: 88px; }
 QInputDialog QLineEdit { min-width: 280px; }
+
+/* Perfil */
+QWidget#filaIcono { background: transparent; }
+QLabel#perfilNombre { font-size: 20px; font-weight: 700; background: transparent; }
+QLabel#tituloTarjeta { font-size: 15px; font-weight: 700; background: transparent; }
+QFrame#separadorSuave { background: #232323; border: none; }
+QFrame#lienzo QFrame#segmentado { background: #0F0F0F; border: 1px solid #232323; border-radius: 12px; }
+QFrame#lienzo QFrame#segmentado QPushButton#segmento { border: 1px solid transparent; background: transparent; border-radius: 9px;
+    padding: 7px 12px; color: #A3A3A3; font-weight: 600; min-height: 18px; }
+QFrame#lienzo QFrame#segmentado QPushButton#segmento:hover { color: #FFFFFF; background: rgba(255,255,255,0.05); }
+QFrame#lienzo QFrame#segmentado QPushButton#segmento:checked { background: #1C1C1C; color: #FFFFFF; border: 1px solid #2E2E2E; }
 """
 
 
