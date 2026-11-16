@@ -196,6 +196,12 @@ def entrada_pagina(pagina: QWidget) -> None:
                 and f.width() > 40 and f.height() > 30]
     tarjetas.sort(key=lambda f: (f.mapTo(pagina, f.rect().topLeft()).y(), f.mapTo(pagina, f.rect().topLeft()).x()))
 
+    if not tarjetas:
+        # Página sin tarjetas (tablas, formularios): un fundido corto de toda la página, sin deslizar nada.
+        velo = _Velo(pagina, color=color, alfa=0.7)
+        animar(velo, 0.7, 0.0, diseno.T_ENTRADA - 50, velo.poner_alfa, velo.deleteLater, ENTRADA)
+        return
+
     # Cubiertas desde ya para que no parpadeen antes de su turno; cada una se destapa con su retardo.
     for i, tarjeta in enumerate(tarjetas[:24]):
         velo = _Velo(tarjeta, color=color, alfa=1.0)

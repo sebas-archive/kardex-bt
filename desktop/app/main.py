@@ -57,7 +57,6 @@ from .views.usuarios import UsuariosView
 from .views.bandeja import HojaNotificaciones, PopoverNotificaciones
 from .views.isla import isla
 from .views import motion_global, vigilante
-from .views.widgets import Transicion
 
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
 ANCHO_MAXIMO_CONTENIDO = 1440
@@ -237,7 +236,6 @@ class MainWindow(QMainWindow):
         en_contenido.setContentsMargins(0, 0, 0, 0)
         en_contenido.addWidget(self._centro)
         self._contenido = contenido
-        self._transicion = Transicion(self.paginas)
 
         lienzo = QFrame()
         lienzo.setObjectName("lienzo")
@@ -613,8 +611,6 @@ class MainWindow(QMainWindow):
         self.hoja_notificaciones.cerrar()
         indice = next(i for i, s in enumerate(self._secciones) if s[0] == titulo)
         anterior = self.paginas.currentWidget()
-        if anterior is not None and self.isVisible():
-            self._transicion.lanzar(anterior.grab(), 1)
         self.paginas.setCurrentIndex(indice)
         if anterior is not None and self.isVisible():
             QTimer.singleShot(0, lambda p=self.paginas.currentWidget(): motion_global.entrada_pagina(p))
