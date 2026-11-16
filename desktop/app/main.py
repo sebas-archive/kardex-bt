@@ -52,6 +52,7 @@ from .views.sync import SyncView
 from .views.usuarios import UsuariosView
 from .views.bandeja import HojaNotificaciones, PopoverNotificaciones
 from .views.isla import isla
+from .views import vigilante
 from .views.widgets import Transicion
 
 ANCHO_LATERAL, ANCHO_LATERAL_CONTRAIDA = 230, 68
@@ -239,6 +240,7 @@ class MainWindow(QMainWindow):
         self._raiz.addWidget(self.estado_cuenta)
         self.setCentralWidget(self._raiz)
         isla.instalar(self)   # la Isla vive dentro de la ventana: es el único canal de avisos
+        vigilante.instalar()  # estados vacíos de tablas y diálogos con el mismo acabado
         # Notificaciones flotantes: la campana abre el panel y «Ver todo» abre la vista extendida (sin pestaña).
         self.bandeja = PopoverNotificaciones(self)
         self.hoja_notificaciones = HojaNotificaciones(self)

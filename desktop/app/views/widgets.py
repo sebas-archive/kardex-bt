@@ -355,7 +355,7 @@ class Dona(QWidget):
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        lado = min(self.height() - 20, self.width() * 0.5)
+        lado = min(self.height() - 20, self.width() * 0.42)
         caja = QRectF(16, (self.height() - lado) / 2, lado, lado)
         grosor = lado * 0.2
         aro = caja.adjusted(grosor / 2, grosor / 2, -grosor / 2, -grosor / 2)

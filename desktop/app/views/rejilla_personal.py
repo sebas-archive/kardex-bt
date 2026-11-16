@@ -7,12 +7,13 @@ widgets se apartan con una animación corta, sin saltos ni superposiciones.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QPoint, QSize, QPointF, QPropertyAnimation, QRect, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QFrame, QScrollArea, QToolButton, QWidget
 
 from ..tema import colores
 from . import widgets
+from .iconos import icono
 
 GAP = 14
 ALTO_KPI, ALTO_PANEL = 118, 132
@@ -119,14 +120,15 @@ class Baldosa(QFrame):
         self._edicion = _Edicion(self)
         self.btn_menu = QToolButton(self)
         self.btn_menu.setObjectName("baldosaMenu")
-        self.btn_menu.setText("⋯")
-        self.btn_menu.setToolTip("")
+        self.btn_menu.setIcon(icono("ellipsis", color=colores()["texto_suave"], tam=16))
+        self.btn_menu.setIconSize(QSize(16, 16))
         self.btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_menu.clicked.connect(lambda: self.menu_pedido.emit(self.id))
         self.btn_menu.hide()
         self.btn_quitar = QToolButton(self)
         self.btn_quitar.setObjectName("baldosaQuitar")
-        self.btn_quitar.setText("−")
+        self.btn_quitar.setIcon(icono("minus", color="#FFFFFF", tam=14))
+        self.btn_quitar.setIconSize(QSize(14, 14))
         self.btn_quitar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_quitar.clicked.connect(lambda: self.quitar.emit(self.id))
         self.btn_quitar.hide()

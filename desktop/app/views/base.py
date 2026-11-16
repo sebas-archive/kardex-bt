@@ -365,6 +365,17 @@ QFrame#modalCaja QDateEdit, QFrame#modalCaja QSpinBox, QFrame#modalCaja QLineEdi
     min-height: 18px; padding: 6px 10px; border: 1px solid #2E2E2E; border-radius: 8px; background: #111111; }
 QFrame#modalCaja QLineEdit:focus, QFrame#modalCaja QComboBox:focus, QFrame#modalCaja QSpinBox:focus,
 QFrame#modalCaja QDateEdit:focus { border: 1px solid #10B981; }
+
+/* Acabado común: estado vacío de tablas, deslizadores y diálogos */
+QLabel#tablaVacia { color: #8A8A8A; background: transparent; font-size: 12px; }
+QSlider::groove:horizontal { height: 4px; background: #232323; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #10B981; border-radius: 2px; }
+QSlider::handle:horizontal { width: 14px; height: 14px; margin: -6px 0; border-radius: 8px; background: #10B981;
+                             border: 2px solid #111111; }
+QSlider::handle:horizontal:hover { background: #34D399; }
+QDialog QLabel { color: #CFCFCF; }
+QDialog QPushButton { min-width: 88px; }
+QInputDialog QLineEdit { min-width: 280px; }
 """
 
 

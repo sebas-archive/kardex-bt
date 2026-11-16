@@ -92,6 +92,11 @@ class Mensaje:
 
 
 # ----------------------------------------------------------------------------- icono
+def _icono_cerrar():
+    from .iconos import icono
+    return icono("x", color="#9CA3AF", tam=12)
+
+
 class _Icono(QWidget):
     """Icono de la cápsula: dibujado con trazos. Al cambiar de tipo el anterior se encoge y el nuevo crece."""
 
@@ -275,7 +280,9 @@ class Capsula(QWidget):
         self.btn_no.setObjectName("islaNo")
         self.btn_accion = QPushButton()
         self.btn_accion.setObjectName("islaAccion")
-        self.btn_x = QPushButton("✕")
+        self.btn_x = QPushButton()
+        self.btn_x.setIcon(_icono_cerrar())
+        self.btn_x.setIconSize(QSize(12, 12))
         self.btn_x.setObjectName("islaCerrar")
         self.btn_x.setToolTip(t("Cerrar"))
         for b in (self.btn_ok, self.btn_no, self.btn_accion, self.btn_x):
