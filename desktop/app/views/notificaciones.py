@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -80,8 +80,10 @@ class NotificacionesView(QWidget):
         self.tabla.verticalHeader().setDefaultSectionSize(36)
         cabecera = self.tabla.horizontalHeader()
         cabecera.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        for c in (0, 1, 3):
+        for c in (0, 1):
             cabecera.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        cabecera.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)   # ResizeToContents no cuenta el botón de la celda
+        self.tabla.setColumnWidth(3, 92)
 
         tarjeta = QFrame()
         tarjeta.setObjectName("card")
@@ -150,7 +152,9 @@ class NotificacionesView(QWidget):
             self.tabla.setItem(f, 2, texto)
             if n.seccion:
                 boton = QPushButton(t("Ver"))
-                boton.setObjectName("enlace")
+                boton.setObjectName("verAviso")
+                boton.setCursor(Qt.CursorShape.PointingHandCursor)
+                boton.setFixedHeight(26)
                 boton.clicked.connect(lambda _c=False, x=n: self._ver(x))
                 self.tabla.setCellWidget(f, 3, boton)
             else:
