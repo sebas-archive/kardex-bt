@@ -85,46 +85,35 @@ class PanelMarca(QFrame):
         recorte.closeSubpath()
         p.setClipPath(recorte)
 
-        # UN solo path azul con borde derecho curvo de arriba a abajo: 82 % arriba, 50 % al centro, 88 % abajo.
-        azul = QPainterPath()
-        azul.moveTo(r, 0)
-        azul.lineTo(ancho * 0.82, 0)
-        azul.cubicTo(ancho * 0.78, alto * 0.18, ancho * 0.58, alto * 0.38, ancho * 0.50, alto * 0.55)
-        azul.cubicTo(ancho * 0.50, alto * 0.70, ancho * 0.72, alto * 0.84, ancho * 0.88, alto)
-        azul.lineTo(r, alto)
-        azul.quadTo(0, alto, 0, alto - r)
-        azul.lineTo(0, r)
-        azul.quadTo(0, 0, r, 0)
-        azul.closeSubpath()
-        g = QLinearGradient(0, 0, ancho * 0.35, alto)
+        # Base: superficie del formulario, para que el panel se funda con el área blanca de la derecha.
+        p.setPen(Qt.PenStyle.NoPen)
+        p.fillRect(QRectF(0, 0, ancho, alto), QColor(tema.colores()["tarjeta"]))
+
+        # Gran círculo azul (como la referencia): sale por arriba/izquierda y su borde derecho es una curva
+        # convexa continua que se queda dentro del panel; debajo de él se ve la superficie.
+        cx, cy, radio = 40.0, alto * 0.39, 305.0
+        g = QLinearGradient(0, 0, ancho * 0.45, cy + radio)
         g.setColorAt(0.0, QColor("#172554"))
-        g.setColorAt(0.42, QColor("#1E40AF"))
+        g.setColorAt(0.55, QColor("#1E40AF"))
         g.setColorAt(1.0, QColor("#2563EB"))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.fillPath(azul, g)
+        p.setBrush(g)
+        p.drawEllipse(QPointF(cx, cy), radio, radio)
 
-        # Lóbulo de superficie arriba a la derecha; el resto de la derecha ya es superficie del formulario.
-        superficie = QColor(tema.colores()["tarjeta"])
-        p.setBrush(superficie)
-        p.drawEllipse(QPointF(ancho + 75, alto * 0.15), 215, 215)
-
-        # Círculos DESPUÉS, recortados al rectángulo del panel (el centro-derecha cruza la superficie).
-        p.save()
-        p.setClipPath(recorte)
-        p.setPen(Qt.PenStyle.NoPen)
-        gradiente = QRadialGradient(-52, alto * 0.80, 190)
+        # Círculo azul parcial desde la esquina inferior izquierda (se solapa con el grande).
+        gradiente = QRadialGradient(40, alto * 0.80, 260)
         gradiente.setColorAt(0.0, QColor("#3B82F6"))
         gradiente.setColorAt(1.0, QColor("#1D4ED8"))
         p.setBrush(gradiente)
-        p.drawEllipse(QPointF(ancho * 0.18, alto * 0.85), ancho * 0.42, ancho * 0.42)
+        p.drawEllipse(QPointF(-20, alto * 0.90), 210, 210)
 
-        gradiente = QRadialGradient(ancho * 0.54, alto * 0.70, 220)
+        # Esfera azul clara abajo a la derecha, recortada por el borde del panel.
+        esfera = QPointF(222, alto * 0.85)
+        gradiente = QRadialGradient(QPointF(esfera.x() - 45, esfera.y() - 60), 190)
         gradiente.setColorAt(0.0, QColor("#60A5FA"))
-        gradiente.setColorAt(0.65, QColor("#3B82F6"))
+        gradiente.setColorAt(0.6, QColor("#3B82F6"))
         gradiente.setColorAt(1.0, QColor("#2563EB"))
         p.setBrush(gradiente)
-        p.drawEllipse(QPointF(ancho * 0.68, alto * 0.95), ancho * 0.48, ancho * 0.48)
-        p.restore()
+        p.drawEllipse(esfera, 130, 130)
         p.end()
 
 
