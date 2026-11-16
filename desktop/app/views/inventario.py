@@ -33,10 +33,13 @@ from .. import auth, db
 from ..i18n import registrar, t
 from ..models import Lectura, fmt_num
 from ..tema import colores
+from . import motion, motion_global, widgets
 from .base import QueryRunner, StateBanner
 from .capas import abrir_capa
+from .components import FiltrosActivos
 from .isla import isla
 from .lecturas import DetalleLecturas
+from .motion_global import BarridoCarga
 
 registrar({
     "Buscar por SKU o nombre del producto": "Search by SKU or product name",
@@ -137,7 +140,7 @@ class InventarioView(QWidget):
         self.detalle: DetalleLecturas | None = None
         self._capa_detalle = None
 
-        ayuda = QLabel(t("SKU, producto, categoría, cantidad contada y cantidad del sistema. "
+        ayuda = self._ayuda = QLabel(t("SKU, producto, categoría, cantidad contada y cantidad del sistema. "
                          "Haz doble clic para ver las lecturas."))
         ayuda.setObjectName("ayuda")
         ayuda.setWordWrap(True)
@@ -149,6 +152,8 @@ class InventarioView(QWidget):
         self.btn_filtros = QPushButton()
         self.btn_filtros.setCheckable(True)
         self.btn_exportar = QPushButton(t("Exportar CSV"))
+        # Indicador de consulta pendiente/en curso del buscador: línea de 2 px ligada al estado real (debounce + consulta).
+        self._busqueda_en_curso = BarridoCarga(self.txt_buscar, margen=9)
         barra = QHBoxLayout()
         barra.addWidget(self.txt_buscar, 1)
         barra.addWidget(self.btn_filtros)
@@ -156,12 +161,7 @@ class InventarioView(QWidget):
 
         self._todas: list = []
         self.panel_filtros = self._construir_panel_filtros()
-        self.fila_chips = QHBoxLayout()
-        self.fila_chips.setSpacing(6)
-        self.fila_chips.setContentsMargins(0, 0, 0, 0)
-        self.zona_chips = QWidget()
-        self.zona_chips.setLayout(self.fila_chips)
-        self.zona_chips.hide()
+        self.zona_chips = FiltrosActivos()
 
         self.tabla = QTableWidget(0, len(COLUMNAS))
         self.tabla.setHorizontalHeaderLabels([t(c) for c in COLUMNAS])
@@ -175,6 +175,10 @@ class InventarioView(QWidget):
         for columna in (0, 2, 3, 4):
             cabecera.setSectionResizeMode(columna, QHeaderView.ResizeMode.ResizeToContents)
         self.tabla.setToolTip(t("Doble clic para ver las lecturas del SKU"))
+        self._claves: list[str] = []                 # SKU de las filas pintadas, en orden (para la transición de filas)
+        self._huellas: list[str] = []
+        self.tabla.setProperty("sinFundido", True)   # la transición de filas propia reemplaza el velo global de datos nuevos
+        motion_global.resaltar_filas(self.tabla)
         self.lbl_resumen = QLabel("")
         self.lbl_resumen.setObjectName("resumen")
 
@@ -192,10 +196,14 @@ class InventarioView(QWidget):
         self._retardo = QTimer(self)
         self._retardo.setSingleShot(True)
         self._retardo.setInterval(250)
-        self.txt_buscar.textChanged.connect(lambda _: self._retardo.start())
+        self.txt_buscar.textChanged.connect(self._texto_cambio)
         self._retardo.timeout.connect(self.refresh)
         self.btn_exportar.clicked.connect(self._elegir_archivo)
-        self.btn_filtros.toggled.connect(self.panel_filtros.setVisible)
+        self.btn_filtros.toggled.connect(lambda abierto: motion_global.desplegar(self.panel_filtros, abierto))
+        for campo in (self.txt_buscar, self.cmb_categoria, self.cmb_estado, self.cmb_orden, self.cmb_sentido,
+                      self.txt_contada_min, self.txt_contada_max, self.txt_sistema_min, self.txt_sistema_max):
+            motion_global.instalar_realce(campo)
+        self.lbl_resumen.setMinimumWidth(0)
         self._actualizar_boton()
         self.tabla.doubleClicked.connect(self._doble_clic)
 
@@ -204,7 +212,10 @@ class InventarioView(QWidget):
         self._sesion = sesion
         if sesion is None:
             self._filas = []
+            motion_global.soltar_filas(self.tabla)
             self.tabla.setRowCount(0)
+            self._claves, self._huellas = [], []
+            self._busqueda_en_curso.detener()
             self.banner.show_empty(t("Sin datos"))
         else:
             self.refresh()
@@ -214,8 +225,18 @@ class InventarioView(QWidget):
             return
         if not self._cargado:
             self.banner.show_loading()
-        self._runner.run(_cargar, self._mostrar, self.banner.show_error,
-                         self.txt_buscar.text().strip(), key="inventario")
+        else:
+            self._busqueda_en_curso.iniciar()        # consulta en ejecución: la línea del buscador sigue barriendo
+        self._runner.run(_cargar, self._mostrar, self._fallo, self.txt_buscar.text().strip(), key="inventario")
+
+    def _texto_cambio(self, _texto: str) -> None:
+        self._retardo.start()
+        if self._cargado:
+            self._busqueda_en_curso.iniciar()        # consulta pendiente: el debounce de 250 ms ya corre
+
+    def _fallo(self, mensaje: str) -> None:
+        self._busqueda_en_curso.detener()
+        self.banner.show_error(mensaje)
 
     def buscar(self, texto: str) -> None:
         self.txt_buscar.setText(texto)
@@ -287,17 +308,23 @@ class InventarioView(QWidget):
     # ------------------------------------------------------------- internos
     def _mostrar(self, filas) -> None:
         self._cargado = True
+        if not self._retardo.isActive():             # si hay otra búsqueda esperando su debounce, el indicador sigue
+            self._busqueda_en_curso.detener()
         self._todas = list(filas)
         self._rellenar_categorias()
         self._reaplicar()
 
     def _pintar(self) -> None:
+        """Vuelca ``self._filas`` en la tabla. Los datos se escriben primero y por completo; la transición (filas que
+        salen, entran, se mueven o cambian) es una capa que se dibuja encima y nunca decide qué hay en la tabla."""
+        seleccion = self.tabla.selectionModel().selectedRows()
+        sku_seleccionado = self._claves[seleccion[0].row()] if seleccion and seleccion[0].row() < len(self._claves) else None
+        antes = motion_global.capturar_filas(self.tabla, self._claves, self._huellas)
+        self.tabla.setUpdatesEnabled(False)
         self.tabla.setRowCount(len(self._filas))
         contados = sum(1 for f in self._filas if f.cant_contada is not None)
         for numero, fila in enumerate(self._filas):
-            celdas = (fila.sku, fila.nombre, fila.categoria,
-                      "" if fila.cant_contada is None else fmt_num(fila.cant_contada),
-                      "" if fila.cant_sistema is None else fmt_num(fila.cant_sistema))
+            celdas = self._celdas(fila)
             for columna, texto in enumerate(celdas):
                 item = QTableWidgetItem(texto)
                 if columna >= 3:
@@ -305,15 +332,45 @@ class InventarioView(QWidget):
                 if columna == 3 and fila.cant_contada is None:
                     item.setForeground(QBrush(QColor(colores()["texto_suave"])))
                 self.tabla.setItem(numero, columna, item)
-        total = (f"{len(self._filas)} {t('de')} {len(self._todas)}"
-                 if len(self._filas) != len(self._todas) else f"{len(self._filas)}")
-        self.lbl_resumen.setText(
-            f"{total} {t('SKU')} · {contados} {t('SKU contados').lower()} · "
-            f"{len(self._filas) - contados} {t('sin contar')}")
+        self._claves = [f.sku for f in self._filas]
+        self._huellas = ["\x1f".join(self._celdas(f)) for f in self._filas]
+        self.tabla.clearSelection()
+        if sku_seleccionado in self._claves:          # la selección sigue al SKU, no al número de fila
+            self.tabla.selectRow(self._claves.index(sku_seleccionado))
+        self.tabla.setUpdatesEnabled(True)
+        motion_global.revelar_filas(self.tabla, antes, self._claves, self._huellas)
+        motion_global.cuenta_texto(self.lbl_resumen, (len(self._filas), len(self._todas), contados,
+                                                      len(self._filas) - contados), self._formato_resumen)
         if self._filas:
             self.banner.clear()
         else:
             self.banner.show_empty(t("Sin datos"))
+
+    @staticmethod
+    def _celdas(fila) -> tuple[str, str, str, str, str]:
+        return (fila.sku, fila.nombre, fila.categoria,
+                "" if fila.cant_contada is None else fmt_num(fila.cant_contada),
+                "" if fila.cant_sistema is None else fmt_num(fila.cant_sistema))
+
+    @staticmethod
+    def _formato_resumen(actual: tuple[int, ...], final: tuple[int, ...]) -> str:
+        """«N de M SKU · X contados · Y sin contar». La estructura sale de los valores finales; solo los números se animan."""
+        n, m, contados, sin = actual
+        total = f"{n} {t('de')} {m}" if final[0] != final[1] else f"{n}"
+        return f"{total} {t('SKU')} · {contados} {t('SKU contados').lower()} · {sin} {t('sin contar')}"
+
+    def entrada_motion(self) -> None:
+        """Coreografía de entrada de la pantalla (la llama ``motion_global.entrada_pagina``): encabezado, estado, barra
+        de búsqueda, filtros y exportar suben unos píxeles con fundido y en cascada; la tabla revela sus filas y el
+        resumen cierra la secuencia. Nada cambia de sitio: solo opacidad y un desplazamiento de unos píxeles."""
+        if not widgets.ANIMAR or not self.isVisible():
+            return
+        piezas = (self._ayuda, self.banner, self.txt_buscar, self.btn_filtros, self.btn_exportar)
+        for i, pieza in enumerate(piezas):
+            motion.entrar(pieza, retardo=i * 36, dy=6, ms_=motion.dur(280), radio=9)
+        if self._claves:
+            QTimer.singleShot(len(piezas) * 30, lambda: motion_global.entrada_filas(self.tabla, self._claves, self._huellas))
+        motion.entrar(self.lbl_resumen, retardo=len(piezas) * 36 + 40, dy=4, ms_=motion.dur(240), radio=6)
 
     # ------------------------------------------------------- panel de filtros
     def _construir_panel_filtros(self) -> QFrame:
@@ -342,6 +399,8 @@ class InventarioView(QWidget):
             campo.setPlaceholderText(t(texto))
             campo.setMaximumWidth(90)
             campo.textChanged.connect(lambda _: self._retardo_filtros.start())
+            campo.textChanged.connect(lambda texto, c=campo: motion_global.marcar_invalido(
+                c, bool(texto.strip()) and _numero(texto) is None))   # el límite se ignora si no es un número (lógica real)
         for combo in (self.cmb_categoria, self.cmb_estado, self.cmb_orden, self.cmb_sentido):
             combo.currentIndexChanged.connect(lambda _: self._reaplicar())
         self.btn_limpiar = QPushButton(t("Limpiar filtros"))
@@ -392,24 +451,24 @@ class InventarioView(QWidget):
             campo.clear()
             campo.blockSignals(False)
 
-    def _filtros_activos(self) -> list[tuple[str, object]]:
-        """(texto del chip, acción que lo quita) de cada filtro del panel que no está en su valor por defecto."""
+    def _filtros_activos(self) -> list[tuple[str, str, object]]:
+        """(clave, texto del chip, acción que lo quita) de cada filtro del panel que no está en su valor por defecto."""
         activos = []
         if self.cmb_categoria.currentData():
-            activos.append((f"{t('Categoría')}: {self.cmb_categoria.currentData()}",
+            activos.append(("categoria", f"{t('Categoría')}: {self.cmb_categoria.currentData()}",
                             lambda: self.cmb_categoria.setCurrentIndex(0)))
         if self.cmb_estado.currentData() != "todos":
-            activos.append((self.cmb_estado.currentText(), lambda: self.cmb_estado.setCurrentIndex(0)))
-        for etiqueta, bajo, alto in (("Contada", self.txt_contada_min, self.txt_contada_max),
-                                     ("Sistema", self.txt_sistema_min, self.txt_sistema_max)):
+            activos.append(("estado", self.cmb_estado.currentText(), lambda: self.cmb_estado.setCurrentIndex(0)))
+        for clave, etiqueta, bajo, alto in (("contada", "Contada", self.txt_contada_min, self.txt_contada_max),
+                                            ("sistema", "Sistema", self.txt_sistema_min, self.txt_sistema_max)):
             minimo, maximo = _numero(bajo.text()), _numero(alto.text())
             if minimo is None and maximo is None:
                 continue
             rango = (f"≥ {fmt_num(minimo)}" if maximo is None else f"≤ {fmt_num(maximo)}" if minimo is None
                      else f"{fmt_num(minimo)} – {fmt_num(maximo)}")
-            activos.append((f"{t(etiqueta)}: {rango}", lambda b=bajo, a=alto: (b.clear(), a.clear())))
+            activos.append((clave, f"{t(etiqueta)}: {rango}", lambda b=bajo, a=alto: (b.clear(), a.clear())))
         if self.cmb_orden.currentIndex() != 0 or self.cmb_sentido.currentIndex() != 0:
-            activos.append((f"{t('Orden')}: {self.cmb_orden.currentText()} "
+            activos.append(("orden", f"{t('Orden')}: {self.cmb_orden.currentText()} "
                             f"{'↓' if self.cmb_sentido.currentData() else '↑'}",
                             lambda: (self.cmb_orden.setCurrentIndex(0), self.cmb_sentido.setCurrentIndex(0))))
         return activos
@@ -435,25 +494,10 @@ class InventarioView(QWidget):
 
     def _actualizar_boton(self) -> None:
         n = len(self._filtros_activos())
-        self.btn_filtros.setText(f"{t('Filtros')} · {n}" if n else t("Filtros"))
+        motion.cruzar_texto(self.btn_filtros, f"{t('Filtros')} · {n}" if n else t("Filtros"), 160)
 
     def _actualizar_chips(self) -> None:
-        while self.fila_chips.count():
-            item = self.fila_chips.takeAt(0)
-            viejo = item.widget()
-            if viejo is not None:
-                viejo.setParent(None)
-                viejo.deleteLater()
-        activos = self._filtros_activos()
-        for texto, quitar in activos:
-            chip = QPushButton(f"{texto}  ✕")
-            chip.setFlat(True)
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.setToolTip(t("Quitar este filtro"))
-            chip.clicked.connect(lambda _=False, q=quitar: q())
-            self.fila_chips.addWidget(chip)
-        self.fila_chips.addStretch(1)
-        self.zona_chips.setVisible(bool(activos))
+        self.zona_chips.actua(self._filtros_activos())
 
     def _doble_clic(self, indice) -> None:
         if indice.isValid() and 0 <= indice.row() < len(self._filas):
@@ -465,6 +509,8 @@ class InventarioView(QWidget):
             try:
                 self.exportar_csv(ruta)
             except OSError as exc:
-                isla.error("No se pudo exportar", str(exc))
+                isla.error("No se pudo exportar", str(exc), clave="inventario-exportar")
+                motion.destello(self.btn_exportar, colores()["error"], 360)
                 return
-            isla.exito("Inventario exportado", Path(ruta).name)
+            isla.exito("Inventario exportado", Path(ruta).name, clave="inventario-exportar")
+            motion.destello(self.btn_exportar, colores()["acento"], 360)

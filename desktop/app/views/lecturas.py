@@ -34,6 +34,7 @@ from .base import QueryRunner, StateBanner
 from .capas import abrir_capa, superficie
 from .foto import leer_foto
 from .iconos import icono
+from . import motion, motion_global
 from .visor_foto import FotoLectura, ver_fotos
 
 registrar({
@@ -143,7 +144,7 @@ class _Indicador(QFrame):
         self.cifra.setObjectName("lecCifraSuave" if compacto else "lecCifra")
         self.cifra.style().unpolish(self.cifra)
         self.cifra.style().polish(self.cifra)
-        self.cifra.setText(texto)
+        motion.cruzar_texto(self.cifra, texto, 200)
 
 
 class _Etiqueta(QLabel):
@@ -559,6 +560,9 @@ class DetalleLecturas(QWidget):
         # Operador y fecha toman lo que necesitan; la nota, el resto.
         if 0 <= seleccion < len(lecturas):
             self.tabla.selectRow(seleccion)
+        # Las lecturas llegan tras abrirse el panel: sus filas se revelan en cascada (los datos ya están completos debajo).
+        claves = [str(i) for i in range(len(lecturas))]
+        motion_global.entrada_filas(self.tabla, claves, claves)
 
     # ------------------------------------------------------------- fotos y miniaturas
     def _boton_foto(self, fila: int, lectura: Lectura) -> QWidget:
