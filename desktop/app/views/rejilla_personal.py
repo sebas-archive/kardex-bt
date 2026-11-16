@@ -18,6 +18,7 @@ from .iconos import icono
 GAP = 14
 ALTO_KPI, ALTO_PANEL = 118, 132
 ALTO_GRAFICO = {"S": 250, "M": 312, "L": 366}
+ALTO_LISTA = {"M": 250, "L": 312}      # paneles con lista que se desplaza (Actividad reciente)
 
 
 def columnas(ancho: float) -> int:
@@ -33,6 +34,8 @@ def alto_de(tipo: str, tam: str) -> int:
         return ALTO_KPI
     if tipo == "panel":
         return ALTO_PANEL
+    if tipo == "lista":
+        return ALTO_LISTA.get(tam, ALTO_LISTA["M"])
     return ALTO_GRAFICO.get(tam, ALTO_GRAFICO["M"])
 
 
