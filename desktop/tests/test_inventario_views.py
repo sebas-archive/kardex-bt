@@ -97,3 +97,44 @@ def test_ver_foto_abre_el_visor(qtbot, vista, monkeypatch):
     esperar(qtbot, lambda: d.tabla.rowCount() == 2 and d.tabla.cellWidget(0, 5) is not None)
     d.tabla.cellWidget(0, 5).boton.click()
     assert llamadas == [("evidencia.jpg", "A1", "Producto A1")]
+
+
+def test_filtros_estado_rango_y_orden(qtbot, vista):
+    v, _ana = vista
+    total = len(v.filas())
+    v.cmb_estado.setCurrentIndex(v.cmb_estado.findData("sin_contar"))
+    assert v.filas() and all(f[3] == "" for f in v.filas())
+    assert v.btn_filtros.text().endswith("· 1")
+    v.cmb_estado.setCurrentIndex(v.cmb_estado.findData("no_cuadran"))
+    assert {f[0] for f in v.filas()} >= {"A1", "A5"}
+    assert all(f[3] != f[4] for f in v.filas())
+    v.cmb_estado.setCurrentIndex(0)
+    v.txt_sistema_min.setText("10")
+    v.txt_sistema_max.setText("100")
+    qtbot.waitUntil(lambda: len(v.filas()) < total)
+    assert all(10 <= float(f[4].replace(",", ".")) <= 100 for f in v.filas())
+    v.limpiar_filtros()
+    qtbot.waitUntil(lambda: len(v.filas()) == total)
+    assert v.btn_filtros.text() == "Filtros"
+
+
+def test_filtro_por_categoria_y_orden_descendente(qtbot, vista):
+    v, _ana = vista
+    v.aplicar_filtro(categoria="Abarrotes")
+    filas = v.filas()
+    assert filas and all(f[2] == "Abarrotes" for f in filas)
+    assert not v.zona_chips.isHidden()
+    v.cmb_orden.setCurrentIndex(v.cmb_orden.findData("sistema"))
+    v.cmb_sentido.setCurrentIndex(1)
+    cantidades = [float(f[4].replace(",", ".")) for f in v.filas() if f[4]]
+    assert cantidades == sorted(cantidades, reverse=True)
+
+
+def test_exportar_csv_respeta_los_filtros(vista, tmp_path):
+    v, _ana = vista
+    v.aplicar_filtro(estado="sin_contar")
+    ruta = tmp_path / "f.csv"
+    v.exportar_csv(ruta)
+    with open(ruta, encoding="utf-8-sig", newline="") as fh:
+        filas = list(csv.reader(fh, delimiter=";"))[1:]
+    assert len(filas) == len(v.filas()) and all(f[3] == "" for f in filas)
