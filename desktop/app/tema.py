@@ -138,27 +138,63 @@ QPushButton#primario:hover { color: #FFFFFF; }
     return qss
 
 
+_SISTEMA: str | None = None   # preferencia del SO ya consultada (la consulta D-Bus no se repite en cada pintado)
+
+
+def _esquema_qt(app: QGuiApplication) -> str | None:
+    """El esquema que informa Qt, o ``None`` si no lo sabe (X11 sin portal, Docker, ``offscreen``)."""
+    try:
+        esquema = app.styleHints().colorScheme()
+    except (AttributeError, RuntimeError):
+        return None
+    if hasattr(Qt.ColorScheme, "Dark") and esquema == Qt.ColorScheme.Dark:
+        return "oscuro"
+    if hasattr(Qt.ColorScheme, "Light") and esquema == Qt.ColorScheme.Light:
+        return "claro"
+    return None
+
+
+def _esquema_portal() -> str | None:
+    """Pregunta al portal de escritorio (``org.freedesktop.appearance``), la fuente que usan GNOME, KDE y demás.
+
+    Sirve cuando Qt no detecta el tema, p. ej. la app en Docker por X11. Necesita el bus de sesión del usuario."""
+    try:
+        from PyQt6.QtDBus import QDBus, QDBusConnection, QDBusMessage
+        bus = QDBusConnection.sessionBus()
+        if not bus.isConnected():
+            return None
+        msg = QDBusMessage.createMethodCall("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+                                            "org.freedesktop.portal.Settings", "Read")
+        msg.setArguments(["org.freedesktop.appearance", "color-scheme"])
+        respuesta = bus.call(msg, QDBus.CallMode.Block, 500)
+        valor = respuesta.arguments()[0] if respuesta.arguments() else None
+        while hasattr(valor, "variant"):     # Read devuelve un variant dentro de otro variant
+            valor = valor.variant()
+    except (ImportError, RuntimeError, AttributeError, IndexError, TypeError):
+        return None
+    return {1: "oscuro", 2: "claro"}.get(valor)   # 0 = sin preferencia
+
+
+def _preferencia_sistema(app: QGuiApplication | None, releer: bool = False) -> str:
+    """La preferencia real del SO. Nunca mira la paleta de la app: ahí está el último tema que ella misma aplicó."""
+    global _SISTEMA
+    if app is not None:
+        esquema = _esquema_qt(app)
+        if esquema is not None:
+            _SISTEMA = esquema
+            return esquema
+    if _SISTEMA is None or releer:
+        _SISTEMA = _esquema_portal() or _SISTEMA or "oscuro"
+    return _SISTEMA
+
+
 def resolver(modo: str) -> str:
     """``claro`` u ``oscuro`` para un modo; ``sistema`` mira la preferencia del sistema operativo."""
     if modo == "claro":
         return "claro"
     if modo == "oscuro":
         return "oscuro"
-    app = QApplication.instance()
-    if app is not None:
-        try:
-            esquema = app.styleHints().colorScheme()
-            if hasattr(Qt.ColorScheme, "Dark") and esquema == Qt.ColorScheme.Dark:
-                return "oscuro"
-            if hasattr(Qt.ColorScheme, "Light") and esquema == Qt.ColorScheme.Light:
-                return "claro"
-        except (AttributeError, RuntimeError):
-            pass
-        try:
-            return "oscuro" if app.palette().color(QPalette.ColorRole.Window).lightness() < 128 else "claro"
-        except RuntimeError:
-            pass
-    return "oscuro"
+    return _preferencia_sistema(QApplication.instance())
 
 
 def modo() -> str:
@@ -207,6 +243,8 @@ def aplicar(app: QApplication | QGuiApplication | None, modo_pedido: str = "sist
     """Aplica el tema a toda la aplicación. Devuelve el modo resuelto (``claro`` u ``oscuro``)."""
     global _MODO
     _MODO = modo_pedido if modo_pedido in MODOS else "sistema"
+    if _MODO == "sistema":
+        _preferencia_sistema(app, releer=True)   # al elegir «Sistema» se vuelve a preguntar al SO
     resuelto = resolver(_MODO)
     if app is not None:
         app.setStyleSheet(qss(_MODO))
