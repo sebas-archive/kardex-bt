@@ -43,6 +43,8 @@ class PanelMarca(QFrame):
         super().__init__(parent)
         self.setFixedWidth(360)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Sin fondo propio: la hoja global pintaba un cuadrado que asomaba en las esquinas redondeadas.
+        self.setStyleSheet("PanelMarca { background: transparent; border: none; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(20, 40, 20, 34)
         lay.setSpacing(10)
@@ -57,15 +59,12 @@ class PanelMarca(QFrame):
         self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 12px; background: transparent;")
         self.lbl_imagen.setWordWrap(True)
         self.lbl_imagen.setMaximumWidth(160)
-        self.lbl_pie = QLabel(t("Android · Bluetooth · Oracle"))
-        self.lbl_pie.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 10px; background: transparent;")
         lay.addStretch(1)
         lay.addWidget(self.lbl_marca)
         lay.addWidget(self.lbl_bienvenida)
         lay.addSpacing(4)
         lay.addWidget(self.lbl_imagen)
         lay.addStretch(2)
-        lay.addWidget(self.lbl_pie)
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
@@ -75,19 +74,14 @@ class PanelMarca(QFrame):
 
         # Recorte exterior: esquinas izquierdas redondeadas (la superficie del formulario queda a la derecha).
         recorte = QPainterPath()
-        recorte.moveTo(r, 0)
-        recorte.lineTo(ancho, 0)
-        recorte.lineTo(ancho, alto)
-        recorte.lineTo(r, alto)
-        recorte.quadTo(0, alto, 0, alto - r)
-        recorte.lineTo(0, r)
-        recorte.quadTo(0, 0, r, 0)
-        recorte.closeSubpath()
+        # Rectángulo redondeado circular (mismo radio que la tarjeta); las esquinas derechas quedan fuera del widget.
+        recorte.addRoundedRect(QRectF(0, 0, ancho + r, alto), r, r)
         p.setClipPath(recorte)
 
         # Base: superficie del formulario, para que el panel se funda con el área blanca de la derecha.
         p.setPen(Qt.PenStyle.NoPen)
-        p.fillRect(QRectF(0, 0, ancho, alto), QColor(tema.colores()["tarjeta"]))
+        # Empieza pasadas las esquinas redondeadas: el borde antialiasado del recorte dejaría un filo blanco.
+        p.fillRect(QRectF(r, 0, ancho - r, alto), QColor(tema.colores()["tarjeta"]))
 
         # Gran círculo azul (como la referencia): sale por arriba/izquierda y su borde derecho es una curva
         # convexa continua que se queda dentro del panel; debajo de él se ve la superficie.
