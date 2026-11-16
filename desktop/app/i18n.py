@@ -362,3 +362,25 @@ registrar({
     "¿Cuál fue tu primer colegio?": "What was your first school?",
     "¿Cuál es tu comida favorita?": "What is your favorite food?",
 })
+
+registrar({
+    "GESTIÓN DE INVENTARIO": "INVENTORY MANAGEMENT",
+    "BIENVENIDO": "WELCOME",
+    "Conteo físico sin red.\nEl PC recibe por Bluetooth y Oracle concilia.":
+        "Physical counting, offline.\nThe PC receives over Bluetooth and Oracle reconciles.",
+    "Android · Bluetooth · Oracle": "Android · Bluetooth · Oracle",
+    "Recordar usuario": "Remember username",
+    "o": "or",
+    "Volver a iniciar sesión": "Back to sign in",
+    "Recuperar contraseña": "Recover password",
+    "Seguridad de la contraseña": "Password strength",
+    "12 caracteres o más": "12 characters or more",
+    "Mayúscula y minúscula": "Upper and lower case",
+    "Al menos un número": "At least one number",
+    "Al menos un símbolo": "At least one symbol",
+    "Vacía": "Empty",
+    "Regular": "Fair",
+    "Patrón comúnmente adivinado": "Commonly guessed pattern",
+    "Escribe tu usuario y pulsa Ver pregunta.": "Write your username and click Show question.",
+    "Ver pregunta": "Show question",
+})

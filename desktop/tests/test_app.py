@@ -228,3 +228,37 @@ def test_footer_theme_menu_applies_and_persists_per_user(qtbot, puente, cuentas)
     assert tema.modo() == "oscuro"
     assert "Oscuro" in ventana.btn_tema.toolTip()
     qtbot.waitUntil(lambda: _tema_db(ana.usuario) == "oscuro", timeout=5000)
+
+
+def test_access_two_panel_card_and_strength_meter(qtbot):
+    vista = AccesoView()
+    qtbot.addWidget(vista)
+    vista.show()
+    assert vista._tarjeta.objectName() == "tarjetaAcceso"
+    assert vista._marca_panel.isVisible() and vista._panel_form.isVisible()
+    assert vista.chk_recordar.text() == "Recordar usuario"
+    vista.txt_clave_nueva.setText("ClaveSegura#2026")
+    assert vista.medidor.puntaje == 4
+    assert "Fuerte" in vista.medidor.etiqueta()
+    assert vista.medidor.lbl_aviso.isHidden()
+    vista.txt_clave_nueva.setText("Password1234")
+    assert vista.medidor.puntaje == 1
+    assert not vista.medidor.lbl_aviso.isHidden()
+    assert "patrón" in vista.medidor.lbl_aviso.text().lower()
+    vista.txt_clave_nueva.setText("")
+    assert vista.medidor.puntaje == 0 and "Vacía" in vista.medidor.etiqueta()
+
+
+def test_access_remembers_the_username(qtbot):
+    from PyQt6.QtCore import QSettings
+    ajustes = QSettings("GestionInventario", "Acceso")
+    ajustes.clear()
+    vista = AccesoView()
+    qtbot.addWidget(vista)
+    vista.txt_usuario.setText("ana.gomez")
+    vista.chk_recordar.setChecked(True)
+    vista._guardar_recordado()
+    otra = AccesoView()
+    qtbot.addWidget(otra)
+    assert otra.txt_usuario.text() == "ana.gomez" and otra.chk_recordar.isChecked()
+    ajustes.clear()
