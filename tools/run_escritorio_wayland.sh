@@ -30,6 +30,25 @@ if ! docker image inspect inventario-bt-app:latest >/dev/null 2>&1; then
   exit 1
 fi
 
+# Icono en la barra de tareas: en Wayland el compositor lo busca por el app_id ("inventario-bt") en un
+# .desktop del equipo; el contenedor no puede aportarlo. Se instala en ~/.local/share (solo del usuario).
+DATOS="${XDG_DATA_HOME:-$HOME/.local/share}"
+mkdir -p "$DATOS/icons/hicolor/scalable/apps" "$DATOS/applications"
+cp desktop/app/recursos/icono.svg "$DATOS/icons/hicolor/scalable/apps/inventario-bt.svg"
+cat > "$DATOS/applications/inventario-bt.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Inventario BT
+Comment=Inventario con Bluetooth y Oracle
+Exec=$RAIZ/tools/run_escritorio_wayland.sh
+Icon=inventario-bt
+Terminal=false
+Categories=Office;
+StartupWMClass=inventario-bt
+EOF
+command -v update-desktop-database >/dev/null && update-desktop-database "$DATOS/applications" 2>/dev/null || true
+command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$DATOS/icons/hicolor" 2>/dev/null || true
+
 docker compose up -d oracle >/dev/null
 for _ in $(seq 1 60); do
   estado="$(docker inspect -f '{{.State.Health.Status}}' inventario-bt-oracle-1 2>/dev/null || true)"
