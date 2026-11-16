@@ -168,3 +168,34 @@ def test_disposicion_guardada_danada_o_con_basura_se_repara():
     gp._ajustes().setValue("graficas/x", "{no es json")
     assert gp.cargar("x") == gp.predeterminado()
     assert gp.normalizar([("avance", "Z"), ("avance", "S"), ("rara", "M"), ("top", "L")]) == [("avance", "M"), ("top", "L")]
+
+
+def test_una_grafica_se_redimensiona_con_el_asa_y_la_medida_se_recuerda(qtbot, vista):
+    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtTest import QTest
+    from app import graficas_prefs as gp
+    v, ana = vista
+    v.set_edicion(True)
+    assert v.rejilla.redimensionable
+    b = v.rejilla.baldosa("avance")
+    ov = b._edicion
+    alto0, ancho0 = b.height(), b.width()
+    ini = QPoint(ov.width() - 10, ov.height() - 10)                  # dentro del asa
+    QTest.mousePress(ov, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ini)
+    QTest.mouseMove(ov, ini + QPoint(600, 100))
+    QTest.mouseRelease(ov, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ini + QPoint(600, 100))
+    assert b.height() == alto0 + 100 and b.width() > ancho0          # alto libre; ancho por columnas
+    assert gp.cargar_medidas(ana.usuario)["avance"] == (b.cols, b.alto)
+    assert ("avance", "M") in gp.cargar(ana.usuario)                 # el tamaño S/M/L sigue guardado
+    v.cambiar_tam("avance", "M")                                     # elegir un tamaño descarta la medida propia
+    assert gp.cargar_medidas(ana.usuario) == {} and v.rejilla.baldosa("avance").height() == alto0
+
+
+def test_las_medidas_guardadas_se_limitan_y_los_diseños_viejos_siguen_cargando():
+    from app import graficas_prefs as gp
+    assert gp.limitar_medidas(9, 5000) == (gp.COLS_MAX, gp.LIMITES_ALTO["grafico"][1])
+    assert gp.limitar_medidas("x", None) == (0, 0)
+    gp.guardar("u", [("avance", "M"), ("dona", "S")])                # sin medidas: formato de siempre
+    assert gp.cargar("u") == [("avance", "M"), ("dona", "S")] and gp.cargar_medidas("u") == {}
+    gp.guardar("u", [("avance", "M")], {"avance": (3, 500)})
+    assert gp.cargar_medidas("u") == {"avance": (3, 500)}
