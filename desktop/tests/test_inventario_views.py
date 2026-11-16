@@ -87,12 +87,13 @@ def test_ver_foto_abre_el_visor(qtbot, vista, monkeypatch):
                     "VALUES ('tst-escenario', 1, 'evidencia.jpg', 97)")
         conn.commit()
     llamadas = []
-    monkeypatch.setattr("app.views.inventario.ver_foto",
-                        lambda padre, ruta, titulo="": llamadas.append((ruta, titulo)))
+    monkeypatch.setattr("app.views.lecturas.ver_fotos",
+                        lambda padre, fotos, indice=0, origen=None, al_cambiar=None: llamadas.append(
+                            (fotos[indice].ruta, fotos[indice].sku, fotos[indice].producto)))
     v, _ana = vista
     v.abrir_detalle("A1")
     d = v.detalle
     qtbot.addWidget(d)
     esperar(qtbot, lambda: d.tabla.rowCount() == 2 and d.tabla.cellWidget(0, 5) is not None)
-    d.tabla.cellWidget(0, 5).click()
-    assert llamadas == [("evidencia.jpg", "A1 · Producto A1")]
+    d.tabla.cellWidget(0, 5).boton.click()
+    assert llamadas == [("evidencia.jpg", "A1", "Producto A1")]

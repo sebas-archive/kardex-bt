@@ -32,7 +32,7 @@ from ..i18n import registrar, t
 from ..models import Lectura, fmt_num
 from ..tema import colores
 from .base import QueryRunner, StateBanner
-from .foto import ver_foto
+from .lecturas import DetalleLecturas
 
 registrar({
     "Buscar por SKU o nombre del producto": "Search by SKU or product name",
@@ -65,65 +65,6 @@ registrar({
 })
 
 COLUMNAS = ("SKU", "Producto", "Categoría", "Contada", "Sistema")
-
-
-class DetalleLecturas(QDialog):
-    """Todas las lecturas de un SKU, marcando cuál es la vigente (la más reciente)."""
-
-    def __init__(self, sku: str, nombre: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._sku, self._nombre = sku, nombre
-        self.setWindowTitle(t("Lecturas de {sku} — {nombre}", sku=sku, nombre=nombre))
-        self.resize(760, 340)
-        self._runner = QueryRunner(self)
-        self.banner = StateBanner()
-        self.banner.retry.connect(lambda: self._cargar(self._sku))
-        self.tabla = QTableWidget(0, 6)
-        self.tabla.setHorizontalHeaderLabels([t("Cantidad"), t("Operador"), t("Fecha (UTC)"), t("Vigente"),
-                                              t("Nota"), t("Foto")])
-        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tabla.verticalHeader().hide()
-        self.tabla.horizontalHeader().setStretchLastSection(True)
-        lay = QVBoxLayout(self)
-        lay.addWidget(self.banner)
-        lay.addWidget(self.tabla)
-        self._cargar(sku)
-
-    def _cargar(self, sku: str) -> None:
-        self.banner.show_loading()
-        self._runner.run(db.fetch_lecturas, self._mostrar, self.banner.show_error, sku, key="lecturas")
-
-    def _mostrar(self, lecturas: list[Lectura]) -> None:
-        if not lecturas:
-            self.banner.show_empty(t("Sin lecturas para este SKU"))
-        else:
-            self.banner.clear()
-        self.tabla.setRowCount(len(lecturas))
-        tenue = QColor(colores()["texto_suave"])
-        for fila, lectura in enumerate(lecturas):
-            celdas = (
-                fmt_num(lectura.cantidad),
-                lectura.operador or "—",
-                lectura.fecha_captura.strftime("%Y-%m-%d %H:%M:%S"),
-                t("Sí") if lectura.vigente else t("No"),
-                lectura.nota or "",
-            )
-            for columna, texto in enumerate(celdas):
-                item = QTableWidgetItem(texto)
-                if not lectura.vigente:
-                    item.setForeground(QBrush(tenue))
-                self.tabla.setItem(fila, columna, item)
-            if lectura.ruta_foto:
-                boton = QPushButton(t("Ver foto"))
-                boton.setObjectName("enlace")
-                boton.clicked.connect(
-                    lambda _c=False, ruta=lectura.ruta_foto: ver_foto(
-                        self, ruta, f"{self._sku} · {self._nombre}"))
-                self.tabla.setCellWidget(fila, 5, boton)
-            else:
-                self.tabla.setItem(fila, 5, QTableWidgetItem(""))
-        self.tabla.resizeColumnsToContents()
 
 
 def _cargar(texto: str):
@@ -221,7 +162,8 @@ class InventarioView(QWidget):
         fila = next((f for f in self._filas if f.sku == sku), None)
         if fila is None:
             return
-        self.detalle = DetalleLecturas(sku, fila.nombre, self)
+        self.detalle = DetalleLecturas(sku, fila.nombre, self, categoria=fila.categoria,
+                                       contada=fila.cant_contada, sistema=fila.cant_sistema)
         self.detalle.show()
 
     def exportar_csv(self, ruta: str | Path) -> None:
