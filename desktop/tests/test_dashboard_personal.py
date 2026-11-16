@@ -230,6 +230,25 @@ def test_un_grafico_recien_agregado_dice_cargando_y_no_sin_datos(qtbot):
     assert not v._graficos[item.id].cargando                          # si falló, ya no finge que está cargando
 
 
+def test_quitar_un_panel_no_deja_una_etiqueta_muerta_que_rompa_el_siguiente_widget(qtbot):
+    """Regresión: tras quitar «Última sincronización», agregar cualquier widget lanzaba RuntimeError (QLabel borrado)
+    y el widget nuevo se quedaba sin datos."""
+    from types import SimpleNamespace
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    v = vista(qtbot, ANA)
+    v._resumen = SimpleNamespace(skus_totales=5, contados=4, avance_pct=80.0, ok=1, faltantes=1, sobrantes=2,
+                                 exactitud_pct=25.0, sin_contar=1)
+    v._batch = SimpleNamespace(ultimo_run=datetime(2026, 11, 15, 10, 0), procesados=3, errores=0, pendientes=0)
+    v._crudo = {"categorias": [("A", 1.0)], "series": {"avance_categoria": [("A", 50.0)]}, "actividad": [],
+                "auditoria": []}
+    panel = next(i for i in v.items() if i.clave == "batch")
+    v.quitar_widget(panel.id)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)    # Qt borra el QLabel
+    nuevo = v.agregar_widget("avance_categoria")                                  # antes: RuntimeError
+    assert nuevo is not None and not v.datos_de(nuevo.id).vacio
+    assert [i.clave for i in prefs.cargar("ana.gomez", ANA)].count("avance_categoria") == 1
+
+
 def test_cada_usuario_tiene_su_propio_dashboard(qtbot):
     a = vista(qtbot, ANA)
     a.agregar_widget("sin_contar")
