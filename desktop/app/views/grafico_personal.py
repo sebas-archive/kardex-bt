@@ -57,6 +57,7 @@ class GraficoPersonal(QWidget):
         self.setMouseTracking(True)
         self.setMinimumHeight(110)
         self._datos = Datos()
+        self.cargando = False     # sin datos todavía porque la consulta sigue en curso (no es «Sin datos»)
         self._tipo = "barras"
         self._leyenda = True
         self._etiquetas = True
@@ -162,8 +163,9 @@ class GraficoPersonal(QWidget):
         d = self._datos
         if d.vacio:
             p.setPen(QColor(c["texto_suave"]))
+            vacio = t("Sin datos en este período") if d.temporal else t("Sin datos")
             p.drawText(self.rect(), int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
-                       t("Sin datos en este período") if d.temporal else t("Sin datos"))
+                       t("Cargando…") if self.cargando else vacio)
             p.end()
             return
         area = QRectF(self.rect()).adjusted(2, 2, -2, -2)
