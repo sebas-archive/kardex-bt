@@ -555,7 +555,7 @@ class DashboardView(QWidget):
         except TypeError:
             pass
         hoja.agregar.connect(self.agregar_widget)
-        hoja.abrir_con(self._sesion, {i.clave for i in self._items})
+        hoja.abrir_con(self._sesion, [i.clave for i in self._items])
 
     def _configurar(self, id_: str) -> None:
         item = self.item(id_)

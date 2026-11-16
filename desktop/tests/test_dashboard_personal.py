@@ -288,3 +288,26 @@ def test_la_cifra_de_una_tarjeta_nunca_queda_invisible_tras_un_hover_sin_leave(q
     c.set_detalle("")
     qtbot.wait(800)
     assert c._op_valor.opacity() == 1.0 and c.texto_visible() == "100"
+
+
+def test_un_fundido_de_entrada_no_deja_efecto_puesto(qtbot, monkeypatch):
+    """Regresión: la baldosa nueva conservaba un efecto de opacidad que se anidaba con el de sus cifras (en blanco)."""
+    from app.views import motion, widgets
+    monkeypatch.setattr(widgets, "ANIMAR", True)
+    w = widgets.TarjetaKpi("Avance")
+    qtbot.addWidget(w)
+    w.show()
+    motion.desvanecer(w, 0.0, 1.0, 100)
+    qtbot.waitUntil(lambda: w.graphicsEffect() is None, timeout=2000)
+
+
+def test_el_catalogo_cuenta_cuantas_veces_esta_cada_widget(qtbot):
+    from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+    from app.views.dashboard_paneles import CatalogoWidgets
+    ventana = QWidget()
+    qtbot.addWidget(ventana)
+    cat = CatalogoWidgets(ventana)
+    cat.abrir_con(None, ["avance", "batch_corridas", "batch_corridas"])
+    botones = [b.text() for b in cat.findChildren(QPushButton)]
+    assert "Ya agregado" in botones and "Agregar otro" in botones          # un indicador no se repite; un gráfico sí
+    assert any("En tu dashboard: 2" in l.text() for l in cat.findChildren(QLabel))
