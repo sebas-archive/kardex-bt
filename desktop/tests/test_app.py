@@ -3,7 +3,7 @@
 from datetime import datetime
 
 import pytest
-from PyQt6.QtWidgets import QLineEdit
+from PyQt6.QtWidgets import QApplication, QLineEdit
 
 from app import auth, i18n, tema
 from app.auth import ADMIN, INVENTARIO, OPERADOR, Sesion
@@ -266,3 +266,43 @@ def test_access_remembers_the_username(qtbot):
     qtbot.addWidget(otra)
     assert otra.txt_usuario.text() == "ana.gomez" and otra.chk_recordar.isChecked()
     ajustes.clear()
+
+
+def test_access_gear_changes_guest_theme_and_language_and_persists(qtbot):
+    from PyQt6.QtCore import QSettings
+    from PyQt6.QtWidgets import QLabel
+    from app import tema as tema_mod
+    ajustes = QSettings("GestionInventario", "Acceso")
+    ajustes.clear()
+    vista = AccesoView()
+    qtbot.addWidget(vista)
+    vista.resize(1920, 1011)
+    vista.show()
+    qtbot.wait(30)
+    assert not vista.btn_config.isHidden()
+    assert vista.btn_config.x() > vista.width() - 100
+    vista._construir_menu_config()
+    assert vista._menu_config_acciones["tema"]["claro"].isChecked()
+    assert vista._menu_config_acciones["idioma"]["es"].isChecked()
+
+    vista._elegir_tema_invitado("oscuro")
+    assert tema_mod.modo() == "oscuro"
+    assert ajustes.value("tema_invitado") == "oscuro"
+
+    vista.mostrar_formulario(1)
+    vista.txt_usuario_nuevo.setText("ana.gomez")
+    vista.txt_nombre.setText("Ana Gómez")
+    vista._elegir_idioma_invitado("en")
+    assert i18n.idioma() == "en"
+    assert vista.formularios.currentIndex() == 1
+    assert vista.txt_usuario_nuevo.text() == "ana.gomez" and vista.txt_nombre.text() == "Ana Gómez"
+    titulo = vista.formularios.currentWidget().findChild(QLabel, "tituloFormulario")
+    assert titulo is not None and titulo.text() == "Create account"
+    assert ajustes.value("idioma_invitado") == "en"
+
+    otra = AccesoView()
+    qtbot.addWidget(otra)
+    assert i18n.idioma() == "en" and tema_mod.modo() == "oscuro"
+    ajustes.clear()
+    tema_mod.aplicar(QApplication.instance(), "sistema")
+    i18n.set_idioma("es")

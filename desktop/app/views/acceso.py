@@ -7,10 +7,10 @@ del backend no cambia (``auth._validar_clave``).
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                             QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget)
+                             QApplication, QMenu, QScrollArea, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
 from .. import auth, fortaleza, i18n, tema
 from ..i18n import t
@@ -20,50 +20,45 @@ from .iconos import icono
 
 
 class FondoAcceso(QWidget):
-    """Fondo azul con degradado y círculos decorativos; la tarjeta va encima."""
+    """Fondo limpio del tema, sin decoración exterior; solo la sombra de la tarjeta."""
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        g = QLinearGradient(0, 0, self.width(), self.height())
-        g.setColorAt(0.0, QColor("#172554"))
-        g.setColorAt(0.55, QColor("#1D4ED8"))
-        g.setColorAt(1.0, QColor("#3B82F6"))
-        p.fillRect(self.rect(), g)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(255, 255, 255, 18))
-        for x, y, r in ((self.width() * 0.12, self.height() * 0.18, 160),
-                        (self.width() * 0.88, self.height() * 0.12, 110),
-                        (self.width() * 0.78, self.height() * 0.88, 190)):
-            p.drawEllipse(QPointF(x, y), r, r)
-        p.setBrush(QColor(255, 255, 255, 12))
-        p.drawEllipse(QPointF(self.width() * 0.5, self.height() * 0.95), 240, 240)
+        p.fillRect(self.rect(), QColor(tema.colores()["fondo"]))
+        tarjeta = getattr(self, "_tarjeta", None)
+        if tarjeta is not None:
+            geo = QRectF(tarjeta.geometry())
+            p.setPen(Qt.PenStyle.NoPen)
+            for i in range(10, 0, -1):
+                p.setBrush(QColor(0, 0, 0, 6))
+                p.drawRoundedRect(geo.adjusted(-i, -i + 6, i, i + 6), 18 + i, 18 + i)
         p.end()
 
 
 class PanelMarca(QFrame):
-    """Panel izquierdo azul con degradado y círculos translúcidos; el texto va en blanco."""
+    """Panel izquierdo 40 %: degradado azul, forma de superficie, esfera y círculo azules."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(390)
+        self.setFixedWidth(360)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(20, 40, 20, 34)
         lay.setSpacing(10)
         self.lbl_marca = QLabel(t("GESTIÓN DE INVENTARIO"))
-        self.lbl_marca.setStyleSheet("color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 700; "
-                                     "letter-spacing: 1.5px; background: transparent;")
+        self.lbl_marca.setStyleSheet("color: rgba(255,255,255,0.72); font-size: 10px; font-weight: 700; "
+                                     "letter-spacing: 1.4px; background: transparent;")
         self.lbl_bienvenida = QLabel(t("BIENVENIDO"))
-        self.lbl_bienvenida.setStyleSheet("color: #FFFFFF; font-size: 24px; font-weight: 800; background: transparent;")
+        self.lbl_bienvenida.setStyleSheet("color: #FFFFFF; font-size: 28px; font-weight: 800; background: transparent;")
         self.lbl_bienvenida.setWordWrap(True)
-        self.lbl_bienvenida.setMaximumWidth(200)
+        self.lbl_bienvenida.setMaximumWidth(235)
         self.lbl_imagen = QLabel(t("Conteo físico sin red.\nEl PC recibe por Bluetooth y Oracle concilia."))
-        self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 13px; background: transparent;")
+        self.lbl_imagen.setStyleSheet("color: rgba(255,255,255,0.88); font-size: 12px; background: transparent;")
         self.lbl_imagen.setWordWrap(True)
-        self.lbl_imagen.setMaximumWidth(180)
+        self.lbl_imagen.setMaximumWidth(160)
         self.lbl_pie = QLabel(t("Android · Bluetooth · Oracle"))
-        self.lbl_pie.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 11px; background: transparent;")
+        self.lbl_pie.setStyleSheet("color: rgba(255,255,255,0.62); font-size: 10px; background: transparent;")
         lay.addStretch(1)
         lay.addWidget(self.lbl_marca)
         lay.addWidget(self.lbl_bienvenida)
@@ -78,7 +73,7 @@ class PanelMarca(QFrame):
         ancho, alto = float(self.width()), float(self.height())
         r = 18.0
 
-        # Recorte exterior: esquinas izquierdas redondeadas; el borde derecho es una curva orgánica.
+        # Recorte exterior: esquinas izquierdas redondeadas (la superficie del formulario queda a la derecha).
         recorte = QPainterPath()
         recorte.moveTo(r, 0)
         recorte.lineTo(ancho, 0)
@@ -90,42 +85,40 @@ class PanelMarca(QFrame):
         recorte.closeSubpath()
         p.setClipPath(recorte)
 
-        # Azul: borde derecho curvo de arriba a abajo, sin tramo recto inferior.
+        # UN solo path azul con borde derecho curvo de arriba a abajo: 82 % arriba, 50 % al centro, 88 % abajo.
         azul = QPainterPath()
         azul.moveTo(r, 0)
-        azul.lineTo(ancho, 0)
-        azul.cubicTo(ancho - 8, alto * 0.18, ancho - 18, alto * 0.50, ancho - 10, alto * 0.72)
-        azul.cubicTo(ancho - 5, alto * 0.88, ancho - 2, alto * 0.95, ancho, alto)
+        azul.lineTo(ancho * 0.82, 0)
+        azul.cubicTo(ancho * 0.78, alto * 0.18, ancho * 0.58, alto * 0.38, ancho * 0.50, alto * 0.55)
+        azul.cubicTo(ancho * 0.50, alto * 0.70, ancho * 0.72, alto * 0.84, ancho * 0.88, alto)
         azul.lineTo(r, alto)
         azul.quadTo(0, alto, 0, alto - r)
         azul.lineTo(0, r)
         azul.quadTo(0, 0, r, 0)
         azul.closeSubpath()
-        g = QLinearGradient(0, 0, ancho * 0.4, alto)
+        g = QLinearGradient(0, 0, ancho * 0.35, alto)
         g.setColorAt(0.0, QColor("#172554"))
-        g.setColorAt(0.45, QColor("#1E40AF"))
+        g.setColorAt(0.42, QColor("#1E40AF"))
         g.setColorAt(1.0, QColor("#2563EB"))
         p.setPen(Qt.PenStyle.NoPen)
         p.fillPath(azul, g)
 
-        # Gran lóbulo de superficie: del borde superior a ~75 % de la altura.
+        # Lóbulo de superficie arriba a la derecha; el resto de la derecha ya es superficie del formulario.
         superficie = QColor(tema.colores()["tarjeta"])
-        p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(superficie)
-        p.drawEllipse(QPointF(ancho + 40, alto * 0.38), 215, 215)
+        p.drawEllipse(QPointF(ancho + 75, alto * 0.15), 215, 215)
 
-        # Dos círculos DESPUÉS del lóbulo, recortados al rectángulo del panel: abajo-izquierda y
-        # centro-derecha (este cruza el lóbulo). Azules visibles, sin brillo blanco.
+        # Círculos DESPUÉS, recortados al rectángulo del panel (el centro-derecha cruza la superficie).
         p.save()
         p.setClipPath(recorte)
         p.setPen(Qt.PenStyle.NoPen)
-        gradiente = QRadialGradient(20, alto * 0.78, 230)
+        gradiente = QRadialGradient(-52, alto * 0.80, 190)
         gradiente.setColorAt(0.0, QColor("#3B82F6"))
-        gradiente.setColorAt(1.0, QColor("#2563EB"))
+        gradiente.setColorAt(1.0, QColor("#1D4ED8"))
         p.setBrush(gradiente)
         p.drawEllipse(QPointF(ancho * 0.18, alto * 0.85), ancho * 0.42, ancho * 0.42)
 
-        gradiente = QRadialGradient(ancho * 0.55, alto * 0.82, 250)
+        gradiente = QRadialGradient(ancho * 0.54, alto * 0.70, 220)
         gradiente.setColorAt(0.0, QColor("#60A5FA"))
         gradiente.setColorAt(0.65, QColor("#3B82F6"))
         gradiente.setColorAt(1.0, QColor("#2563EB"))
@@ -133,6 +126,7 @@ class PanelMarca(QFrame):
         p.drawEllipse(QPointF(ancho * 0.68, alto * 0.95), ancho * 0.48, ancho * 0.48)
         p.restore()
         p.end()
+
 
 
 class MedidorFuerza(QWidget):
@@ -217,7 +211,18 @@ class AccesoView(QWidget):
         super().__init__(parent)
         self._runner = QueryRunner(self)
         self._primero = False
+        self._error_actual = ""
+        self._pregunta_actual: str | None = None
+        self._pregunta_texto = ""
         self._ajustes = QSettings("GestionInventario", "Acceso")
+        self._guest_tema = str(self._ajustes.value("tema_invitado", "claro") or "claro")
+        if self._guest_tema not in ("claro", "oscuro"):
+            self._guest_tema = "claro"
+        self._guest_idioma = str(self._ajustes.value("idioma_invitado", "es") or "es")
+        if self._guest_idioma not in i18n.IDIOMAS:
+            self._guest_idioma = "es"
+        i18n.set_idioma(self._guest_idioma)
+        tema.aplicar(QApplication.instance(), self._guest_tema)
 
         # ---------------------------------------------------------- fondo y tarjeta
         self._fondo = FondoAcceso()
@@ -231,8 +236,8 @@ class AccesoView(QWidget):
         en_tarjeta.setContentsMargins(0, 0, 0, 0)
         en_tarjeta.setSpacing(0)
         self._marca_panel = PanelMarca()
-        self._marca_panel.setMinimumWidth(390)
-        self._marca_panel.setMaximumWidth(390)
+        self._marca_panel.setMinimumWidth(360)
+        self._marca_panel.setMaximumWidth(360)
         self._marca_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self._marca_panel.setVisible(True)
         self._panel_form = QWidget()
@@ -262,12 +267,7 @@ class AccesoView(QWidget):
         self.lbl_error.setWordWrap(True)
         self.lbl_error.hide()
 
-        login = self._construir_login()
-        registro = self._construir_registro()
-        recuperacion = self._construir_recuperacion()
         self.formularios = QStackedWidget()
-        for pagina in (login, registro, recuperacion):
-            self.formularios.addWidget(pagina)
         self._scroll_form = QScrollArea()
         self._scroll_form.setObjectName("scrollAcceso")
         self._scroll_form.setWidgetResizable(True)
@@ -283,8 +283,18 @@ class AccesoView(QWidget):
         en_form.addWidget(self._scroll_form, 1)
         en_form.addWidget(self.lbl_error)
 
+        self._montar_paginas()
         self._conectar()
         self._cargar_recordado()
+        self.btn_config = QToolButton(self)
+        self.btn_config.setObjectName("configAcceso")
+        self.btn_config.setIcon(icono("Configuración", tam=18))
+        self.btn_config.setToolTip(t("Apariencia e idioma"))
+        self.btn_config.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_config.setFixedSize(36, 36)
+        self.btn_config.setAutoRaise(True)
+        self.btn_config.clicked.connect(self._menu_config)
+        self.btn_config.raise_()
 
     # ------------------------------------------------------------------ construcción de páginas
     def _pagina(self, titulo: str, subtitulo: str) -> tuple[QWidget, QVBoxLayout]:
@@ -469,6 +479,104 @@ class AccesoView(QWidget):
         lay.addStretch(1)
         return pagina
 
+    def _montar_paginas(self) -> None:
+        for pagina in (self._construir_login(), self._construir_registro(), self._construir_recuperacion()):
+            self.formularios.addWidget(pagina)
+
+    # ------------------------------------------------------------------ engranaje y preferencias de invitado
+    def _construir_menu_config(self) -> QMenu:
+        menu = QMenu(self)
+        self._menu_config_acciones: dict[str, dict[str, object]] = {"tema": {}, "idioma": {}}
+        apariencia = menu.addMenu(t("Apariencia"))
+        for modo in ("claro", "oscuro"):
+            accion = apariencia.addAction(t(tema.NOMBRE_MODO[modo]))
+            accion.setCheckable(True)
+            accion.setChecked(self._guest_tema == modo)
+            accion.triggered.connect(lambda _marcada=False, m=modo: self._elegir_tema_invitado(m))
+            self._menu_config_acciones["tema"][modo] = accion
+        idioma = menu.addMenu(t("Idioma"))
+        for codigo, nombre in (("es", "Español"), ("en", "English")):
+            accion = idioma.addAction(t(nombre))
+            accion.setCheckable(True)
+            accion.setChecked(self._guest_idioma == codigo)
+            accion.triggered.connect(lambda _marcada=False, c=codigo: self._elegir_idioma_invitado(c))
+            self._menu_config_acciones["idioma"][codigo] = accion
+        return menu
+
+    def _menu_config(self) -> None:
+        menu = self._construir_menu_config()
+        menu.exec(self.btn_config.mapToGlobal(QPoint(0, self.btn_config.height() + 4)))
+
+    def _elegir_tema_invitado(self, modo: str) -> None:
+        if modo not in ("claro", "oscuro"):
+            return
+        self._guest_tema = modo
+        self._ajustes.setValue("tema_invitado", modo)
+        tema.aplicar(QApplication.instance(), modo)
+        self._actualizar_tema()
+
+    def _elegir_idioma_invitado(self, codigo: str) -> None:
+        if codigo not in i18n.IDIOMAS:
+            return
+        self._guest_idioma = codigo
+        self._ajustes.setValue("idioma_invitado", codigo)
+        i18n.set_idioma(codigo)
+        self._reconstruir_idioma()
+
+    def _actualizar_tema(self) -> None:
+        self._fondo.update()
+        self._marca_panel.update()
+        self.btn_config.setIcon(icono("Configuración", tam=18))
+        self.medidor.actualizar(self.txt_clave_nueva.text())
+        self.update()
+
+    def _aplicar_preferencias_invitado(self) -> None:
+        if self._guest_idioma != i18n.idioma():
+            i18n.set_idioma(self._guest_idioma)
+            self._reconstruir_idioma()
+        if self._guest_tema != tema.modo():
+            tema.aplicar(QApplication.instance(), self._guest_tema)
+        self._actualizar_tema()
+
+    def _reconstruir_idioma(self) -> None:
+        """Rehace las páginas al cambiar de idioma conservando formulario, modo y valores escritos."""
+        indice = self.formularios.currentIndex()
+        nombres = ("txt_usuario", "txt_clave", "txt_nombre", "txt_usuario_nuevo", "txt_correo",
+                   "txt_clave_nueva", "txt_confirmacion", "txt_usuario_olvido", "txt_clave_olvido",
+                   "txt_confirmacion_olvido", "txt_respuesta", "txt_respuesta_olvido")
+        valores = {nombre: getattr(self, nombre).text() for nombre in nombres}
+        error = self._error_actual
+        primero = self._primero
+        pregunta, pregunta_texto = self._pregunta_actual, self._pregunta_texto
+        recordar = self.chk_recordar.isChecked()
+        respuesta_olvido = self.txt_respuesta_olvido.text()
+        pregunta_sel = self.combo_pregunta.currentData()
+        while self.formularios.count():
+            pagina = self.formularios.widget(0)
+            self.formularios.removeWidget(pagina)
+            pagina.deleteLater()
+        self._montar_paginas()
+        self._conectar()
+        for nombre, texto in valores.items():
+            getattr(self, nombre).setText(texto)
+        self.combo_pregunta.setCurrentIndex(max(0, self.combo_pregunta.findData(pregunta_sel)))
+        self.chk_recordar.setChecked(recordar)
+        self._primero = primero
+        self._bloque_admin.setVisible(primero)
+        self.medidor.actualizar(self.txt_clave_nueva.text())
+        if pregunta:
+            self._pregunta_actual, self._pregunta_texto = pregunta, pregunta_texto
+            self.lbl_pregunta.setText(t("Pregunta: {pregunta}", pregunta=t(pregunta)))
+            self._caja_respuesta_olvido.show()
+            self.txt_respuesta_olvido.setText(respuesta_olvido)
+        self.formularios.setCurrentIndex(indice)
+        self._scroll_form.verticalScrollBar().setValue(0)
+        if error:
+            self._error(t(error))
+        else:
+            self._error("")
+        QTimer.singleShot(0, self._enfocar)
+
     # ------------------------------------------------------------------ señales
     def _conectar(self) -> None:
         self.btn_entrar.clicked.connect(self._entrar)
@@ -485,6 +593,7 @@ class AccesoView(QWidget):
         """0 = iniciar sesión, 1 = crear cuenta, 2 = contraseña olvidada."""
         self.formularios.setCurrentIndex(indice)
         self._scroll_form.verticalScrollBar().setValue(0)
+        self._error_actual = ""
         self._error("")
         if indice == 1:
             self._consultar_primer_admin()
@@ -512,11 +621,18 @@ class AccesoView(QWidget):
         if hasattr(self, "_tarjeta"):
             ancho = max(760, min(900, self.width() - 56))
             self._tarjeta.setFixedWidth(ancho)
+        if hasattr(self, "btn_config"):
+            self.btn_config.move(self.width() - 56, 20)
+            self.btn_config.raise_()
 
     def showEvent(self, evento) -> None:
         super().showEvent(evento)
         if hasattr(self, "_tarjeta"):
             self._tarjeta.setFixedWidth(max(760, min(900, self.width() - 56)))
+        if hasattr(self, "btn_config"):
+            self.btn_config.move(self.width() - 56, 20)
+            self.btn_config.raise_()
+            self._aplicar_preferencias_invitado()
         QTimer.singleShot(0, self._enfocar)
 
     def _enfocar(self) -> None:
@@ -632,11 +748,12 @@ class AccesoView(QWidget):
             self.sin_acceso.emit(resultado)
             return
         self.limpiar()
-        self._aviso(str(resultado))
+        self._aviso(t(str(resultado)))
 
     def _fallo(self, mensaje: str) -> None:
         self._ocupado(False)
-        self._error(mensaje)
+        self._error_actual = mensaje
+        self._error(t(mensaje))
         motion.sacudir(self._tarjeta, 9)
 
 

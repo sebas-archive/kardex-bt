@@ -384,3 +384,27 @@ registrar({
     "Escribe tu usuario y pulsa Ver pregunta.": "Write your username and click Show question.",
     "Ver pregunta": "Show question",
 })
+
+registrar({
+    "Apariencia e idioma": "Appearance and language",
+    "Ajustes": "Settings",
+    "Usuario o contraseña incorrectos.": "Incorrect username or password.",
+    "Ese usuario ya existe.": "That username already exists.",
+    "Ese correo ya está en uso.": "That email is already in use.",
+    "El correo no es válido.": "That email address is not valid.",
+    "El usuario debe tener de 3 a 30 caracteres: letras, números, punto o guion.":
+        "The username must have 3 to 30 characters: letters, numbers, dot or dash.",
+    "Escribe tu nombre completo (máximo 60 caracteres).": "Write your full name (maximum 60 characters).",
+    "La contraseña necesita mínimo 8 caracteres.": "The password needs at least 8 characters.",
+    "La contraseña debe tener letras y números.": "The password must have letters and numbers.",
+    "Las dos contraseñas no coinciden.": "The two passwords do not match.",
+    "Los operadores usan la app móvil.": "Operators use the mobile app.",
+    "La respuesta de seguridad no es correcta.": "The security answer is not correct.",
+    "Contraseña cambiada. Entra con la nueva.": "Password changed. Sign in with the new one.",
+    "Solicitud enviada. Un administrador la revisará.": "Request sent. An administrator will review it.",
+    "Elige una pregunta de seguridad.": "Choose a security question.",
+    "Escribe la respuesta de seguridad.": "Write the security answer.",
+    "Los operadores no recuperan su contraseña desde el escritorio.":
+        "Operators do not recover their password from the desktop app.",
+    "El usuario o la contraseña no son correctos.": "The username or password is not correct.",
+})
