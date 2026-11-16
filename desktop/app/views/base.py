@@ -173,6 +173,8 @@ QLabel#paletaLupa { color: #10B981; font-size: 19px; padding-left: 4px; }
 QListWidget#paletaLista { background: transparent; border: none; outline: none; }
 QListWidget#paletaLista::item { border: none; }
 QLabel#paletaPie { color: #6E6E6E; font-size: 11px; background: transparent; }
+QToolButton#configAcceso { border: none; background: transparent; border-radius: 8px; padding: 4px; }
+QToolButton#configAcceso:hover { background: rgba(255, 255, 255, 0.08); }
 QToolButton#ayudaVista { color: #8A8A8A; font-size: 11px; font-weight: 700; min-width: 22px; max-width: 22px;
     min-height: 22px; max-height: 22px; border: 1px solid #3A3A3A; border-radius: 11px; }
 QToolButton#ayudaVista:hover { color: #FFFFFF; border-color: #10B981; background: #133A2C; }
