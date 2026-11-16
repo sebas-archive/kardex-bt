@@ -15,6 +15,7 @@ from btsync.respaldo import respaldos_dir
 
 from .. import auth, respaldos
 from ..i18n import registrar, t
+from .. import i18n
 from .base import QueryRunner, StateBanner
 from .isla import isla
 
@@ -58,7 +59,7 @@ CLAVE = "RESTAURAR"
 
 def _tamano(n: int) -> str:
     if n >= 1024 * 1024:
-        return f"{n / 1024 / 1024:.1f} MB".replace(".", ",")
+        return f"{i18n.decimal(n / 1024 / 1024)} MB"
     return f"{max(1, round(n / 1024))} KB"
 
 

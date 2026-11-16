@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QWidget
 
 from ..dashboard_datos import Datos
 from ..i18n import t
+from .. import i18n
 from ..tema import colores
 from . import widgets
 
@@ -24,9 +25,9 @@ PEQUENO = 260   # por debajo de este ancho se simplifica el dibujo
 
 def formatear(v: float, unidad: str = "") -> str:
     if abs(v - round(v)) < 1e-9:
-        texto = f"{int(round(v)):,}".replace(",", ".")
+        texto = i18n.miles(int(round(v)))
     else:
-        texto = f"{v:,.1f}".replace(",", "§").replace(".", ",").replace("§", ".")
+        texto = i18n.miles(v, 1)
     return f"{texto} {unidad}".strip() if unidad else texto
 
 
@@ -521,7 +522,7 @@ class GraficoPersonal(QWidget):
         if self._tipo in ("circular", "anillo"):
             serie = d.series[0]
             total = sum(v for k, v in enumerate(serie.valores) if v > 0 and k not in self._ocultas_cat)
-            pct = f" · {serie.valores[i] / total * 100:.1f}%".replace(".", ",") if total > 0 and serie.valores[i] > 0 else ""
+            pct = f" · {i18n.decimal(serie.valores[i] / total * 100)}%" if total > 0 and serie.valores[i] > 0 else ""
             return [d.etiquetas[i], f"{formatear(serie.valores[i])}{pct}"]
         unidad = d.unidad if d.unidad == "%" else ""
         lineas = [d.etiquetas[i]]
