@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import date
 
 from PyQt6.QtCore import QDate
-from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel, QLineEdit, QTableWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import auditoria, auth
 from ..i18n import registrar, t
@@ -65,7 +65,13 @@ class AuditoriaView(QWidget):
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.verticalHeader().hide()
         self.tabla.verticalHeader().setDefaultSectionSize(34)
-        self.tabla.horizontalHeader().setStretchLastSection(True)
+        # Las columnas cortas se ajustan a su contenido y «Detalle» absorbe todo el ancho que sobra, así la tabla
+        # siempre llena su área (con resizeColumnsToContents() la última columna perdía el estiramiento).
+        cabecera = self.tabla.horizontalHeader()
+        cabecera.setStretchLastSection(True)
+        for columna in range(len(ENCABEZADOS) - 1):
+            cabecera.setSectionResizeMode(columna, QHeaderView.ResizeMode.ResizeToContents)
+        cabecera.setSectionResizeMode(len(ENCABEZADOS) - 1, QHeaderView.ResizeMode.Stretch)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(4, 4, 4, 4)
@@ -133,7 +139,6 @@ class AuditoriaView(QWidget):
                       t(e.accion), e.detalle)
             for columna, valor in enumerate(celdas):
                 self.tabla.setItem(fila, columna, QTableWidgetItem(valor))
-        self.tabla.resizeColumnsToContents()
         if not self._todas:
             self.banner.show_empty(t("Todavía no hay acciones registradas."))
         elif not vistas:
