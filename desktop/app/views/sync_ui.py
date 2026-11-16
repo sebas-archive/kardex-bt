@@ -27,7 +27,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QPushButton, QStyledItemDelegate, QTableWidget, QVBoxLayout, QLabel, QWidget
 from PyQt6 import sip
 
-from .. import tema
+from .. import i18n, tema
 from . import motion, widgets
 
 AZUL = QColor("#3B5BDB")          # el azul de Bluetooth que ya usan el indicador y el diagrama anteriores
@@ -378,7 +378,7 @@ class IconoBluetooth(QWidget):
 
 # ------------------------------------------------------------------ contador tipo odómetro
 def formato_miles(n: int) -> str:
-    return f"{int(n):,}".replace(",", ".")
+    return i18n.miles(int(n))
 
 
 class Odometro(QWidget):

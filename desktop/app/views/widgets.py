@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QStackedLayout, QVBoxLayout, QWidget
 
 from .. import tema
+from .. import i18n
 
 ANIMAR = os.environ.get("APP_SIN_ANIMACIONES") != "1"
 
@@ -266,7 +267,7 @@ class Anillo(QWidget):
         fuente.setPixelSize(int(lado * 0.2))
         fuente.setBold(True)
         p.setFont(fuente)
-        texto = "—" if self._valor is None else f"{self._visible:.1f}".replace(".", ",") + " %"
+        texto = "—" if self._valor is None else i18n.porcentaje(self._visible)
         p.drawText(caja, Qt.AlignmentFlag.AlignCenter, texto)
         fuente.setPixelSize(13)
         fuente.setBold(False)

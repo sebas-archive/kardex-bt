@@ -104,13 +104,15 @@ class ErrorFila:
 # ---------------------------------------------------------------- formatos es-CO
 def fmt_pct(valor: float) -> str:
     """80.0 → «80,0 %»."""
-    return f"{valor:.1f}".replace(".", ",") + " %"
+    from . import i18n
+    return i18n.porcentaje(valor)
 
 
 def fmt_cop(valor: float) -> str:
     """Pesos sin decimales y con punto de miles: 11800 → «$ 11.800»."""
     entero = int(round(abs(valor)))
-    texto = f"{entero:,}".replace(",", ".")
+    from . import i18n
+    texto = i18n.miles(entero)
     return f"-$ {texto}" if valor < 0 and entero else f"$ {texto}"
 
 
@@ -120,4 +122,6 @@ def fmt_num(valor: float | None) -> str:
         return "—"
     if float(valor).is_integer():
         return str(int(valor))
-    return f"{valor:.3f}".rstrip("0").rstrip(".").replace(".", ",")
+    from . import i18n
+    texto = f"{valor:.3f}".rstrip("0").rstrip(".")
+    return texto.replace(".", ",") if i18n.idioma() == "es" else texto
