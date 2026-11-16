@@ -28,7 +28,10 @@ from PyQt6.QtWidgets import (
 
 from PyQt6.QtWidgets import QApplication
 
-from . import motion, widgets
+from PyQt6 import sip
+
+from ..i18n import t
+from . import motion, motion_global, widgets
 from .iconos import icono
 from .isla import isla
 
@@ -533,7 +536,9 @@ class TooltipRico(QWidget):
 
 # ----------------------------------------------------------------------------- chips y filtros
 class ChipActivo(QFrame):
-    """Chip de filtro activo: entra deslizándose y sale encogiéndose."""
+    """Chip de filtro activo. Vive dentro de un ``_Hueco`` (que le reserva el espacio y el separador): entra creciendo
+    desde la izquierda con fundido y una escala leve, y sale encogiéndose, desvaneciéndose y cediendo su sitio a los
+    demás sin saltos."""
 
     quitado = pyqtSignal(str)
 
@@ -550,31 +555,116 @@ class ChipActivo(QFrame):
         cerrar = QToolButton()
         cerrar.setObjectName("chipActivoCerrar")
         cerrar.setIcon(icono("x", tam=12))
-        cerrar.setToolTip("Quitar filtro")
+        cerrar.setToolTip(t("Quitar este filtro"))
         cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
         cerrar.clicked.connect(self._quitar)
         lay.addWidget(etiqueta)
         lay.addWidget(cerrar)
         self._etiqueta = etiqueta
+        self._quitando = False
+
+    def poner_texto(self, texto: str) -> None:
+        motion.cruzar_texto(self._etiqueta, texto, 180)
 
     def _quitar(self) -> None:
-        if getattr(self, "_quitando", False):
+        """El clic en ✕: avisa (para que quien lo creó quite el filtro) y se retira."""
+        if self._quitando:
+            return
+        clave = self.clave
+        self.retirar()
+        self.quitado.emit(clave)
+
+    def retirar(self) -> None:
+        """Sale con animación (o directamente si no hay animaciones). No avisa: lo usa quien ya sabe que el filtro cayó."""
+        if self._quitando:
             return
         self._quitando = True
-        clave = self.clave
-        ancho, alto = self.width(), self.height()
-        self.quitado.emit(clave)
-        efecto, _ = motion.opacidad(self)
-        efecto.setOpacity(1.0)
-        motion.animar(self, ancho, 0, motion.RAPIDO,
-                      lambda v: self.setMaximumWidth(int(v)))
-        motion.animar(self, alto, 0, motion.RAPIDO, lambda v: self.setMaximumHeight(int(v)))
-        motion.animar(self, 1.0, 0.0, motion.RAPIDO, efecto.setOpacity,
-                      self.deleteLater)
+        hueco = self.parentWidget()
+        if not isinstance(hueco, _Hueco):
+            self.deleteLater()
+            return
+        hueco.salir()
+
+
+class _Hueco(QWidget):
+    """Reserva el espacio de un chip (incluido el separador de 6 px), de modo que al entrar o salir el ancho crece o
+    se contrae de forma continua y los vecinos se reacomodan sin un salto final."""
+
+    SEPARADOR = 6
+
+    def __init__(self, chip: ChipActivo, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.chip = chip
+        self.saliendo = False
+        self._anim: QVariantAnimation | None = None
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, self.SEPARADOR, 0)
+        lay.addWidget(chip)
+        chip.setParent(self)
+
+    def _ancho_natural(self) -> int:
+        return self.chip.sizeHint().width() + self.SEPARADOR
+
+    def entrar(self, retardo: int = 0) -> None:
+        if not widgets.ANIMAR:
+            return
+        self.setMaximumWidth(0)
+        QTimer.singleShot(retardo, self._arrancar_entrada)
+
+    def _arrancar_entrada(self) -> None:
+        if sip.isdeleted(self) or self.saliendo:
+            return
+        ancho = self._ancho_natural()
+        efecto = motion.efecto_movimiento(self.chip, radio=13)
+        efecto.set_opacidad(0.0)
+        efecto.set_escala(0.88)
+
+        def paso(v: float) -> None:
+            if sip.isdeleted(self) or sip.isdeleted(efecto):
+                return
+            self.setMaximumWidth(max(1, int(ancho * v)))
+            efecto.set_opacidad(min(1.0, v * 1.5))
+            efecto.set_escala(0.88 + 0.12 * v)
+
+        def fin() -> None:
+            if sip.isdeleted(self):
+                return
+            self.setMaximumWidth(16777215)
+            motion.soltar_efecto(self.chip, efecto)
+
+        self._anim = motion.animar(self, 0.0, 1.0, motion.dur(motion.NORMAL), paso, fin, motion_global.resorte(1.05))
+
+    def salir(self) -> None:
+        self.saliendo = True
+        motion.detener(self._anim)
+        if not widgets.ANIMAR or not self.isVisible():
+            self.hide()
+            self.deleteLater()
+            return
+        ancho = max(1, self.width())
+        efecto = motion.efecto_movimiento(self.chip, radio=13)
+
+        def paso(v: float) -> None:
+            if sip.isdeleted(self) or sip.isdeleted(efecto):
+                return
+            self.setMaximumWidth(max(0, int(ancho * (1 - v))))
+            efecto.set_opacidad(1.0 - v)
+            efecto.set_escala(1.0 - 0.12 * v)
+
+        def fin() -> None:
+            if not sip.isdeleted(self):
+                self.hide()
+                self.deleteLater()
+
+        self._anim = motion.animar(self, 0.0, 1.0, motion.dur(motion.RAPIDO + 40), paso, fin,
+                                   motion_global.SALIDA)
 
 
 class FiltrosActivos(QWidget):
-    """Fila de chips de filtros vigentes; aparece con stagger y reacomoda al quitar."""
+    """Fila de chips de filtros vigentes. Cada filtro conserva su chip mientras siga activo (si cambia su valor solo se
+    cruza el texto), los nuevos entran donde les toca en el orden recibido y solo salen los que ya no están.
+
+    La fila misma se despliega y se pliega (altura) al aparecer el primer chip y al irse el último."""
 
     quitado = pyqtSignal(str)
 
@@ -582,46 +672,63 @@ class FiltrosActivos(QWidget):
         super().__init__(parent)
         self._lay = QHBoxLayout(self)
         self._lay.setContentsMargins(0, 0, 0, 0)
-        self._lay.setSpacing(6)
+        self._lay.setSpacing(0)
         self._lay.addStretch(1)
-        self._chips: dict[str, ChipActivo] = {}
+        self._chips: dict[str, _Hueco] = {}
         self._quitar: dict[str, Callable[[], None]] = {}
         self.hide()
 
+    def claves(self) -> list[str]:
+        """Las claves de los chips vigentes, en el orden en que se ven (para las pruebas)."""
+        return [c for c in self._orden_visual() if c in self._chips]
+
+    def _orden_visual(self) -> list[str]:
+        huecos = [self._lay.itemAt(i).widget() for i in range(self._lay.count()) if self._lay.itemAt(i).widget()]
+        return [h.chip.clave for h in huecos if isinstance(h, _Hueco) and not h.saliendo]
+
     def actua(self, filtros: list[tuple[str, str, Callable[[], None]]]) -> None:
-        """``[(clave, texto, quitar), …]``. Solo las claves nuevas entran; las que sobran salen."""
+        """``[(clave, texto, quitar), …]``. Solo las claves nuevas entran; las que sobran salen; las demás se quedan."""
         vigentes = {c for c, _t, _q in filtros}
         for clave in list(self._chips):
             if clave not in vigentes:
-                self._chips.pop(clave)._quitar()
+                self._quitar.pop(clave, None)           # ya cayó: no hay que volver a ejecutar su acción
+                self._chips.pop(clave).chip.retirar()
+        nuevas = 0
         for indice, (clave, texto, quitar) in enumerate(filtros):
-            if clave in self._chips:
-                self._chips[clave]._etiqueta.setText(texto)
-                continue
-            chip = ChipActivo(clave, texto, self)
-            chip.quitado.connect(self._chip_quitado)
             self._quitar[clave] = quitar
-            chip.setMaximumWidth(0)
-            chip.hide()
-            self._chips[clave] = chip
-            QTimer.singleShot(28 * indice, lambda c=chip: self._entrar(c))
-        self.setVisible(bool(filtros) or bool(self._chips))
-        self._lay.setStretch(self._lay.count() - 1, 1)
+            if clave in self._chips:
+                self._chips[clave].chip.poner_texto(texto)
+                continue
+            chip = ChipActivo(clave, texto)
+            chip.quitado.connect(self._chip_quitado)
+            hueco = _Hueco(chip, self)
+            self._chips[clave] = hueco
+            posterior = next((self._chips[c] for c, _t, _q in filtros[indice + 1:] if c in self._chips), None)
+            posicion = self._lay.indexOf(posterior) if posterior is not None else self._lay.count() - 1
+            self._lay.insertWidget(posicion, hueco)
+            hueco.entrar(nuevas * 28)
+            nuevas += 1
+        saliendo = any(self._lay.itemAt(i).widget() is not None and getattr(self._lay.itemAt(i).widget(), "saliendo", False)
+                       for i in range(self._lay.count()))
+        hay = bool(filtros)
+        if hay:
+            motion_global.desplegar(self, True, motion.dur(motion.NORMAL))
+        elif saliendo and widgets.ANIMAR:
+            QTimer.singleShot(motion.dur(motion.RAPIDO + 60), self._plegar_si_vacia)
+        else:
+            motion_global.desplegar(self, False, motion.dur(motion.NORMAL))
+
+    def _plegar_si_vacia(self) -> None:
+        if not sip.isdeleted(self) and not self._chips:
+            motion_global.desplegar(self, False, motion.dur(motion.NORMAL))
 
     def _chip_quitado(self, clave: str) -> None:
+        """El usuario pulsó ✕: se quita el filtro (el chip ya se está retirando) y se avisa."""
         self._chips.pop(clave, None)
         fn = self._quitar.pop(clave, None)
         if fn is not None:
             fn()
         self.quitado.emit(clave)
-
-    def _entrar(self, chip: ChipActivo) -> None:
-        if not chip.isVisible():
-            chip.show()
-        chip.setMaximumWidth(600)
-        chip.setMaximumHeight(32)
-        ancho = max(40, chip.sizeHint().width())
-        motion.animar(chip, 0, ancho, motion.NORMAL, lambda v: chip.setMaximumWidth(int(v)))
 
 
 # ----------------------------------------------------------------------------- barra de lote

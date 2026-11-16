@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 from ..i18n import t
 from ..workers import QueryWorker
 from .isla import isla
+from . import motion, motion_global, widgets
 from .motion_global import BarridoCarga
 
 ESTILO = """
@@ -193,6 +194,7 @@ QLabel#ayudaTecla { background: #1C1C1C; border: 1px solid #383838; border-radiu
 
 /* Chips de filtros activos */
 QFrame#chipActivo { background: #132A22; border: 1px solid #2F6B57; border-radius: 13px; }
+QFrame#chipActivo:hover { background: #133A2C; border: 1px solid #34D399; }
 QLabel#chipActivoTexto { color: #6EE7B7; font-size: 11px; font-weight: 600; background: transparent; }
 QToolButton#chipActivoCerrar { color: #6EE7B7; font-size: 10px; min-width: 16px; min-height: 16px; border-radius: 8px; }
 QToolButton#chipActivoCerrar:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }
@@ -593,8 +595,13 @@ class StateBanner(QFrame):
         self._label.setText(texto)
 
     def _linea(self, texto: str) -> None:
-        self._label.setText(texto)
-        self.show()
+        """Muestra el estado: si la línea estaba oculta se despliega; si ya se veía, el texto se cruza con el nuevo."""
+        if self.isVisible() and widgets.ANIMAR and not getattr(self, "_plegando", False):
+            motion.cruzar_texto(self._label, texto, 200)
+        else:
+            self._label.setText(texto)
+        self._plegando = False
+        motion_global.desplegar(self, True, motion.dur(motion.NORMAL))
 
     def show_loading(self) -> None:
         self._linea(t("Cargando…"))
@@ -607,14 +614,18 @@ class StateBanner(QFrame):
     def show_error(self, mensaje: str) -> None:
         self._barrido.detener()
         self._label.setText(t("No se pudo consultar la base de datos: {mensaje}", mensaje=mensaje))
-        self.hide()
+        motion_global.desplegar(self, False, 0)         # el error va a la Isla: la línea se retira sin esperar
         self._con_error = True
         isla.error(t("No se pudo consultar la base de datos"), mensaje, clave=self._clave,
                    accion=(t("Reintentar"), self.retry.emit))
 
     def clear(self) -> None:
         self._barrido.detener()
-        self.hide()
+        if self.isVisible():
+            self._plegando = True
+            motion_global.desplegar(self, False, motion.dur(motion.NORMAL))
+        else:
+            self.hide()
         if self._con_error:
             self._con_error = False
             isla.cerrar(clave=self._clave)
