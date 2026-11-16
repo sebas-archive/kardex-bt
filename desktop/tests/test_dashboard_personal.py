@@ -197,6 +197,39 @@ def test_arrastrar_y_soltar_reordena(qtbot):
     assert [i.id for i in prefs.cargar("ana.gomez", ANA)] == v.rejilla.ids()
 
 
+def test_un_fallo_suelto_de_oracle_se_reintenta_y_no_deja_el_widget_vacio(monkeypatch):
+    from app.views import dashboard as dash
+    monkeypatch.setattr(dash.time, "sleep", lambda _s: None)
+    llamadas = []
+
+    def inestable():
+        llamadas.append(1)
+        if len(llamadas) < dash.INTENTOS:
+            raise RuntimeError("ORA-12516")
+        return "datos"
+
+    assert dash._con_reintentos(inestable) == "datos" and len(llamadas) == dash.INTENTOS
+
+
+def test_si_oracle_sigue_fallando_se_propaga_el_error_tras_los_reintentos(monkeypatch):
+    from app.views import dashboard as dash
+    monkeypatch.setattr(dash.time, "sleep", lambda _s: None)
+
+    def roto():
+        raise RuntimeError("ORA-12516")
+
+    with pytest.raises(RuntimeError):
+        dash._con_reintentos(roto)
+
+
+def test_un_grafico_recien_agregado_dice_cargando_y_no_sin_datos(qtbot):
+    v = vista(qtbot, ANA)
+    item = v.agregar_widget("lecturas_tiempo")
+    assert v._graficos[item.id].cargando                              # su consulta aún no ha vuelto
+    v._fallo_carga("ORA-12516")
+    assert not v._graficos[item.id].cargando                          # si falló, ya no finge que está cargando
+
+
 def test_cada_usuario_tiene_su_propio_dashboard(qtbot):
     a = vista(qtbot, ANA)
     a.agregar_widget("sin_contar")
