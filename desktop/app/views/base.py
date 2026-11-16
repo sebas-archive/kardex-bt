@@ -326,6 +326,11 @@ QTableView::item:selected, QTableWidget::item:selected { background: #10261F; co
 QHeaderView { background: transparent; qproperty-defaultAlignment: AlignLeft; }
 QHeaderView::section { background: #0F0F0F; color: #8A8A8A; font-size: 11px; font-weight: 700; padding: 10px 10px;
                        border: none; border-bottom: 1px solid #232323; }
+/* El fondo del encabezado es cuadrado y la tabla redondeada: sin esto sus esquinas sobresalen del borde.
+   El radio es el de la tabla (14) menos el borde (1). */
+QHeaderView::section:horizontal:first { border-top-left-radius: 13px; }
+QHeaderView::section:horizontal:last { border-top-right-radius: 13px; }
+QHeaderView::section:horizontal:only-one { border-top-left-radius: 13px; border-top-right-radius: 13px; }
 QTableView QLabel#insignia, QTableWidget QLabel#insignia { margin: 9px 12px; }
 QTableView QComboBox, QTableWidget QComboBox { margin: 4px 8px; min-height: 16px; padding: 4px 10px; }
 QTableCornerButton::section { background: #0F0F0F; border: none; }
