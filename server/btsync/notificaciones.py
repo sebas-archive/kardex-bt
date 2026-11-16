@@ -71,3 +71,31 @@ def _lecturas(n: int) -> str:
 def texto_sincronizacion(dispositivo: str, recibidos: int, errores: int) -> str:
     return (f"Sincronización recibida: {dispositivo}, {_lecturas(recibidos)}"
             + (f" · {errores} con error" if errores else ""))
+
+
+def texto_nuevo_sku(sku: str) -> str:
+    """El aviso de una lectura que espera la decisión del Administrador; «Ver» lleva a Sincronización."""
+    return f"Nuevo SKU {sku}: decide «Crear y procesar» o «No crear» en Sincronización."
+
+
+def _id_y_sku(fila) -> tuple[int, str]:
+    """Acepta ``(id_transito, sku)`` o un objeto con esos atributos (p. ej. ``NuevoSkuFila`` del escritorio)."""
+    if hasattr(fila, "id_transito"):
+        return int(fila.id_transito), str(fila.sku or "")
+    return int(fila[0]), str(fila[1] or "")
+
+
+def avisar_nuevos_sku(cur, filas) -> int:
+    """Deja en la CAMPANA/Notificaciones el aviso de cada lectura NUEVO_SKU pendiente. Sin COMMIT.
+
+    La ``clave`` ``NUEVO_SKU:<id_transito>`` la hace idempotente: evaluarla otra vez no duplica nada.
+    La usan ``Store.run_batch`` (el móvil sincronizó con la app cerrada) y el backfill del escritorio.
+    Devuelve cuántas notificaciones se crearon de verdad.
+    """
+    creadas = 0
+    for fila in filas:
+        id_transito, sku = _id_y_sku(fila)
+        if crear(cur, "NUEVO_SKU", texto_nuevo_sku(sku), "Sincronización", rol="ADMIN",
+                 clave=f"NUEVO_SKU:{id_transito}"):
+            creadas += 1
+    return creadas

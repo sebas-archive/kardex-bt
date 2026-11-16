@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import logging
 import os
 import threading
 import time
 from pathlib import Path
 
 import oracledb
+
+log = logging.getLogger("btsync.store")
 
 _client_ready = False
 _connect_lock = threading.Lock()
@@ -291,7 +294,26 @@ class Store:
             o=origen,
         )
         row = cur.fetchone()
-        return (int(row[0]), int(row[1])) if row else (0, 0)
+        resultado = (int(row[0]), int(row[1])) if row else (0, 0)
+        self._avisar_nuevos_sku(cur)
+        return resultado
+
+    def _avisar_nuevos_sku(self, cur) -> None:
+        """Avisa en la campana de cada lectura NUEVO_SKU que siga esperando decisión (idempotente por clave).
+
+        Se llama desde ``run_batch`` después del COMMIT de ``PKG_BATCH``, así también cubre el caso «la app
+        estaba cerrada y el móvil sincronizó». Es secundario: si la instalación aún no tiene la vista o la
+        tabla, la sincronización termina igual (el aviso flotante del escritorio sigue siendo el principal).
+        """
+        from . import notificaciones
+
+        try:
+            cur.execute("SELECT id_transito, sku FROM v_nuevos_sku")
+            if notificaciones.avisar_nuevos_sku(cur, cur.fetchall()):
+                self.commit()
+        except oracledb.Error:
+            log.exception("no se pudo avisar de los SKU nuevos en la campana")
+            self.rollback()
 
     def open_sync(self, uuid: str) -> int:
         conn = self._connection()
