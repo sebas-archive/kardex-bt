@@ -1,6 +1,6 @@
 # Guion de demo (5 minutos)
 
-Datos: el conteo continuo `ACTUAL` de la semilla (58 SKU). La demo muestra el ciclo completo: **contar sin red →
+Datos: el conteo continuo `ACTUAL` de la semilla (120 SKU; con `08_demo.sql` ya trae 30 días de historia y las cuentas `admin`/`inventario`, clave `Demo1234`). La demo muestra el ciclo completo: **contar sin red →
 subir por Bluetooth → batch → conciliación → inventario y gráficas → alta de un SKU → reproceso**. No hay cierre de
 conteo: el sistema siempre está contando.
 
@@ -23,7 +23,7 @@ docker compose up -d bluetooth app
 
 | Min | Qué se hace | Qué se dice / qué se ve |
 |---|---|---|
-| 0:00 | Crear la primera cuenta del PC (queda como Administrador y Activa) e iniciar sesión; mostrar el **Dashboard**. | «Hay 58 productos en el sistema; nadie ha contado nada.» Avance en 0 %, contados 0 de 58. |
+| 0:00 | Crear la primera cuenta del PC (queda como Administrador y Activa) e iniciar sesión; mostrar el **Dashboard**. | «Hay 120 productos en el sistema.» Con los datos de demo el avance parte en ~83 %; sin `08_demo.sql`, en 0 %. |
 | 0:15 | En el celular: **Crear cuenta** (usuario, nombre, correo opcional y pregunta de seguridad) → queda *PENDIENTE*. En el PC, **Solicitudes**: aprobar como *Operador de Inventario*. En el celular: **Comprobar estado** → entra. | «Nadie trabaja sin aprobación.» Si se rechaza o suspende, el celular muestra el motivo. |
 | 0:30 | En el celular, en **modo avión**: **Catálogo**, abrir un producto, **escanear** 3–4 códigos y digitar 1 a mano. Recontar uno (se avisa que reemplaza la lectura anterior). Mostrar **Pendientes**. | «Sin wifi ni red celular: todo queda guardado en el teléfono.» Cada lectura aparece `PENDIENTE`. |
 | 1:30 | En el PC, pantalla **Sincronización**. | El servicio está *activo* y el PC se anuncia como `gestion_inventario`, aunque se cierre la ventana. «Pausar» lo detiene sin cortar una sincronización en curso. |
