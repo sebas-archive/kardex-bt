@@ -275,6 +275,7 @@ class AvisoNuevoSku(QFrame):
             item = self._en_aviso.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()          # deleteLater tarda: sin esto la tarjeta vieja seguiría pintada un instante
                 widget.deleteLater()
         self._tarjetas = []
         self.lbl_mas = None
@@ -301,6 +302,13 @@ class AvisoNuevoSku(QFrame):
             self.btn_ocultos.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_ocultos.clicked.connect(self.mostrar_ocultos)
             self._en_aviso.addWidget(self.btn_ocultos, 0, Qt.AlignmentFlag.AlignRight)
+        # Con el aviso ya visible, Qt muestra los widgets recién añadidos más tarde; hasta entonces el layout no
+        # los cuenta y ``reubicar`` mediría el aviso con altura 0 (las tarjetas «desaparecían» hasta el siguiente
+        # sondeo). Mostrarlos aquí hace que la medida sea correcta al instante.
+        for i in range(self._en_aviso.count()):
+            widget = self._en_aviso.itemAt(i).widget()
+            if widget is not None:
+                widget.show()
 
     def _aplicar_estilo(self) -> None:
         self.setStyleSheet(_estilo(colores()))
