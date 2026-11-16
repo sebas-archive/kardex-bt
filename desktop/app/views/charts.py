@@ -34,7 +34,7 @@ from .base import QueryRunner, StateBanner
 from .graficas_interactivas import HoverBarras, HoverLinea
 from .iconos import icono
 from .rejilla_personal import Baldosa, RejillaPersonal
-from .widgets import Dona
+from .widgets import Anillo, Dona
 
 registrar({
     "Avance por categoría": "Progress by category",
@@ -65,6 +65,16 @@ registrar({
     "No hay gráficas. Pulsa «Personalizar gráficas» y luego «Añadir gráfica».":
         "No charts. Press “Customize charts” and then “Add chart”.",
     "Ya están todas las gráficas": "All charts are already shown",
+    "Avance global": "Overall progress",
+    "Lecturas acumuladas": "Cumulative readings",
+    "Lecturas por día": "Readings per day",
+    "Lecturas por operador": "Readings per operator",
+    "SKUs pendientes por categoría": "Pending SKUs by category",
+    "SKUs más leídos": "Most-read SKUs",
+    "Unidades buenas vs. dañadas": "Good vs. damaged units",
+    "SKUs contados": "Counted SKUs",
+    "Buenas": "Good",
+    "Dañadas": "Damaged",
 })
 
 ROJO, AMBAR, GRIS = "#F04438", "#F79009", "#98A2B3"
@@ -77,10 +87,21 @@ TITULOS = {
     "top": "Top categorías por lecturas",
     "danados": "Unidades dañadas por categoría",
     "batch": "Estado del batch",
+    "global": "Avance global",
+    "acumulado": "Lecturas acumuladas",
+    "dia": "Lecturas por día",
+    "operadores": "Lecturas por operador",
+    "pendientes": "SKUs pendientes por categoría",
+    "skus": "SKUs más leídos",
+    "buenas": "Unidades buenas vs. dañadas",
 }
 FUENTE_CHICA = QFont("DejaVu Sans", 8)
 # Clave de la gráfica → clave de la serie que devuelve db.fetch_series.
-SERIE_DE = {"avance": "avance_categoria", "top": "top_categorias", "hora": "por_hora", "danados": "danados"}
+SERIE_DE = {"avance": "avance_categoria", "top": "top_categorias", "hora": "por_hora", "danados": "danados",
+            "dia": "por_dia", "operadores": "operadores", "pendientes": "pendientes", "skus": "skus"}
+BARRAS_NUEVAS = ("dia", "operadores", "pendientes", "skus")   # barras verticales como «top», pero de otra serie
+CON_CLIC = ("avance", "top", "danados", "pendientes")          # las que filtran el inventario por categoría
+SIN_PLOT = ("dona", "global", "buenas")                        # se dibujan con un widget propio, no con pyqtgraph
 
 
 def _entero(valor: float) -> str:
@@ -116,8 +137,8 @@ class ChartsView(QWidget):
         self._runner = QueryRunner(self)
         self._sesion: auth.Sesion | None = None
         self._cargado = False
-        self._datos: dict[str, list] = {c: [] for c in CHART_IDS}
-        self._series: dict[str, list] = {c: [] for c in EXTRA_IDS}
+        self._datos: dict[str, list] = {c: [] for c in CHART_IDS + BARRAS_NUEVAS}
+        self._series: dict[str, list] = {c: [] for c in EXTRA_IDS + ("acumulado", "buenas")}
         self._barras: dict[str, pg.BarGraphItem] = {}
         self._anims: dict[str, object] = {}
         self._hovers: dict[str, object] = {}
@@ -146,6 +167,9 @@ class ChartsView(QWidget):
         self.plots: dict[str, pg.PlotWidget] = {}
         self.dona = Dona({"contados": self._color["acento"], "pendientes": self._color["texto_suave"]},
                          {"contados": t("Contados"), "pendientes": t("Pendientes")})
+        self.anillo = Anillo(t("SKUs contados"), self._color["acento"])
+        self.dona_buenas = Dona({"buenas": self._color["acento"], "danadas": self._color["error"]},
+                                {"buenas": t("Buenas"), "danadas": t("Dañadas")}, unidad="uds")
         self._marcos: dict[str, QFrame] = {}
         for chart_id in prefs.IDS:
             marco = QFrame()
@@ -157,8 +181,8 @@ class ChartsView(QWidget):
             titulo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
             lay.setContentsMargins(16, 14, 16, 12)
             lay.addWidget(titulo)
-            if chart_id == "dona":
-                lay.addWidget(self.dona)
+            if chart_id in SIN_PLOT:
+                lay.addWidget({"dona": self.dona, "global": self.anillo, "buenas": self.dona_buenas}[chart_id])
             else:
                 formato = fmt_pct if chart_id == "avance" else _entero
                 plot = pg.PlotWidget(axisItems={"left": EjeFormato("left", formato)})
@@ -381,26 +405,37 @@ class ChartsView(QWidget):
         self.combo_categoria.setCurrentIndex(max(self.combo_categoria.findText(actual), 0))
         self.combo_categoria.blockSignals(False)
         self._pintar(datos)
-        if any(datos.get(SERIE_DE.get(c, c)) for c in CHART_IDS + EXTRA_IDS):
+        if any(datos.get(SERIE_DE.get(c, c)) for c in CHART_IDS + EXTRA_IDS + BARRAS_NUEVAS):
             self.banner.clear()
         else:
             self.banner.show_empty(t("Sin datos"))
 
     def _pintar(self, datos: dict) -> None:
-        formatos = {"avance": fmt_pct, "top": _entero, "danados": _entero}
-        for chart_id in ("avance", "top", "danados"):
+        formatos = {"avance": fmt_pct}
+        for chart_id in ("avance", "top", "danados") + BARRAS_NUEVAS:
             nuevos = list(datos.get(SERIE_DE[chart_id], []))
             if nuevos == self._datos[chart_id] and chart_id in self._barras:
                 continue
             self._datos[chart_id] = nuevos
-            self._dibujar(chart_id, nuevos, formatos[chart_id])
+            self._dibujar(chart_id, nuevos, formatos.get(chart_id, _entero))
         for chart_id in EXTRA_IDS:
             nuevos = list(datos.get(SERIE_DE.get(chart_id, chart_id), []))
             if nuevos == self._series[chart_id] and nuevos:
                 continue
             self._series[chart_id] = nuevos
         self.dona.set_datos(self._series["dona"])
-        self._linea(self._series["hora"])
+        self._linea("hora", self._series["hora"])
+        acumulado, total = [], 0.0
+        for etiqueta, v in self._series["hora"]:
+            total += v
+            acumulado.append((etiqueta, total))
+        self._series["acumulado"] = acumulado
+        self._linea("acumulado", acumulado)
+        pares = dict(datos.get("contados_pendientes", []))
+        todos = sum(pares.values())
+        self.anillo.set_valor(100.0 * pares.get("contados", 0.0) / todos if todos else None)
+        self._series["buenas"] = list(datos.get("buenas", []))
+        self.dona_buenas.set_datos(self._series["buenas"])
         self._batch(list(datos.get("batch", [])), list(datos.get("batch_errores", [])))
 
     def _preparar(self, chart_id: str) -> pg.PlotWidget:
@@ -426,7 +461,7 @@ class ChartsView(QWidget):
         self._barras[chart_id] = barras
         hover = self._hovers.get(chart_id)
         if hover is None:
-            hover = HoverBarras(plot, formato, self._clic_categoria)
+            hover = HoverBarras(plot, formato, self._clic_categoria if chart_id in CON_CLIC else (lambda _e, _v: None))
             self._hovers[chart_id] = hover
         hover.set_datos([e for e, _ in datos], valores, colores_barras, barras)
         muchas = len(datos) > 6
@@ -448,8 +483,8 @@ class ChartsView(QWidget):
         self._anims[chart_id] = widgets.animar(self, 0.0, 1.0, 700,
                                                lambda f: barras.setOpts(height=[v * f for v in valores]))
 
-    def _linea(self, datos: list[tuple[str, float]]) -> None:
-        plot = self._preparar("hora")
+    def _linea(self, chart_id: str, datos: list[tuple[str, float]]) -> None:
+        plot = self._preparar(chart_id)
         if not datos:
             plot.getAxis("bottom").setTicks([[]])
             return
@@ -469,13 +504,13 @@ class ChartsView(QWidget):
         plot.setYRange(0, maximo * 1.2 + 1, padding=0)
         paso = max(1, math.ceil(maximo / 5))
         plot.getAxis("left").setTickSpacing(major=paso, minor=paso)
-        hover = self._hovers.get("hora")
+        hover = self._hovers.get(chart_id)
         if hover is None:
             hover = HoverLinea(plot, [], [], lambda _e, _v: None)
-            self._hovers["hora"] = hover
+            self._hovers[chart_id] = hover
         hover.set_datos([h for h, _ in datos], valores)
-        widgets._detener(self._anims.get("hora"))
-        self._anims["hora"] = widgets.animar(self, 0.0, 1.0, 750,
+        widgets._detener(self._anims.get(chart_id))
+        self._anims[chart_id] = widgets.animar(self, 0.0, 1.0, 750,
                                              lambda f: curva.setData(xs, [v * f for v in valores]))
 
     def _batch(self, procesadas: list[tuple[str, float]], errores: list[tuple[str, float]]) -> None:
