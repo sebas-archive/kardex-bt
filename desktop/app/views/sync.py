@@ -7,9 +7,9 @@ Todo lo que se ve sale de datos reales: ``ServicioRemoto.status()`` (estado, có
 ``v_estado_batch`` y ``captura_transito``/``registros_procesados`` (contadores y actividad). No hay temporizadores
 que avancen etapas ni tráfico simulado. Las consultas corren en ``QueryRunner`` (hilos) y entregan por señal.
 
-Procesar y reprocesar lo pueden hacer Administrador e Inventario (matriz: Gestión en ``sync``). Dar de alta
-un SKU desconocido es solo del Administrador y se hace desde la lectura en error: crea el producto con
-stock 0 en el conteo ``ACTUAL`` y vuelve a reprocesar.
+Procesar y reprocesar lo pueden hacer Administrador e Inventario (matriz: Gestión en ``sync``). Un SKU desconocido
+**ya no termina en error**: queda en ``NUEVO_SKU`` y se decide en el aviso flotante «Nuevo SKU» de la ventana
+(«Crear y procesar» o «No crear»); esta pantalla solo informa cuántos esperan decisión.
 """
 
 from __future__ import annotations
@@ -21,14 +21,10 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -82,7 +78,6 @@ registrar({
     "Reintentar": "Retry",
     "Procesar ahora": "Process now",
     "Reprocesar errores": "Reprocess errors",
-    "Dar de alta el SKU": "Create the SKU",
     "Lecturas con error": "Readings with errors",
     "Todos los motivos": "All reasons",
     "Dispositivo": "Device",
@@ -113,20 +108,8 @@ registrar({
     "Bluetooth no disponible": "Bluetooth unavailable",
     "Error al procesar las lecturas": "Error processing readings",
     "Error durante la sincronización": "Error during synchronization",
-    "Alta de SKU": "Create SKU",
-    "El SKU no existe en el catálogo. Al darlo de alta se crea con stock 0; luego se reprocesa la lectura.":
-        "The SKU is not in the catalog. Creating it sets stock 0; then the reading is reprocessed.",
-    "Nombre del producto": "Product name",
-    "Categoría": "Category",
-    "Crear y reprocesar": "Create and reprocess",
     "Cancelar": "Cancel",
-    "El SKU, el nombre y la categoría son obligatorios.": "SKU, name and category are required.",
-    "Dar de alta un SKU": "Create a SKU",
-    "Pasa la lectura a error de nuevo para reintentar.": "Send the reading back to error to retry.",
-    "Selecciona una lectura con error de SKU desconocido.": "Select a reading with an unknown-SKU error.",
     "Aún no se ha procesado nada": "Nothing has been processed yet.",
-    "· último procesamiento {fecha} UTC ({origen}) · {pendientes} pendientes, {errores} con error":
-        "· last run {fecha} UTC ({origen}) · {pendientes} pending, {errores} with error",
     "Cómo sincronizar": "How to sync",
     "1. Mientras el servicio está activo, el PC se anuncia como gestion_inventario, aunque esta ventana esté cerrada.<br>"
     "2. En el celular abre Sincronizar.<br>"
@@ -270,7 +253,7 @@ PASO_DE = {
     DETENIDO: None,
 }
 
-ENCABEZADOS_ERRORES = ("Dispositivo", "Secuencia", "SKU", "Motivo", "Fecha de recepción", "Estado", "Acción")
+ENCABEZADOS_ERRORES = ("Dispositivo", "Secuencia", "SKU", "Motivo", "Fecha de recepción", "Estado")
 TODOS_LOS_MOTIVOS = "Todos los motivos"
 RANGOS_ES = (("15m", "15 min", "Últimos 15 minutos"), ("1h", "1 hora", "Última hora"),
              ("24h", "24 horas", "Últimas 24 horas"), ("7d", "7 días", "Últimos 7 días"))
@@ -422,50 +405,6 @@ def _cargar_todo(rango: str) -> dict:
         "actividad": actividad,
         "tasa": sync_datos.lecturas_por_minuto(actividad if rango == "15m" else sync_datos.fetch_actividad("15m")),
     }
-
-
-
-class AltaSku(QDialog):
-    """Datos mínimos para dar de alta el SKU que el operador no encontró en el catálogo."""
-
-    def __init__(self, sku: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(t("Dar de alta un SKU"))
-        self.txt_sku = QLineEdit(sku)
-        self.txt_nombre = QLineEdit()
-        self.txt_categoria = QLineEdit()
-        self.lbl_error = QLabel("")
-        self.lbl_error.setObjectName("errorFormulario")
-        self.lbl_error.setWordWrap(True)
-        self.lbl_error.hide()
-        forma = QFormLayout()
-        forma.addRow(t("SKU"), self.txt_sku)
-        forma.addRow(t("Nombre del producto"), self.txt_nombre)
-        forma.addRow(t("Categoría"), self.txt_categoria)
-        ayuda = QLabel(t("El SKU no existe en el catálogo. Al darlo de alta se crea con stock 0; "
-                         "luego se reprocesa la lectura."))
-        ayuda.setObjectName("ayuda")
-        ayuda.setWordWrap(True)
-        botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        botones.button(QDialogButtonBox.StandardButton.Ok).setText(t("Crear y reprocesar"))
-        botones.button(QDialogButtonBox.StandardButton.Cancel).setText(t("Cancelar"))
-        botones.accepted.connect(self._aceptar)
-        botones.rejected.connect(self.reject)
-        raiz = QVBoxLayout(self)
-        raiz.addWidget(ayuda)
-        raiz.addLayout(forma)
-        raiz.addWidget(self.lbl_error)
-        raiz.addWidget(botones)
-
-    def _aceptar(self) -> None:
-        if not self.datos()[0] or not self.datos()[1] or not self.datos()[2]:
-            self.lbl_error.setText(t("El SKU, el nombre y la categoría son obligatorios."))
-            self.lbl_error.show()
-            return
-        self.accept()
-
-    def datos(self) -> tuple[str, str, str]:
-        return self.txt_sku.text().strip().upper(), self.txt_nombre.text().strip(), self.txt_categoria.text().strip()
 
 
 
@@ -708,14 +647,16 @@ class SyncView(QWidget):
         self.banner.retry.connect(self.refresh)
         self.lbl_cuenta = _etiqueta("", "badgeSync")
         self.lbl_ultimo_run = _etiqueta("", "subtitulo")
+        self.chip_nuevos = Pildora(t("Nuevos SKU: 0"), "pausa")
+        self.chip_nuevos.setToolTip(
+            t("Lecturas con un SKU que no está en el catálogo: se deciden en el aviso flotante "
+              "(«Crear y procesar» o «No crear») y no cuentan como error."))
+        self.lbl_nuevos = _etiqueta(t("No hay SKU nuevos pendientes de decisión."), "subtitulo", True)
         self.combo_motivo = QComboBox()
         self.combo_motivo.addItem(t(TODOS_LOS_MOTIVOS))
         self.combo_motivo.setMinimumWidth(200)
         self.btn_reprocesar = QPushButton(t("Reprocesar errores"))
         self.btn_procesar = QPushButton(t("Procesar ahora"))
-        self.btn_alta = QPushButton(t("Dar de alta el SKU"))
-        self.btn_alta.setObjectName("primario")
-        self.btn_alta.setEnabled(False)
         self.progreso = QProgressBar()
         self.progreso.setObjectName("progresoSync")
         self.progreso.setRange(0, 0)
@@ -738,8 +679,9 @@ class SyncView(QWidget):
         barra.setSpacing(8)
         barra.addWidget(_etiqueta(t("Lecturas con error"), "seccion"))
         barra.addWidget(self.lbl_cuenta)
+        barra.addWidget(self.chip_nuevos)
         barra.addStretch(1)
-        for w in (self.btn_alta, self.combo_motivo, self.btn_reprocesar, self.btn_procesar):
+        for w in (self.combo_motivo, self.btn_reprocesar, self.btn_procesar):
             barra.addWidget(w)
         self.tarjeta_errores = _tarjeta()
         en_errores = QVBoxLayout(self.tarjeta_errores)
@@ -747,6 +689,7 @@ class SyncView(QWidget):
         en_errores.setSpacing(8)
         en_errores.addLayout(barra)
         en_errores.addWidget(self.lbl_ultimo_run)
+        en_errores.addWidget(self.lbl_nuevos)
         en_errores.addWidget(self.progreso)
         en_errores.addWidget(self.banner)
         en_errores.addWidget(self.pila, 1)
@@ -774,11 +717,8 @@ class SyncView(QWidget):
         exterior.setContentsMargins(0, 0, 0, 0)
         exterior.addWidget(desplazable)
         self.combo_motivo.currentIndexChanged.connect(lambda _: self._filtrar())
-        self.tabla_errores.itemSelectionChanged.connect(self._seleccion)
-        self.tabla_errores.cellClicked.connect(self._clic_celda)
         self.btn_procesar.clicked.connect(lambda: self._accion(db.procesar_ahora))
         self.btn_reprocesar.clicked.connect(lambda: self._accion(db.reprocesar_errores, reprocesa=True))
-        self.btn_alta.clicked.connect(self._alta)
 
         remoto.status_changed.connect(self._actualizar)
         self._poner_cuenta()
@@ -796,7 +736,6 @@ class SyncView(QWidget):
     def set_sesion(self, sesion: auth.Sesion | None) -> None:
         self._sesion = sesion
         self._actualizar(self._remoto.status())
-        self._seleccion()
         if sesion is not None:
             self.refresh()
 
@@ -853,13 +792,16 @@ class SyncView(QWidget):
         self.lbl_actualizado.setText("· " + t("Última actualización {hora}", hora=f"{self._ultima_actualizacion:%H:%M:%S}"))
         self._pintar_oracle()
         self._poner_contadores()
+        self._poner_nuevos()
         self._pintar_actividad()
         estado = self._batch
         self.lbl_ultimo_run.setText(
             t("Aún no se ha procesado nada") if estado.ultimo_run is None else
-            t("· último procesamiento {fecha} UTC ({origen}) · {pendientes} pendientes, {errores} con error",
+            t("· último procesamiento {fecha} UTC ({origen}) · {pendientes} pendientes, {errores} con error, "
+              "{nuevos} nuevos, {descartados} descartados",
               fecha=f"{estado.ultimo_run:%Y-%m-%d %H:%M}", origen=estado.ultimo_origen,
-              pendientes=estado.pendientes, errores=estado.errores))
+              pendientes=estado.pendientes, errores=estado.errores,
+              nuevos=estado.nuevos, descartados=estado.descartados))
         nuevos = list(datos["errores"])
         quitados = [i for i, e in enumerate(self._visibles) if e.id_transito not in {n.id_transito for n in nuevos}]
         self._errores_nuevos = nuevos
@@ -918,6 +860,15 @@ class SyncView(QWidget):
             self.contadores["pendientes"].set_valor(self._batch.pendientes + self._batch.procesando)
             self.contadores["errores"].set_valor(self._batch.errores)
 
+    def _poner_nuevos(self) -> None:
+        """Chip «Nuevos SKU» con el conteo de ``v_estado_batch.nuevos`` y su ayuda, sin contarlos como error."""
+        nuevos = self._batch.nuevos if self._batch is not None else 0
+        self.chip_nuevos.set_estado("aviso" if nuevos else "ok", t("Nuevos SKU: {n}", n=nuevos))
+        self.lbl_nuevos.setText(
+            t("Los SKU nuevos esperan tu decisión en el aviso flotante («Crear y procesar» o «No crear»). "
+              "Ya no cuentan como error.") if nuevos
+            else t("No hay SKU nuevos pendientes de decisión."))
+
     def _pintar_oracle(self) -> None:
         if self._oracle_ok is None:
             self.pill_oracle.set_estado("pausa", t("Comprobando Oracle…"))
@@ -969,11 +920,9 @@ class SyncView(QWidget):
         self._visibles = [e for e in self._errores if motivo is None or e.mensaje_error == motivo]
         self.tabla_errores.clearSelection()
         self.tabla_errores.setRowCount(len(self._visibles))
-        admin = self._es_admin()
         for fila, e in enumerate(self._visibles):
-            accion = t("Dar de alta") if admin and e.mensaje_error == "SKU_DESCONOCIDO" else "—"
             celdas = (e.uuid_dispositivo, str(e.seq), e.sku, motivo_legible(e.mensaje_error),
-                      f"{e.fecha_recepcion:%d/%m/%Y %H:%M}" if e.fecha_recepcion else "", t("Con error"), accion)
+                      f"{e.fecha_recepcion:%d/%m/%Y %H:%M}" if e.fecha_recepcion else "", t("Con error"))
             for columna, texto in enumerate(celdas):
                 item = QTableWidgetItem(texto)
                 item.setToolTip(texto)
@@ -983,7 +932,6 @@ class SyncView(QWidget):
         for c in range(len(ENCABEZADOS_ERRORES)):
             cab.resizeSection(c, max(cab.sectionSize(c) + 28, 96))
         self._pila_vacia()
-        self._seleccion()
 
     def _pila_vacia(self) -> None:
         hay = bool(self._visibles)
@@ -993,46 +941,6 @@ class SyncView(QWidget):
             self.vacio.lbl_desc.setText(t("No hay lecturas pendientes de revisión") if sin_filtro
                                         else t("Cambia el filtro para ver los demás errores."))
         self.pila.setCurrentWidget(self.tabla_errores if hay else self.vacio)
-
-    def _seleccion(self) -> None:
-        error = self._error_seleccionado()
-        self.btn_alta.setVisible(self._es_admin())
-        self.btn_alta.setEnabled(self._es_admin() and error is not None
-                                 and error.mensaje_error == "SKU_DESCONOCIDO")
-
-    def _clic_celda(self, fila: int, columna: int) -> None:
-        if columna == 6 and self.btn_alta.isEnabled():
-            self._alta()
-
-    def _error_seleccionado(self):
-        filas = {i.row() for i in self.tabla_errores.selectionModel().selectedIndexes()} \
-            if self.tabla_errores.selectionModel() else set()
-        if len(filas) != 1:
-            return None
-        fila = filas.pop()
-        return self._visibles[fila] if 0 <= fila < len(self._visibles) else None
-
-    def _es_admin(self) -> bool:
-        return self._sesion is not None and self._sesion.es_admin
-
-    def _alta(self) -> None:
-        error = self._error_seleccionado()
-        if error is None or not self._es_admin():
-            return
-        dialogo = AltaSku(error.sku, self)
-        if dialogo.exec() != QDialog.DialogCode.Accepted or self._sesion is None:
-            return
-        sku, nombre, categoria = dialogo.datos()
-        self.btn_alta.setEnabled(False)
-        self._runner.run(db.crear_producto, self._alta_creada, self._alta_fallo,
-                         self._sesion, sku, nombre, categoria)
-
-    def _alta_creada(self, _resultado) -> None:
-        self._accion(db.reprocesar_errores, reprocesa=True)
-
-    def _alta_fallo(self, mensaje: str) -> None:
-        self.btn_alta.setEnabled(True)
-        self.banner.show_error(mensaje)
 
     # ------------------------------------------------------------- procesar / reprocesar
     def _accion(self, operacion, reprocesa: bool = False) -> None:
@@ -1118,7 +1026,6 @@ class SyncView(QWidget):
         self.btn_rechazar.setVisible(estado == CONFIRMAR_CODIGO and gestiona)
         self.btn_procesar.setVisible(gestiona)
         self.btn_reprocesar.setVisible(gestiona)
-        self.btn_alta.setVisible(self._es_admin())
         self.btn_reintentar.setVisible(estado in (ERROR, DETENIDO) and gestiona)
 
         ultima = status.get("ultima")

@@ -3,7 +3,9 @@
 No tocan el protocolo, el esquema ni las reglas del batch: solo cuentan filas que ya existen en
 ``CAPTURA_TRANSITO`` (lecturas recibidas y su estado) y ``REGISTROS_PROCESADOS`` (lecturas ya procesadas).
 Como todo acceso a Oracle, **no se llaman desde el hilo de la interfaz** (``QueryRunner``).
-"""
+
+Los estados ``NUEVO_SKU`` (SKU desconocido esperando decisión) y ``DESCARTADO`` (lectura no tomada) cuentan como
+recibidas, pero **no como error**: aquí «error» es solo ``estado = 'ERROR'`` (formato/cantidad inválidos)."""
 
 from __future__ import annotations
 
@@ -43,6 +45,8 @@ class Actividad:
 
 @dataclass(frozen=True)
 class ContadoresDia:
+    """Recibidas del día y, de ellas, las procesadas y las que quedaron en ERROR (los NUEVO_SKU no son error)."""
+
     recibidas: int
     procesadas: int
     errores: int
