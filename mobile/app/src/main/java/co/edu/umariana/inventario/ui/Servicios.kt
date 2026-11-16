@@ -19,6 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
+import co.edu.umariana.inventario.sync.SyncProgress
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.Build
@@ -37,6 +39,9 @@ class Servicios private constructor(val contexto: Context) {
     val fotos = FotoRepository(db.fotos(), java.io.File(contexto.filesDir, "fotos"))
     val notificaciones = NotificacionRepository(db.notificaciones())
     val contar = CountViewModel(db.outbox(), catalogo, settings, fotos)
+
+    /** El PC respondió en esta ejecución de la app: sin sesión, el acceso solo se ofrece después de conectar con él. */
+    @Volatile var pcVerificado = false
 
     companion object {
         @Volatile private var instancia: Servicios? = null
@@ -78,6 +83,21 @@ class SyncViewModel(private val servicios: Servicios) : ViewModel() {
                 _estado.value = estado
                 avisar(estado)
             }
+        }
+    }
+
+    /**
+     * Solo comprueba que el PC responde (antes de iniciar sesión no hay operador que sincronizar): abre la conexión,
+     * la cierra y termina en [SyncEstado.Listo]. Reutiliza los reintentos y los estados de la sincronización normal.
+     */
+    fun probar(direccion: String) {
+        if (enCurso) return
+        job = viewModelScope.launch {
+            val runner = SyncRunner(
+                conectar = { servicios.conector.conectar(direccion).also { socket = it } },
+                sincronizar = { conexion -> flow { conexion.close(); emit(SyncProgress.Done(0, 0, 0)) } },
+            )
+            runner.ejecutar().collect { _estado.value = it }
         }
     }
 
