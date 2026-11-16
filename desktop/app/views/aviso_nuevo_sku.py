@@ -75,6 +75,12 @@ def _estilo(c: dict[str, str]) -> str:
     QFrame#avisoNuevoSku QLabel#subAviso {{ color: {c['texto_suave']}; font-size: 11px; }}
     QFrame#avisoNuevoSku QLabel#masAviso {{ color: {c['texto_suave']}; font-size: 11px; font-weight: 600;
         padding: 0 4px; }}
+    QFrame#avisoNuevoSku QPushButton#cerrarAviso {{ background: transparent; color: {c['texto_suave']};
+        border: none; border-radius: 6px; padding: 0; font-size: 15px; font-weight: 700; }}
+    QFrame#avisoNuevoSku QPushButton#cerrarAviso:hover {{ color: {c['texto_fuerte']}; background: {c['borde']}; }}
+    QFrame#avisoNuevoSku QPushButton#ocultosAviso {{ background: {c['tarjeta']}; color: {c['texto_suave']};
+        border: 1px solid {c['borde']}; border-radius: 10px; padding: 3px 10px; font-size: 11px; font-weight: 600; }}
+    QFrame#avisoNuevoSku QPushButton#ocultosAviso:hover {{ color: {c['texto']}; border-color: {c['texto_tenue']}; }}
     QFrame#avisoNuevoSku QPushButton#crearAviso {{ background: {c['acento']}; color: {c['acento_texto']};
         border: none; border-radius: 8px; padding: 7px 14px; font-weight: 700; }}
     QFrame#avisoNuevoSku QPushButton#crearAviso:hover {{ background: {c['acento_suave']}; }}
@@ -90,6 +96,7 @@ class _TarjetaNuevoSku(QFrame):
 
     crear = pyqtSignal(str)
     descartar = pyqtSignal(str)
+    cerrar = pyqtSignal(str)
 
     def __init__(self, sku: str, subtitulo: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -104,6 +111,13 @@ class _TarjetaNuevoSku(QFrame):
         self.lbl_sku.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.lbl_subtitulo = QLabel(subtitulo)
         self.lbl_subtitulo.setObjectName("subAviso")
+        self.btn_cerrar = QPushButton("×")
+        self.btn_cerrar.setObjectName("cerrarAviso")
+        self.btn_cerrar.setFixedSize(22, 22)
+        self.btn_cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cerrar.setToolTip(t("Ocultar por ahora (el SKU sigue pendiente)"))
+        self.btn_cerrar.setAccessibleName(t("Ocultar aviso"))
+        self.btn_cerrar.clicked.connect(lambda: self.cerrar.emit(self.sku))
         self.btn_crear = QPushButton(t("Crear y procesar"))
         self.btn_crear.setObjectName("crearAviso")
         self.btn_crear.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -121,7 +135,12 @@ class _TarjetaNuevoSku(QFrame):
         en_tarjeta = QVBoxLayout(self)
         en_tarjeta.setContentsMargins(14, 12, 14, 12)
         en_tarjeta.setSpacing(3)
-        en_tarjeta.addWidget(self.lbl_titulo)
+        cabecera = QHBoxLayout()
+        cabecera.setContentsMargins(0, 0, 0, 0)
+        cabecera.addWidget(self.lbl_titulo)
+        cabecera.addStretch(1)
+        cabecera.addWidget(self.btn_cerrar)
+        en_tarjeta.addLayout(cabecera)
         en_tarjeta.addWidget(self.lbl_sku)
         en_tarjeta.addWidget(self.lbl_subtitulo)
         en_tarjeta.addSpacing(4)
@@ -149,6 +168,8 @@ class AvisoNuevoSku(QFrame):
         self._firma: tuple | None = None
         self._tarjetas: list[_TarjetaNuevoSku] = []
         self.lbl_mas: QLabel | None = None
+        self.btn_ocultos: QPushButton | None = None
+        self._cerrados: dict[str, int] = {}   # SKU ocultado → nº de lecturas al ocultarlo
         self._en_aviso = QVBoxLayout(self)
         self._en_aviso.setContentsMargins(0, 0, 0, 0)
         self._en_aviso.setSpacing(8)
@@ -158,14 +179,18 @@ class AvisoNuevoSku(QFrame):
     def mostrar(self, filas: list[NuevoSkuFila]) -> None:
         """Pinta las filas recibidas. Sin filas, el aviso se oculta (no reserva espacio nunca)."""
         self._filas = list(filas)
-        grupos = _agrupar(self._filas)
-        if not grupos:
+        todos = _agrupar(self._filas)
+        # Un SKU cerrado con la X vuelve solo si llegan lecturas nuevas de él; si ya no existe, se olvida.
+        self._cerrados = {g["sku"]: self._cerrados[g["sku"]] for g in todos if g["sku"] in self._cerrados}
+        grupos = [g for g in todos if g["lecturas"] > self._cerrados.get(g["sku"], 0)]
+        ocultos = len(todos) - len(grupos)
+        if not todos:
             self.ocultar()
             return
-        firma = tuple((g["sku"], g["lecturas"], g["ultima"]) for g in grupos)
+        firma = (tuple((g["sku"], g["lecturas"], g["ultima"]) for g in grupos), ocultos)
         if firma != self._firma:
             self._firma = firma
-            self._pintar(grupos)
+            self._pintar(grupos, ocultos)
         self._aplicar_estilo()
         self.reubicar()
         self.show()
@@ -174,8 +199,24 @@ class AvisoNuevoSku(QFrame):
     def ocultar(self) -> None:
         self._filas = []
         self._firma = None
+        self._cerrados = {}
         self._limpiar_tarjetas()
         self.hide()
+
+    def cerrar_sku(self, sku: str) -> None:
+        """Oculta la tarjeta sin decidir nada: el SKU sigue pendiente y reaparece si llegan lecturas nuevas."""
+        buscado = _normalizar(sku) or t("Sin SKU")
+        for grupo in _agrupar(self._filas):
+            if grupo["sku"] == buscado:
+                self._cerrados[buscado] = grupo["lecturas"]
+        self._firma = None
+        self.mostrar(self._filas)
+
+    def mostrar_ocultos(self) -> None:
+        """Vuelve a mostrar todas las tarjetas cerradas con la X."""
+        self._cerrados = {}
+        self._firma = None
+        self.mostrar(self._filas)
 
     def olvidar(self, sku: str) -> None:
         """Quita de una vez el SKU que se acaba de crear/descartar (sin esperar al siguiente sondeo)."""
@@ -219,6 +260,10 @@ class AvisoNuevoSku(QFrame):
     def tarjetas(self) -> list[_TarjetaNuevoSku]:
         return list(self._tarjetas)
 
+    def ocultos(self) -> str:
+        """El texto del enlace «N ocultos · mostrar» (cadena vacía si no hay tarjetas cerradas)."""
+        return self.btn_ocultos.text() if self.btn_ocultos is not None else ""
+
     def mas(self) -> str:
         """El «+N más» visible (cadena vacía si no hay más de 3 SKU)."""
         return self.lbl_mas.text() if self.lbl_mas is not None and self.lbl_mas.isVisible() else ""
@@ -232,13 +277,15 @@ class AvisoNuevoSku(QFrame):
                 widget.deleteLater()
         self._tarjetas = []
         self.lbl_mas = None
+        self.btn_ocultos = None
 
-    def _pintar(self, grupos: list[dict]) -> None:
+    def _pintar(self, grupos: list[dict], ocultos: int = 0) -> None:
         self._limpiar_tarjetas()
         for grupo in grupos[:MAX_TARJETAS]:
             tarjeta = _TarjetaNuevoSku(grupo["sku"], _subtitulo(grupo))
             tarjeta.crear.connect(self.crear_solicitado.emit)
             tarjeta.descartar.connect(self.descartar_solicitado.emit)
+            tarjeta.cerrar.connect(self.cerrar_sku)
             self._en_aviso.addWidget(tarjeta)
             self._tarjetas.append(tarjeta)
         restantes = len(grupos) - MAX_TARJETAS
@@ -246,6 +293,13 @@ class AvisoNuevoSku(QFrame):
             self.lbl_mas = QLabel(t("+{n} más", n=restantes))
             self.lbl_mas.setObjectName("masAviso")
             self._en_aviso.addWidget(self.lbl_mas)
+        if ocultos:
+            texto = t("1 oculto · mostrar") if ocultos == 1 else t("{n} ocultos · mostrar", n=ocultos)
+            self.btn_ocultos = QPushButton(texto)
+            self.btn_ocultos.setObjectName("ocultosAviso")
+            self.btn_ocultos.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_ocultos.clicked.connect(self.mostrar_ocultos)
+            self._en_aviso.addWidget(self.btn_ocultos, 0, Qt.AlignmentFlag.AlignRight)
 
     def _aplicar_estilo(self) -> None:
         self.setStyleSheet(_estilo(colores()))

@@ -84,6 +84,33 @@ def test_los_botones_emiten_el_sku_y_ocultar_limpia(qtbot):
     assert not aviso.isVisible() and aviso.skus() == []
 
 
+def test_la_x_oculta_la_tarjeta_y_reaparece_con_lecturas_nuevas(qtbot):
+    aviso = AvisoNuevoSku()
+    qtbot.addWidget(aviso)
+    filas = _filas(("A1", 1, AHORA), ("A2", 1, AHORA))
+    aviso.mostrar(filas)
+    qtbot.mouseClick(aviso.tarjetas()[0].btn_cerrar, Qt.MouseButton.LeftButton)
+    assert aviso.skus() == ["A2"]
+    assert aviso.ocultos() == "1 oculto · mostrar"
+    aviso.mostrar(filas)                               # el sondeo repite lo mismo: sigue oculto
+    assert aviso.skus() == ["A2"]
+    aviso.mostrar(_filas(("A1", 1, AHORA), ("A2", 1, AHORA), ("A1", 1, AHORA)))   # llega otra lectura de A1
+    assert aviso.skus() == ["A1", "A2"]
+    assert aviso.ocultos() == ""
+
+
+def test_cerrar_todas_deja_el_enlace_para_mostrarlas(qtbot):
+    aviso = AvisoNuevoSku()
+    qtbot.addWidget(aviso)
+    aviso.mostrar(_filas(("A1", 1, AHORA), ("A2", 1, AHORA)))
+    aviso.cerrar_sku("A1")
+    aviso.cerrar_sku("a2")
+    assert aviso.skus() == []
+    assert aviso.isVisible() and aviso.ocultos() == "2 ocultos · mostrar"
+    qtbot.mouseClick(aviso.btn_ocultos, Qt.MouseButton.LeftButton)
+    assert aviso.skus() == ["A1", "A2"]
+
+
 def test_olvidar_quita_solo_ese_sku(qtbot):
     aviso = AvisoNuevoSku()
     qtbot.addWidget(aviso)

@@ -235,6 +235,10 @@ _EN: dict[str, str] = {
     "{n} lecturas": "{n} readings",
     "última {fecha}": "last {fecha}",
     "+{n} más": "+{n} more",
+    "Ocultar por ahora (el SKU sigue pendiente)": "Hide for now (the SKU stays pending)",
+    "Ocultar aviso": "Hide notice",
+    "1 oculto · mostrar": "1 hidden · show",
+    "{n} ocultos · mostrar": "{n} hidden · show",
     "El SKU viene en la lectura; no se puede cambiar.": "The SKU comes from the reading; it cannot be changed.",
     "El SKU no está en el catálogo. Al crearlo se le asigna stock 0 y la lectura se procesa.":
         "The SKU is not in the catalog. Creating it sets stock 0 and processes the reading.",
