@@ -48,7 +48,7 @@ def test_muestra_el_error_con_sku_y_motivo(qtbot, error):
     v = _vista(qtbot, error)
     esperar(qtbot, lambda: any("ZZ9" in fila for fila in v.errores()))
     fila = next(f for f in v.errores() if "ZZ9" in f)
-    assert fila[2] == "ZZ9" and fila[3] == "SKU_DESCONOCIDO"
+    assert fila[2] == "ZZ9" and fila[3] == "SKU desconocido"
 
 
 def test_acciones_por_rol(qtbot, error, cuentas):
