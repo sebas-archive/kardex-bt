@@ -162,6 +162,36 @@ def test_logout_returns_to_access_and_clears_the_session(qtbot, puente):
     assert ventana.secciones() == []
 
 
+def test_no_aparecen_ventanas_sueltas_al_construir_ni_al_entrar(qtbot, puente):
+    """Un widget mostrado antes de tener padre sale como ventana propia (en Wayland, centrada y con el icono de la app).
+    Solo la ventana principal puede mostrarse como ventana de nivel superior."""
+    from PyQt6.QtCore import QEvent, QObject
+
+    sueltas: list[str] = []
+
+    class Vigia(QObject):
+        def eventFilter(self, objeto, evento):
+            if (evento.type() == QEvent.Type.Show and objeto.isWidgetType() and objeto.isWindow()
+                    and not isinstance(objeto, MainWindow)):
+                sueltas.append(f"{type(objeto).__name__}:{objeto.objectName()}")
+            return False
+
+    vigia = Vigia()
+    app = QApplication.instance()
+    app.installEventFilter(vigia)
+    try:
+        ventana = build_window(puente, auto_refresh_ms=0)
+        ventana.comprobar_oracle = lambda: None
+        ventana.contar_notificaciones = lambda: None
+        qtbot.addWidget(ventana)
+        ventana.show()
+        ventana.iniciar(Sesion("ana", "Ana", ADMIN, tema="claro", idioma="es"))
+        qtbot.wait(300)
+    finally:
+        app.removeEventFilter(vigia)
+    assert sueltas == []
+
+
 def test_access_has_email_and_show_password(qtbot):
     vista = AccesoView()
     qtbot.addWidget(vista)
