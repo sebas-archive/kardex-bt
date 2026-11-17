@@ -175,9 +175,9 @@ class notificaciones_leidas <<table>> {
 }
 
 conteos "1" -- "0..*" stock_sistema
-productos "1" -- "0..*" stock_sistema
-conteos "1" -- "0..*" registros_procesados
-productos "1" -- "0..*" registros_procesados
+productos "1" -down- "0..*" stock_sistema
+conteos "1" ---- "0..*" registros_procesados
+productos "1" --- "0..*" registros_procesados
 captura_transito "1" -- "0..1" registros_procesados : id_transito
 conteos "1" -- "0..*" conciliacion
 productos "1" -- "0..*" conciliacion
