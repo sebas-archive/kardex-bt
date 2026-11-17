@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDi
 
 from .. import auth
 from ..i18n import t
-from . import components
+from . import components, motion_global
 from .base import QueryRunner, StateBanner
 from .isla import isla
 from .foto import icono_avatar
@@ -65,6 +65,10 @@ class UsuariosView(QWidget):
         self.tabla.setIconSize(QSize(28, 28))
         self.tabla.horizontalHeader().setStretchLastSection(True)
         self.tabla.setColumnWidth(0, 44)
+        self._vivas = motion_global.FilasVivas(self.tabla)        # identidad de fila = usuario: filtrar/editar no reconstruye
+        self._ayuda = ayuda
+        self._actividad = motion_global.Actividad(self, self._runner)
+        motion_global.instalar_realces(self.txt_buscar, self.combo_rol, self.combo_estado)
         self.btn_rol = QPushButton(t("Cambiar rol"))
         self.btn_estado = QPushButton(t("Suspender"))
         self.btn_clave = QPushButton(t("Poner contraseña nueva…"))
@@ -142,6 +146,7 @@ class UsuariosView(QWidget):
                           if (rol is None or u.rol == rol) and (estado is None or u.estado == estado)
                           and (not texto or texto in u.usuario.lower() or texto in u.nombre.lower()
                                or texto in (u.correo or "").lower())]
+        antes = self._vivas.capturar()
         self.tabla.setRowCount(len(self._usuarios))
         for fila, u in enumerate(self._usuarios):
             avatar = QTableWidgetItem()
@@ -161,6 +166,8 @@ class UsuariosView(QWidget):
         self.tabla.resizeColumnsToContents()
         self.tabla.setColumnWidth(0, 44)
         self.tabla.setColumnWidth(4, 96)
+        self._vivas.revelar(antes, [u.usuario for u in self._usuarios],
+                            [f"{u.correo}|{u.nombre}|{u.rol}|{u.estado}|{u.foto}" for u in self._usuarios])
         if self._error:
             self.banner.show_error(self._error)
             self._error = ""
@@ -173,6 +180,13 @@ class UsuariosView(QWidget):
         if elegido is not None:
             self.seleccionar(elegido.usuario)
         self._ajustar_botones()
+
+    def entrada_motion(self) -> None:
+        """Entrada de la pantalla (la llama ``motion_global.entrada_pagina``): ayuda, estado, filtros y acciones en
+        cascada; la tabla revela sus filas."""
+        motion_global.entrada_cascada(
+            [self._ayuda, self.banner, self.txt_buscar, self.combo_rol, self.combo_estado, self.btn_rol,
+             self.btn_estado, self.btn_clave, self.btn_telefono], [self._vivas])
 
     def _ajustar_botones(self) -> None:
         u = self._elegido()

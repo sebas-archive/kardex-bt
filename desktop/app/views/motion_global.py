@@ -12,7 +12,7 @@ from typing import Callable
 from PyQt6 import sip
 from PyQt6.QtCore import QEasingCurve, QEvent, QObject, QPointF, QRectF, Qt, QTimer, QVariantAnimation
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
-from PyQt6.QtWidgets import QAbstractScrollArea, QGraphicsOpacityEffect, QTableWidget, QWidget
+from PyQt6.QtWidgets import QAbstractScrollArea, QGraphicsOpacityEffect, QTableWidget, QWidget  # noqa: F401
 
 from . import diseno, motion, widgets
 from .motion import RAPIDO, animar, detener
@@ -355,7 +355,8 @@ def desplegar(panel: QWidget, visible: bool, ms: int | None = None) -> None:
             if sip.isdeleted(panel):
                 return
             panel.setMaximumHeight(max(1, int(destino * v)))
-            efecto.setOpacity(max(0.0, min(1.0, (v - 0.12) / 0.7)))
+            if not sip.isdeleted(efecto):          # otra capa pudo reemplazar el efecto de opacidad a mitad de camino
+                efecto.setOpacity(max(0.0, min(1.0, (v - 0.12) / 0.7)))
         curva = ENTRADA
     else:
         inicio = 0.0
@@ -365,7 +366,8 @@ def desplegar(panel: QWidget, visible: bool, ms: int | None = None) -> None:
             if sip.isdeleted(panel):
                 return
             panel.setMaximumHeight(max(1, int(base * (1 - v))))
-            efecto.setOpacity(max(0.0, op0 * (1 - v / 0.55)))
+            if not sip.isdeleted(efecto):
+                efecto.setOpacity(max(0.0, op0 * (1 - v / 0.55)))
         curva = ASENTAR
 
     def fin() -> None:
@@ -771,6 +773,104 @@ def cuenta_texto(etiqueta, valores: tuple[int, ...], formato: Callable[[tuple[in
     etiqueta._cuenta = animar(etiqueta, 0.0, 1.0, motion.dur(ms), paso, fin, ENTRADA)   # type: ignore[attr-defined]
 
 
+# --------------------------------------------------------------------------- pantallas administrativas
+def claves_unicas(claves: list[str]) -> list[str]:
+    """Hace únicas las claves de fila (las repetidas reciben ``#2``, ``#3``…) conservando el orden: la capa de filas
+    identifica cada fila por su clave y dos iguales se pisarían."""
+    vistas: dict[str, int] = {}
+    salida = []
+    for clave in claves:
+        n = vistas.get(clave, 0) + 1
+        vistas[clave] = n
+        salida.append(clave if n == 1 else f"{clave}#{n}")
+    return salida
+
+
+class FilasVivas:
+    """Identidad de las filas de una tabla de datos: guarda la clave y la «huella» de cada fila para que, al cambiar el
+    contenido, solo se anime lo que realmente entra, sale, se mueve o cambia (la tabla real siempre queda completa).
+
+    Uso: ``antes = vivas.capturar()`` → cambiar la tabla → ``vivas.revelar(antes, claves, huellas)``."""
+
+    def __init__(self, tabla: QTableWidget, hover: bool = True) -> None:
+        self.tabla = tabla
+        self.claves: list[str] = []
+        self.huellas: list[str] = []
+        if hover:
+            resaltar_filas(tabla)
+
+    def capturar(self) -> InstantaneaFilas | None:
+        return capturar_filas(self.tabla, self.claves, self.huellas)
+
+    def revelar(self, antes: InstantaneaFilas | None, claves: list[str], huellas: list[str]) -> None:
+        self.claves, self.huellas = claves_unicas(claves), huellas
+        revelar_filas(self.tabla, antes, self.claves, self.huellas)
+
+    def entrada(self) -> None:
+        if not sip.isdeleted(self.tabla):
+            entrada_filas(self.tabla, self.claves, self.huellas)
+
+
+def entrada_cascada(piezas: list[QWidget], tablas: list[FilasVivas] | None = None, extra: list[QWidget] | None = None,
+                    intervalo: int = 36) -> None:
+    """Coreografía de entrada de una pantalla (Solicitudes, Empleados, Roles, Auditoría, Respaldos y Perfil): cada pieza
+    sube unos píxeles con fundido y en cascada; las tablas revelan sus filas y ``extra`` cierra la secuencia. Nada
+    cambia de sitio ni de datos: solo opacidad y un desplazamiento de unos píxeles. Las piezas ocultas se saltan."""
+    if not widgets.ANIMAR:
+        return
+    def libre(p: QWidget) -> bool:
+        """Una pieza con otro efecto en curso (p. ej. el banner desplegándose) no se pisa: Qt admite uno por widget."""
+        return (not sip.isdeleted(p) and p.isVisible() and not getattr(p, "_desplegando", False)
+                and isinstance(p.graphicsEffect(), (motion.EfectoMovimiento, type(None))))
+
+    visibles = [p for p in piezas if p is not None and libre(p)]
+    for i, pieza in enumerate(visibles):
+        motion.entrar(pieza, retardo=i * intervalo, dy=6, ms_=motion.dur(280), radio=9)
+    base = len(visibles) * 30
+    for vivas in tablas or []:
+        if vivas.claves:
+            QTimer.singleShot(int(base * widgets.FACTOR_TIEMPO), vivas.entrada)
+    for j, pieza in enumerate(e for e in (extra or []) if not sip.isdeleted(e) and e.isVisible()):
+        motion.entrar(pieza, retardo=len(visibles) * intervalo + 40 + j * 24, dy=4, ms_=motion.dur(240), radio=6)
+
+
+class Actividad(BarridoCarga):
+    """Indicador de actividad de una pantalla: la línea de 2 px del borde inferior, que barre mientras el ``QueryRunner``
+    de la pantalla tiene trabajo real en curso (guardar, aprobar, crear un respaldo…).
+
+    Sigue al propio runner (no cuenta por su cuenta: un resultado obsoleto descartado no llama a nadie) y espera un
+    instante antes de aparecer, así una consulta de milisegundos no hace parpadear la línea."""
+
+    ESPERA = 160
+
+    def __init__(self, padre: QWidget, runner: QObject, espera: int | None = None) -> None:
+        super().__init__(padre)
+        self._runner = runner
+        self._espera = QTimer(self)
+        self._espera.setSingleShot(True)
+        self._espera.setInterval(self.ESPERA if espera is None else espera)
+        self._espera.timeout.connect(self._llegado)
+        runner.trabajo.connect(self.ajustar)
+
+    def ajustar(self, pendientes: int) -> None:
+        if pendientes > 0:
+            if not self.isVisible() and not self._espera.isActive():
+                self._espera.start()
+        else:
+            self._espera.stop()
+            self.detener()
+
+    def _llegado(self) -> None:
+        if not sip.isdeleted(self._runner) and self._runner.pendientes > 0 and self.parentWidget().isVisible():
+            self.iniciar()
+
+
+def instalar_realces(*campos: QWidget) -> None:
+    """Realce de foco/hover en varios campos de una vez (sin animaciones, nada)."""
+    for campo in campos:
+        instalar_realce(campo)
+
+
 def reducido() -> bool:
     """Movimiento reducido: una sola fuente de verdad (la variable de entorno ya existente)."""
     return not widgets.ANIMAR
@@ -779,7 +879,8 @@ def reducido() -> bool:
 __all__ = ["ENTRADA", "SALIDA", "ASENTAR", "resorte", "escalonar", "cruce_tema", "cambiar_pila", "aparecer_popup",
            "instalar_presion", "fundir_contenido", "entrada_pagina", "BarridoCarga", "reducido", "motion",
            "desplegar", "instalar_realce", "marcar_invalido", "capturar_filas", "revelar_filas", "soltar_filas",
-           "resaltar_filas", "cuenta_texto", "entrada_filas"]
+           "resaltar_filas", "cuenta_texto", "entrada_filas", "FilasVivas", "entrada_cascada", "Actividad",
+           "claves_unicas", "instalar_realces"]
 
 
 def entrada_filas(tabla: QTableWidget, claves: list[str], huellas: list[str]) -> None:
