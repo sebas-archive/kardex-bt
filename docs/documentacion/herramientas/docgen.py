@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+import redaccion
+
 EMU = 635                      # EMU por dxa (twip)
 ANCHO_V = 9360                 # ancho útil vertical (dxa)
 ANCHO_H = 12960                # ancho útil horizontal (dxa)
@@ -146,6 +148,7 @@ class Doc:
                 yield b
 
     def resolver(self, texto: str) -> str:
+        texto = texto.replace("\\*", "*")
         return re.sub(r"\[\[(\w+)\]\]", lambda m: self.refs.get(m.group(1), f"«{m.group(1)}?»"), texto)
 
     # ---- emisión
@@ -204,15 +207,20 @@ class Doc:
         self.md.append(f"\n{'#' * (h.nivel + 1)} {texto}\n")
 
     def _p(self, p: P) -> None:
-        texto = self.resolver(p.texto)
+        texto = self.resolver(redaccion.parrafo(p.texto)).replace("**", "")
         ind = '<w:ind w:firstLine="720"/>' if p.sangria else ""
         self.xml.append(
             f'<w:p><w:pPr><w:pStyle w:val="Normal"/><w:spacing w:lineRule="auto" w:line="480"/>{ind}</w:pPr>{runs(texto)}</w:p>')
         self.md.append(plano_md(texto) + "\n")
 
     def _lista(self, l: Lista) -> None:
+        parrafos = redaccion.lista_a_parrafos(l.items)
+        if parrafos:
+            for t in parrafos:
+                self._p(P(t))
+            return
         for it in l.items:
-            t = self.resolver(it)
+            t = self.resolver(redaccion.item(it)).replace("**", "")
             self.xml.append(
                 '<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>'
                 f'<w:spacing w:lineRule="auto" w:line="360" w:after="60"/></w:pPr>{runs(t)}</w:p>')
@@ -238,8 +246,11 @@ class Doc:
         titulo = self.resolver(t.titulo)
         etiqueta = self.refs[t.id]
         self.xml.append(
-            f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="60" w:line="240" w:lineRule="auto"/></w:pPr>'
-            f'{runs(etiqueta + ".", 20, "<w:b/>")}{runs(" " + titulo, 20, "<w:i/>")}</w:p>')
+            f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'{runs(etiqueta, 22, "<w:b/>")}</w:p>')
+        self.xml.append(
+            f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="80" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'{runs(titulo, 22, "<w:i/>")}</w:p>')
         grid = "".join(f'<w:gridCol w:w="{w}"/>' for w in t.anchos)
 
         def celda(txt: str, w: int, cab: bool) -> str:
@@ -278,7 +289,7 @@ class Doc:
         ruta = self.raiz / f.imagen
         w, h = tamano_png(ruta)
         mw = f.max_w or (ANCHO_H if self.horizontal else ANCHO_V)
-        mh = f.max_h or ((ALTO_H - 1500) if self.horizontal else (ALTO_V - 1500))
+        mh = f.max_h or ((ALTO_H - 3000) if self.horizontal else (ALTO_V - 3000))
         ancho_dxa = min(mw, w * 15)            # como máximo el tamaño natural a 96 ppp (15 dxa por píxel)
         alto_dxa = int(ancho_dxa * h / w)
         if alto_dxa > mh:
@@ -290,30 +301,54 @@ class Doc:
         self.docpr += 1
         cx, cy = ancho_dxa * EMU, alto_dxa * EMU
         etiqueta = self.refs[f.id]
+        titulo = self.resolver(f.titulo)
+        # 1) número y 2) título, encima de la imagen (APA 7)
         self.xml.append(
-            f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="60" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
+            f'<w:p><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="280" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'{runs(etiqueta, 22, "<w:b/>")}</w:p>')
+        self.xml.append(
+            f'<w:p><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="0" w:after="100" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'{runs(titulo, 22, "<w:i/>")}</w:p>')
+        # 3) imagen centrada
+        self.xml.append(
+            f'<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="60" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
             f'<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/>'
-            f'<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="{self.docpr}" name="{esc(etiqueta)}" descr="{esc(f.titulo)}"/>'
+            f'<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="{self.docpr}" name="{esc(etiqueta)}" descr="{esc(titulo)}"/>'
             f'<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
             f'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
             f'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="{self.docpr}" name="{nombre}"/><pic:cNvPicPr/></pic:nvPicPr>'
             f'<pic:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
             f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
             f'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>')
-        det = [self.resolver(x) for x in f.detalle]
-        cap = (f'<w:p><w:pPr><w:pStyle w:val="Caption"/>{"<w:keepNext/>" if det else ""}<w:spacing w:before="0" w:after="{40 if det else 240}" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
-               f'{runs(etiqueta + ".", 18, "<w:b/><w:color w:val=\"000000\"/>")}{runs(" " + self.resolver(f.titulo), 18, "<w:color w:val=\"000000\"/>")}</w:p>')
-        self.xml.append(cap)
-        for i, d in enumerate(det):
-            self.xml.append(
-                f'<w:p><w:pPr><w:pStyle w:val="Caption"/>{"" if i == len(det) - 1 else "<w:keepNext/>"}<w:spacing w:before="0" w:after="{240 if i == len(det) - 1 else 20}" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
-                f'{runs(d, 16, "<w:i w:val=\"0\"/><w:iCs w:val=\"0\"/><w:color w:val=\"404040\"/>")}</w:p>')
+        nota, demuestra = self._nota_y_demuestra(f)
+        # 4) Nota. + fuente
+        self.xml.append(
+            f'<w:p><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="0" w:after="60" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'{runs("Nota.", 18, "<w:i/>")}{runs(" " + nota, 18)}</w:p>')
+        # 5) Demuestra: párrafo breve y discreto
+        self.xml.append(
+            f'<w:p><w:pPr><w:keepLines/><w:spacing w:before="0" w:after="280" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'{runs("Demuestra:", 17, "<w:b/><w:color w:val=\"404040\"/>")}{runs(" " + demuestra, 17, "<w:color w:val=\"404040\"/>")}</w:p>')
         self.rels.append(f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/{nombre}"/>')
-        self.md.append(f"![{etiqueta}. {plano_md(self.resolver(f.titulo))}]({f.imagen})\n")
-        self.md.append(f"**{etiqueta}.** {plano_md(self.resolver(f.titulo))}  ")
-        for d in det:
-            self.md.append(f"{plano_md(d)}  ")
-        self.md.append("")
+        self.md.append(f"**{etiqueta}**\n")
+        self.md.append(f"*{plano_md(titulo)}*\n")
+        self.md.append(f"![{etiqueta}. {plano_md(titulo)}]({f.imagen})\n")
+        self.md.append(f"*Nota.* {plano_md(nota)}\n")
+        self.md.append(f"**Demuestra:** {plano_md(demuestra)}\n")
+
+    def _nota_y_demuestra(self, f: Fig) -> tuple[str, str]:
+        """Separa el pie en la nota (fuente) y el párrafo «Demuestra»; normaliza el texto de la nota."""
+        det = [self.resolver(x) for x in f.detalle]
+        demuestra = next((d for d in det if d.startswith("Demuestra:")), "")
+        demuestra = demuestra[len("Demuestra:"):].strip().replace(" Criterio: ", " Criterio relacionado: ")
+        fuentes = [d for d in det if not d.startswith("Demuestra:")]
+        nota = " ".join(fuentes)
+        m = re.match(r"Archivo: (.+?) \((líneas [^)]+)\)\. Función o elemento: (.+?)\.?$", nota)
+        if m:
+            nota = f"Fuente: elaboración propia a partir del archivo `{m.group(1)}` ({m.group(2)}); elemento: {m.group(3)}."
+        nota = nota.replace("Fuente: elaboración propia. PlantUML:", "Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML:")
+        nota = re.sub(r"archivo (docs/documentacion/\S+?\.png)\.", r"archivo: `\1`.", nota)
+        return nota, demuestra
 
     # secciones horizontales
     def _horizontal(self, hz: Horizontal) -> None:
