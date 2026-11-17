@@ -1,0 +1,705 @@
+inicio 2026-11-17T16:33:41Z  (Oracle limpio, sin 08_demo.sql)
+============================= test session starts ==============================
+platform linux -- Python 3.12.16, pytest-9.2.0, pluggy-1.7.0 -- /usr/local/bin/python
+PyQt6 6.12.1 -- Qt runtime 6.12.0 -- Qt compiled 6.12.0
+rootdir: /work/desktop
+configfile: pyproject.toml
+plugins: qt-4.5.0
+collecting ... collected 464 items
+
+tests/test_app.py::test_without_session_the_window_shows_only_the_login PASSED [  0%]
+tests/test_app.py::test_admin_sidebar_exact_order_and_profile_at_the_footer PASSED [  0%]
+tests/test_app.py::test_inventory_sidebar_exact_order PASSED             [  0%]
+tests/test_app.py::test_collapsed_sidebar_survives_a_theme_change PASSED [  0%]
+tests/test_app.py::test_the_footer_text_and_sidebar_labels_are_never_cut PASSED [  1%]
+tests/test_app.py::test_no_removed_screens_are_registered PASSED         [  1%]
+tests/test_app.py::test_profile_footer_shows_initial_and_photo_editor PASSED [  1%]
+tests/test_app.py::test_inventory_profile_requests_the_password_change PASSED [  1%]
+tests/test_app.py::test_theme_and_language_apply_and_persist_in_the_session PASSED [  1%]
+tests/test_app.py::test_access_preferences_override_account_preferences_for_this_app_run PASSED [  2%]
+tests/test_app.py::test_logout_returns_to_access_and_clears_the_session PASSED [  2%]
+tests/test_app.py::test_no_aparecen_ventanas_sueltas_al_construir_ni_al_entrar PASSED [  2%]
+tests/test_app.py::test_access_has_email_and_show_password PASSED        [  2%]
+tests/test_app.py::test_users_table_shows_avatar_email_name_role_and_badge PASSED [  3%]
+tests/test_app.py::test_requests_only_allow_inventory_for_pc_and_operator_for_mobile PASSED [  3%]
+tests/test_app.py::test_window_title_and_oracle_chip PASSED              [  3%]
+tests/test_app.py::test_collapsed_footer_centers_avatar_theme_and_logout PASSED [  3%]
+tests/test_app.py::test_footer_theme_menu_applies_and_persists_per_user PASSED [  3%]
+tests/test_app.py::test_access_two_panel_card_and_strength_meter PASSED  [  4%]
+tests/test_app.py::test_access_remembers_the_username PASSED             [  4%]
+tests/test_app.py::test_access_gear_changes_theme_and_language_only_for_the_current_app_run PASSED [  4%]
+tests/test_app.py::test_charts_follow_the_account_theme_chosen_at_login PASSED [  4%]
+tests/test_app.py::test_charts_follow_the_system_scheme_when_it_changes FAILED [  4%]
+tests/test_auditoria.py::test_inicio_de_sesion_correcto_y_fallido PASSED [  5%]
+tests/test_auditoria.py::test_cuentas_y_permisos PASSED                  [  5%]
+tests/test_auditoria.py::test_configuracion_auditada PASSED              [  5%]
+tests/test_auditoria.py::test_inventario_no_ve_la_auditoria PASSED       [  5%]
+tests/test_auditoria.py::test_producto_para_el_detalle PASSED            [  6%]
+tests/test_auditoria_views.py::test_admin_ve_y_filtra PASSED             [  6%]
+tests/test_auditoria_views.py::test_inventario_no_ve_la_pantalla PASSED  [  6%]
+tests/test_auth.py::test_first_account_is_the_only_admin_and_the_rest_wait PASSED [  6%]
+tests/test_auth.py::test_register_validates_every_field[lu-Luis-l@example.com-conteo2026-conteo2026-usuario] PASSED [  6%]
+tests/test_auth.py::test_register_validates_every_field[luis p\xe9rez-Luis-l@example.com-conteo2026-conteo2026-usuario] PASSED [  7%]
+tests/test_auth.py::test_register_validates_every_field[luis-  -l@example.com-conteo2026-conteo2026-nombre] PASSED [  7%]
+tests/test_auth.py::test_register_validates_every_field[luis-nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn-l@example.com-conteo2026-conteo2026-nombre] PASSED [  7%]
+tests/test_auth.py::test_register_validates_every_field[luis-Luis-sin-arroba-conteo2026-conteo2026-correo] PASSED [  7%]
+tests/test_auth.py::test_register_validates_every_field[luis-Luis--conteo2026-conteo2026-correo] PASSED [  7%]
+tests/test_auth.py::test_register_validates_every_field[luis-Luis-l@example.com-abc123-abc123-8 caracteres] PASSED [  8%]
+tests/test_auth.py::test_register_validates_every_field[luis-Luis-l@example.com-solamenteletras-solamenteletras-letras y n\xfameros] PASSED [  8%]
+tests/test_auth.py::test_register_validates_every_field[luis-Luis-l@example.com-conteo2026-conteo2027-no coinciden] PASSED [  8%]
+tests/test_auth.py::test_first_admin_needs_a_security_question PASSED    [  8%]
+tests/test_auth.py::test_duplicate_user_or_email_is_rejected PASSED      [  9%]
+tests/test_auth.py::test_password_is_never_stored_in_plain_text PASSED   [  9%]
+tests/test_auth.py::test_login_is_generic_and_operators_are_rejected PASSED [  9%]
+tests/test_auth.py::test_login_locks_after_five_failures_with_the_same_message PASSED [  9%]
+tests/test_auth.py::test_admin_changes_its_password_directly PASSED      [  9%]
+tests/test_auth.py::test_inventory_password_change_waits_for_approval PASSED [ 10%]
+tests/test_auth.py::test_rejecting_a_password_request_keeps_the_old_one_and_shows_the_reason PASSED [ 10%]
+tests/test_auth.py::test_admin_recovers_with_the_security_question PASSED [ 10%]
+tests/test_auth.py::test_inventory_recovery_creates_a_request PASSED     [ 10%]
+tests/test_auth.py::test_only_an_admin_manages_accounts PASSED           [ 10%]
+tests/test_auth.py::test_there_is_never_a_second_admin PASSED            [ 11%]
+tests/test_auth.py::test_operator_can_only_be_operator_and_never_reset_from_desktop PASSED [ 11%]
+tests/test_auth.py::test_approval_roles_are_limited_by_origin PASSED     [ 11%]
+tests/test_auth.py::test_preferences_and_photo_are_per_user PASSED       [ 11%]
+tests/test_capas.py::test_las_lecturas_son_una_capa_dentro_de_la_ventana PASSED [ 12%]
+tests/test_capas.py::test_el_panel_se_adapta_al_redimensionar PASSED     [ 12%]
+tests/test_capas.py::test_el_visor_queda_encima_y_las_lecturas_siguen_intactas PASSED [ 12%]
+tests/test_capas.py::test_escape_cierra_primero_el_visor_y_luego_las_lecturas PASSED [ 12%]
+tests/test_capas.py::test_boton_x_cierra_el_panel_actual PASSED          [ 12%]
+tests/test_capas.py::test_clic_fuera_cierra_pero_dentro_no PASSED        [ 13%]
+tests/test_capas.py::test_la_capa_de_arriba_se_come_los_clics PASSED     [ 13%]
+tests/test_capas.py::test_con_animaciones_abre_y_cierra PASSED           [ 13%]
+tests/test_capas.py::test_visor_abre_desde_la_miniatura_animado PASSED   [ 13%]
+tests/test_capas.py::test_la_isla_de_notificaciones_sigue_encima_de_las_capas PASSED [ 14%]
+tests/test_capas.py::test_el_foco_vuelve_a_la_capa_de_abajo PASSED       [ 14%]
+tests/test_charts_views.py::test_seis_graficas_y_sus_datos FAILED        [ 14%]
+tests/test_charts_views.py::test_filtros_categoria_y_cantidad PASSED     [ 14%]
+tests/test_charts_views.py::test_guardar_png PASSED                      [ 14%]
+tests/test_charts_views.py::test_por_defecto_las_seis_en_dos_columnas PASSED [ 15%]
+tests/test_charts_views.py::test_personalizar_muestra_la_barra_y_listo_la_oculta PASSED [ 15%]
+tests/test_charts_views.py::test_quitar_una_grafica_la_saca_de_la_rejilla_y_los_datos_siguen_llegando PASSED [ 15%]
+tests/test_charts_views.py::test_no_se_puede_repetir_ni_inventar_una_grafica PASSED [ 15%]
+tests/test_charts_views.py::test_quitar_todas_muestra_el_aviso_y_deshabilita_nada_mas_que_lo_justo PASSED [ 15%]
+tests/test_charts_views.py::test_con_todas_puestas_no_hay_nada_que_agregar PASSED [ 16%]
+tests/test_charts_views.py::test_graficas_nuevas_y_sus_datos PASSED      [ 16%]
+tests/test_charts_views.py::test_tamano_y_orden_se_recuerdan_por_usuario PASSED [ 16%]
+tests/test_charts_views.py::test_restaurar_vuelve_a_las_seis_y_olvida_lo_guardado PASSED [ 16%]
+tests/test_charts_views.py::test_disposicion_guardada_danada_o_con_basura_se_repara PASSED [ 17%]
+tests/test_charts_views.py::test_una_grafica_se_redimensiona_con_el_asa_y_la_medida_se_recuerda FAILED [ 17%]
+tests/test_charts_views.py::test_las_medidas_guardadas_se_limitan_y_los_diseños_viejos_siguen_cargando PASSED [ 17%]
+tests/test_configuracion.py::test_valores_iniciales PASSED               [ 17%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[lote.intervalo_min-0-Procesar lecturas cada: entre 1 y 60 minutos] PASSED [ 17%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[lote.intervalo_min-61-Procesar lecturas cada: entre 1 y 60 minutos] PASSED [ 18%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[lote.intervalo_min-abc-Procesar lecturas cada: entre 1 y 60 minutos] PASSED [ 18%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[fotos.max_mb-11-Tama\xf1o m\xe1ximo de foto: entre 1 y 10 MB] PASSED [ 18%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[respaldos.conservar-91-Conservar respaldos autom\xe1ticos: entre 1 y 90 respaldos] PASSED [ 18%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[respaldos.auto-X-valor v\xe1lido] PASSED [ 18%]
+tests/test_configuracion.py::test_fuera_de_rango_no_guarda[respaldos.hora-25:00-valor v\xe1lido] PASSED [ 19%]
+tests/test_configuracion.py::test_guardar_audita_cada_cambio PASSED      [ 19%]
+tests/test_configuracion.py::test_guardar_ajusta_el_job PASSED           [ 19%]
+tests/test_configuracion.py::test_la_carpeta_de_fotos_no_se_edita PASSED [ 19%]
+tests/test_configuracion.py::test_inventario_no_guarda PASSED            [ 20%]
+tests/test_configuracion_views.py::test_muestra_los_valores_y_la_carpeta_de_fotos_sin_editar PASSED [ 20%]
+tests/test_configuracion_views.py::test_guardar_y_error_de_rango PASSED  [ 20%]
+tests/test_dashboard_motion.py::test_la_entrada_es_escalonada_termina_rapido_y_deja_todo_en_su_sitio PASSED [ 20%]
+tests/test_dashboard_motion.py::test_la_entrada_no_deja_efectos_si_las_animaciones_estan_apagadas PASSED [ 20%]
+tests/test_dashboard_motion.py::test_lo_que_esta_fuera_de_pantalla_se_revela_una_sola_vez_al_desplazar PASSED [ 21%]
+tests/test_dashboard_motion.py::test_en_movimiento_reducido_la_entrada_es_corta_y_termina_igual PASSED [ 21%]
+tests/test_dashboard_motion.py::test_abandonar_la_vista_a_media_entrada_no_deja_nada_colgando PASSED [ 21%]
+tests/test_dashboard_motion.py::test_kpi_cifra_final_exacta_tendencia_y_estados PASSED [ 21%]
+tests/test_dashboard_motion.py::test_kpi_detalle_se_desliza_y_la_cifra_vuelve_intacta PASSED [ 21%]
+tests/test_dashboard_motion.py::test_la_cifra_no_lleva_efectos_anidados PASSED [ 22%]
+tests/test_dashboard_motion.py::test_el_dashboard_pone_los_estados_de_las_tarjetas PASSED [ 22%]
+tests/test_dashboard_motion.py::test_arrastrar_levanta_asienta_y_reordena_sin_dejar_efectos PASSED [ 22%]
+tests/test_dashboard_motion.py::test_cada_baldosa_reutiliza_una_sola_animacion_de_geometria PASSED [ 22%]
+tests/test_dashboard_motion.py::test_el_asa_muestra_la_medida_y_el_resultado_coincide_con_lo_persistido PASSED [ 23%]
+tests/test_dashboard_motion.py::test_quitar_un_widget_sale_con_animacion_y_la_persistencia_es_inmediata PASSED [ 23%]
+tests/test_dashboard_motion.py::test_restaurar_funde_la_distribucion_sin_dejar_capas_huerfanas PASSED [ 23%]
+tests/test_dashboard_motion.py::test_el_modo_edicion_se_despliega_y_se_recoge_sin_restos PASSED [ 23%]
+tests/test_dashboard_motion.py::test_entrar_y_salir_de_edicion_muchas_veces_seguidas_termina_coherente PASSED [ 23%]
+tests/test_dashboard_motion.py::test_el_catalogo_abre_y_cierra_con_transicion_y_termina_en_reposo PASSED [ 24%]
+tests/test_dashboard_motion.py::test_el_catalogo_solo_muestra_lo_permitido_y_cambiar_de_categoria_no_deja_efectos PASSED [ 24%]
+tests/test_dashboard_motion.py::test_agregar_desde_el_catalogo_conserva_el_desplazamiento PASSED [ 24%]
+tests/test_dashboard_motion.py::test_config_grafico_muestra_y_oculta_opciones_con_transicion PASSED [ 24%]
+tests/test_dashboard_motion.py::test_la_grafica_interpola_entre_valores_reales_y_termina_exacta PASSED [ 25%]
+tests/test_dashboard_motion.py::test_cambiar_de_tipo_funde_la_imagen_anterior_y_no_deja_fantasmas PASSED [ 25%]
+tests/test_dashboard_motion.py::test_la_grafica_en_carga_dibuja_un_esqueleto_que_se_detiene_con_el_dato PASSED [ 25%]
+tests/test_dashboard_motion.py::test_resalte_guia_y_sectores_vuelven_a_cero_sin_restos PASSED [ 25%]
+tests/test_dashboard_motion.py::test_la_dona_emite_su_senal_al_tocar_la_leyenda PASSED [ 25%]
+tests/test_dashboard_motion.py::test_barra_dona_y_mapa_interpolan_y_terminan_exactas PASSED [ 26%]
+tests/test_dashboard_motion.py::test_el_drawer_difumina_al_ritmo_del_panel_y_cierra_limpio PASSED [ 26%]
+tests/test_dashboard_motion.py::test_el_scroll_suave_se_instala_una_sola_vez PASSED [ 26%]
+tests/test_dashboard_motion.py::test_con_movimiento_reducido_no_hay_ciclos_decorativos_y_la_vista_previa_se_reinicia PASSED [ 26%]
+tests/test_dashboard_motion.py::test_un_efecto_de_movimiento_combina_canales_sin_pisarse PASSED [ 26%]
+tests/test_dashboard_personal.py::test_la_distribucion_inicial_es_la_del_dashboard_original PASSED [ 27%]
+tests/test_dashboard_personal.py::test_el_catalogo_solo_ofrece_lo_que_el_rol_puede_consultar PASSED [ 27%]
+tests/test_dashboard_personal.py::test_una_distribucion_guardada_con_algo_prohibido_se_depura_al_cargar PASSED [ 27%]
+tests/test_dashboard_personal.py::test_cada_widget_tiene_descripcion_categoria_y_tamano_valido PASSED [ 27%]
+tests/test_dashboard_personal.py::test_la_distribucion_se_guarda_por_usuario_y_se_restaura PASSED [ 28%]
+tests/test_dashboard_personal.py::test_una_preferencia_dañada_no_rompe_el_dashboard PASSED [ 28%]
+tests/test_dashboard_personal.py::test_la_diferencia_por_categoria_conserva_el_signo_y_el_orden PASSED [ 28%]
+tests/test_dashboard_personal.py::test_orden_y_cantidad_de_elementos PASSED [ 28%]
+tests/test_dashboard_personal.py::test_el_periodo_filtra_por_fecha PASSED [ 28%]
+tests/test_dashboard_personal.py::test_un_periodo_sin_datos_queda_vacio_en_vez_de_inventar PASSED [ 29%]
+tests/test_dashboard_personal.py::test_rangos_de_periodo PASSED          [ 29%]
+tests/test_dashboard_personal.py::test_operadores_en_el_tiempo_apila_una_serie_por_operador PASSED [ 29%]
+tests/test_dashboard_personal.py::test_procesamiento_por_corrida_tiene_procesadas_y_con_error PASSED [ 29%]
+tests/test_dashboard_personal.py::test_colocar_respeta_columnas_y_salta_de_fila PASSED [ 29%]
+tests/test_dashboard_personal.py::test_en_ventanas_estrechas_un_grande_ocupa_el_ancho PASSED [ 30%]
+tests/test_dashboard_personal.py::test_agregar_y_quitar_widgets_persisten PASSED [ 30%]
+tests/test_dashboard_personal.py::test_cambiar_tamano_y_orden_se_guardan PASSED [ 30%]
+tests/test_dashboard_personal.py::test_arrastrar_y_soltar_reordena PASSED [ 30%]
+tests/test_dashboard_personal.py::test_un_fallo_suelto_de_oracle_se_reintenta_y_no_deja_el_widget_vacio PASSED [ 31%]
+tests/test_dashboard_personal.py::test_si_oracle_sigue_fallando_se_propaga_el_error_tras_los_reintentos PASSED [ 31%]
+tests/test_dashboard_personal.py::test_un_grafico_recien_agregado_dice_cargando_y_no_sin_datos PASSED [ 31%]
+tests/test_dashboard_personal.py::test_quitar_un_panel_no_deja_una_etiqueta_muerta_que_rompa_el_siguiente_widget PASSED [ 31%]
+tests/test_dashboard_personal.py::test_actividad_reciente_se_desplaza_cuando_hay_muchas_entradas FAILED [ 31%]
+tests/test_dashboard_personal.py::test_la_medida_propia_se_guarda_se_limita_y_sobrevive_a_recargar PASSED [ 32%]
+tests/test_dashboard_personal.py::test_redimensionar_con_el_asa_ajusta_columnas_y_alto_y_se_guarda PASSED [ 32%]
+tests/test_dashboard_personal.py::test_cada_usuario_tiene_su_propio_dashboard PASSED [ 32%]
+tests/test_dashboard_personal.py::test_un_rol_sin_permiso_no_puede_agregar_el_widget PASSED [ 32%]
+tests/test_dashboard_personal.py::test_restaurar_pide_confirmacion_y_vuelve_a_lo_inicial PASSED [ 32%]
+tests/test_dashboard_personal.py::test_cambiar_opciones_de_un_grafico_y_duplicarlo PASSED [ 33%]
+tests/test_dashboard_personal.py::test_el_dashboard_original_conserva_su_api PASSED [ 33%]
+tests/test_dashboard_personal.py::test_la_cifra_de_una_tarjeta_nunca_queda_invisible_tras_un_hover_sin_leave FAILED [ 33%]
+tests/test_dashboard_personal.py::test_un_fundido_de_entrada_no_deja_efecto_puesto PASSED [ 33%]
+tests/test_dashboard_personal.py::test_el_catalogo_cuenta_cuantas_veces_esta_cada_widget PASSED [ 34%]
+tests/test_dashboard_views.py::test_kpis_del_conteo_continuo FAILED      [ 34%]
+tests/test_dashboard_views.py::test_no_hay_boton_de_cierre_ni_insignia PASSED [ 34%]
+tests/test_dashboard_views.py::test_grafica_de_diferencia_por_categoria PASSED [ 34%]
+tests/test_db.py::test_el_conteo_es_uno_solo_y_se_llama_actual PASSED    [ 34%]
+tests/test_db.py::test_fetch_resumen_del_conteo_continuo FAILED          [ 35%]
+tests/test_db.py::test_fetch_conciliacion_cinco_columnas FAILED          [ 35%]
+tests/test_db.py::test_fetch_conciliacion_busca_por_sku_o_nombre_y_limita PASSED [ 35%]
+tests/test_db.py::test_fetch_lecturas_marca_la_vigente_y_la_foto PASSED  [ 35%]
+tests/test_db.py::test_fetch_estado_batch_incluye_nuevos_y_descartados PASSED [ 35%]
+tests/test_db.py::test_fetch_errores_trae_sku_y_motivo PASSED            [ 36%]
+tests/test_db.py::test_un_sku_desconocido_queda_en_nuevo_sku_no_en_error PASSED [ 36%]
+tests/test_db.py::test_fetch_nuevos_sku_ordena_por_fecha_y_agrupa_por_sku PASSED [ 36%]
+tests/test_db.py::test_fetch_nuevos_sku_deja_el_aviso_en_la_campana_y_no_lo_duplica PASSED [ 36%]
+tests/test_db.py::test_fetch_nuevos_sku_sigue_sin_la_tabla_de_notificaciones PASSED [ 37%]
+tests/test_db.py::test_nuevo_sku_alta_crea_el_producto_y_procesa_la_lectura PASSED [ 37%]
+tests/test_db.py::test_nuevo_sku_alta_normaliza_el_sku_y_exige_administrador PASSED [ 37%]
+tests/test_db.py::test_descartar_nuevo_sku_no_lo_cuenta_y_es_idempotente PASSED [ 37%]
+tests/test_db.py::test_descartar_nuevo_sku_exige_administrador PASSED    [ 37%]
+tests/test_db.py::test_fetch_actividad_por_operador PASSED               [ 38%]
+tests/test_db.py::test_fetch_por_categoria_es_la_diferencia_en_unidades PASSED [ 38%]
+tests/test_db.py::test_fetch_series_seis_graficas FAILED                 [ 38%]
+tests/test_db.py::test_fetch_series_filtra_por_categoria PASSED          [ 38%]
+tests/test_estado_cuenta.py::test_pendiente_muestra_espera_y_volver PASSED [ 39%]
+tests/test_estado_cuenta.py::test_rechazado_y_suspendido_muestran_motivo[RECHAZADO] PASSED [ 39%]
+tests/test_estado_cuenta.py::test_rechazado_y_suspendido_muestran_motivo[SUSPENDIDO] PASSED [ 39%]
+tests/test_estado_cuenta.py::test_el_boton_emite_volver PASSED           [ 39%]
+tests/test_fortaleza.py::test_vacia PASSED                               [ 39%]
+tests/test_fortaleza.py::test_debil_y_regular PASSED                     [ 40%]
+tests/test_fortaleza.py::test_fuerte_cumple_las_cuatro_reglas PASSED     [ 40%]
+tests/test_fortaleza.py::test_patron_comun_baja_el_puntaje PASSED        [ 40%]
+tests/test_fortaleza.py::test_secuencia_baja_el_puntaje PASSED           [ 40%]
+tests/test_fortaleza.py::test_repeticion_baja_el_puntaje PASSED          [ 40%]
+tests/test_fortaleza.py::test_etiquetas_por_puntaje PASSED               [ 41%]
+tests/test_idioma.py::test_subtitulo_del_login_tiene_traduccion PASSED   [ 41%]
+tests/test_idioma.py::test_estados_de_bluetooth_traducidos PASSED        [ 41%]
+tests/test_idioma.py::test_formatos_numericos_siguen_el_idioma PASSED    [ 41%]
+tests/test_idioma.py::test_panel_de_marca_se_retraduce PASSED            [ 42%]
+tests/test_interactividad.py::test_kpi_se_voltea_al_hover_y_vuelve PASSED [ 42%]
+tests/test_interactividad.py::test_kpi_emite_clic PASSED                 [ 42%]
+tests/test_interactividad.py::test_paleta_filtra_y_ejecuta PASSED        [ 42%]
+tests/test_interactividad.py::test_paleta_sin_resultados_lo_dice PASSED  [ 42%]
+tests/test_interactividad.py::test_drawer_abre_y_cierra_con_esc PASSED   [ 43%]
+tests/test_interactividad.py::test_chip_activo_avisa_y_desaparece PASSED [ 43%]
+tests/test_interactividad.py::test_confirmacion_exige_entender_antes_de_seguir PASSED [ 43%]
+tests/test_interactividad.py::test_diagrama_pinta_sus_estados PASSED     [ 43%]
+tests/test_interactividad.py::test_barras_de_trafico_acumulan PASSED     [ 43%]
+tests/test_interactividad.py::test_acciones_de_fila_se_colocan PASSED    [ 44%]
+tests/test_interactividad.py::test_indicador_de_progreso PASSED          [ 44%]
+tests/test_inventario_views.py::test_cinco_columnas_y_sin_diferencia PASSED [ 44%]
+tests/test_inventario_views.py::test_buscador PASSED                     [ 44%]
+tests/test_inventario_views.py::test_exportar_csv PASSED                 [ 45%]
+tests/test_inventario_views.py::test_detalle_de_lecturas PASSED          [ 45%]
+tests/test_inventario_views.py::test_ver_foto_abre_el_visor PASSED       [ 45%]
+tests/test_inventario_views.py::test_filtros_estado_rango_y_orden PASSED [ 45%]
+tests/test_inventario_views.py::test_filtro_por_categoria_y_orden_descendente PASSED [ 45%]
+tests/test_inventario_views.py::test_exportar_csv_respeta_los_filtros PASSED [ 46%]
+tests/test_inventario_views.py::test_columna_producto_ocupa_el_ancho_en_la_primera_carga PASSED [ 46%]
+tests/test_motion_admin.py::test_claves_unicas_conserva_orden_y_desambigua PASSED [ 46%]
+tests/test_motion_admin.py::test_sin_animaciones_no_se_crea_ningun_efecto_ni_capa PASSED [ 46%]
+tests/test_motion_admin.py::test_actividad_barre_solo_mientras_el_runner_tiene_trabajo_real PASSED [ 46%]
+tests/test_motion_admin.py::test_solicitudes_aprobar_saca_la_fila_con_transicion_y_el_dato_es_inmediato PASSED [ 47%]
+tests/test_motion_admin.py::test_solicitudes_refrescos_iguales_no_recrean_animaciones PASSED [ 47%]
+tests/test_motion_admin.py::test_solicitudes_entrada_escalonada_termina_en_su_sitio_y_es_repetible PASSED [ 47%]
+tests/test_motion_admin.py::test_vista_destruida_a_mitad_de_la_entrada_no_falla PASSED [ 47%]
+tests/test_motion_admin.py::test_empleados_filtrar_conserva_la_identidad_y_anima_solo_lo_que_cambia PASSED [ 48%]
+tests/test_motion_admin.py::test_empleados_suspender_cambia_la_huella_de_su_fila PASSED [ 48%]
+tests/test_motion_admin.py::test_roles_reutiliza_los_selectores_y_no_re_guarda_lo_que_solo_refleja PASSED [ 48%]
+tests/test_motion_admin.py::test_roles_cambiar_un_permiso_responde_al_instante_y_deja_la_celda_limpia PASSED [ 48%]
+tests/test_motion_admin.py::test_roles_el_administrador_sigue_bloqueado_tras_actualizar PASSED [ 48%]
+tests/test_motion_admin.py::test_roles_entrada_termina_sin_efectos PASSED [ 49%]
+tests/test_motion_admin.py::test_auditoria_filtrar_no_reescribe_filas_y_el_resultado_es_inmediato PASSED [ 49%]
+tests/test_motion_admin.py::test_auditoria_un_registro_nuevo_entra_y_los_existentes_no_se_mueven PASSED [ 49%]
+tests/test_motion_admin.py::test_auditoria_la_entrada_no_cambia_ningun_dato PASSED [ 49%]
+tests/test_motion_admin.py::test_respaldos_el_respaldo_nuevo_entra_sin_mover_los_demas PASSED [ 50%]
+tests/test_motion_admin.py::test_respaldos_conserva_la_seleccion_y_la_entrada_termina_limpia PASSED [ 50%]
+tests/test_motion_admin.py::test_respaldos_no_bloquea_la_interfaz_mientras_trabaja PASSED [ 50%]
+tests/test_motion_admin.py::test_perfil_entrada_para_ambos_roles_termina_limpia[administrador] PASSED [ 50%]
+tests/test_motion_admin.py::test_perfil_entrada_para_ambos_roles_termina_limpia[inventario] PASSED [ 50%]
+tests/test_motion_admin.py::test_perfil_las_diferencias_de_rol_se_conservan PASSED [ 51%]
+tests/test_motion_admin.py::test_perfil_un_cambio_de_contrasena_rechazado_sacude_la_tarjeta_y_termina_en_su_sitio PASSED [ 51%]
+tests/test_motion_admin.py::test_perfil_foto_cruza_el_avatar_y_deja_la_opacidad_plena PASSED [ 51%]
+tests/test_motion_admin.py::test_los_tooltips_nacen_con_un_fundido PASSED [ 51%]
+tests/test_notificaciones.py::test_cuenta_nueva_notifica_al_administrador PASSED [ 51%]
+tests/test_notificaciones.py::test_pedido_de_clave_desde_acceso PASSED   [ 52%]
+tests/test_notificaciones.py::test_cambio_desde_perfil_queda_pendiente PASSED [ 52%]
+tests/test_notificaciones.py::test_listar_y_marcar_por_persona PASSED    [ 52%]
+tests/test_notificaciones.py::test_marcar_todas PASSED                   [ 52%]
+tests/test_notificaciones_views.py::test_lista_con_punto_en_las_sin_leer_y_filtro PASSED [ 53%]
+tests/test_notificaciones_views.py::test_ver_lleva_a_la_seccion_y_la_marca_leida PASSED [ 53%]
+tests/test_notificaciones_views.py::test_marcar_todas PASSED             [ 53%]
+tests/test_notificaciones_views.py::test_la_campana_cuenta_las_sin_leer_y_abre_la_pantalla PASSED [ 53%]
+tests/test_notificaciones_views.py::test_inventario_tambien_tiene_notificaciones PASSED [ 53%]
+tests/test_nuevo_sku_views.py::test_el_aviso_muestra_una_tarjeta_por_sku_agrupado PASSED [ 54%]
+tests/test_nuevo_sku_views.py::test_mas_de_tres_sku_muestra_el_resto PASSED [ 54%]
+tests/test_nuevo_sku_views.py::test_los_botones_emiten_el_sku_y_ocultar_limpia PASSED [ 54%]
+tests/test_nuevo_sku_views.py::test_la_x_oculta_la_tarjeta_y_reaparece_con_lecturas_nuevas PASSED [ 54%]
+tests/test_nuevo_sku_views.py::test_cerrar_todas_deja_el_enlace_para_mostrarlas PASSED [ 54%]
+tests/test_nuevo_sku_views.py::test_olvidar_quita_solo_ese_sku PASSED    [ 55%]
+tests/test_nuevo_sku_views.py::test_el_dialogo_muestra_el_sku_en_solo_lectura_y_en_mayusculas PASSED [ 55%]
+tests/test_nuevo_sku_views.py::test_el_aviso_flota_sobre_el_contenido_arriba_a_la_derecha PASSED [ 55%]
+tests/test_nuevo_sku_views.py::test_crear_y_procesar_da_de_alta_con_el_sku_del_aviso PASSED [ 55%]
+tests/test_nuevo_sku_views.py::test_no_crear_confirma_y_descarta_la_lectura PASSED [ 56%]
+tests/test_nuevo_sku_views.py::test_sin_permiso_el_aviso_no_se_cierra_y_el_motivo_va_a_la_isla PASSED [ 56%]
+tests/test_nuevo_sku_views.py::test_al_cerrar_sesion_el_aviso_y_su_sondeo_se_apagan PASSED [ 56%]
+tests/test_nuevo_sku_views.py::test_el_sondeo_refresca_la_campana_cuando_cambia_el_conjunto_de_nuevos PASSED [ 56%]
+tests/test_perfil.py::test_avatar_guarda_y_borra_en_la_carpeta_de_fotos PASSED [ 56%]
+tests/test_perfil.py::test_editor_rota_hace_zoom_y_recorta_cuadrado PASSED [ 57%]
+tests/test_perfil.py::test_perfil_muestra_identidad_y_preferencias PASSED [ 57%]
+tests/test_perfil.py::test_perfil_de_inventario_pide_aprobacion PASSED   [ 57%]
+tests/test_perfil_layout.py::test_conserva_los_datos_y_acciones PASSED   [ 57%]
+tests/test_perfil_layout.py::test_sin_correo_no_se_muestra_la_fila PASSED [ 57%]
+tests/test_perfil_layout.py::test_el_control_segmentado_gobierna_el_combo_y_lo_refleja PASSED [ 58%]
+tests/test_perfil_layout.py::test_al_abrir_la_sesion_los_segmentos_reflejan_lo_guardado PASSED [ 58%]
+tests/test_perfil_layout.py::test_los_campos_de_contrasena_se_pueden_mostrar_y_ocultar PASSED [ 58%]
+tests/test_perfil_layout.py::test_la_composicion_se_adapta_al_ancho PASSED [ 58%]
+tests/test_perfil_layout.py::test_el_contenido_tiene_ancho_maximo PASSED [ 59%]
+tests/test_permisos.py::test_matriz_inicial_coincide_con_la_especificacion PASSED [ 59%]
+tests/test_permisos.py::test_guardar_cambia_nivel_y_se_lee_de_nuevo PASSED [ 59%]
+tests/test_permisos.py::test_la_fila_del_administrador_esta_bloqueada[dashboard] PASSED [ 59%]
+tests/test_permisos.py::test_la_fila_del_administrador_esta_bloqueada[usuarios] PASSED [ 59%]
+tests/test_permisos.py::test_la_fila_del_administrador_esta_bloqueada[solicitudes] PASSED [ 60%]
+tests/test_permisos.py::test_la_fila_del_administrador_esta_bloqueada[permisos] PASSED [ 60%]
+tests/test_permisos.py::test_la_fila_del_administrador_esta_bloqueada[sync] PASSED [ 60%]
+tests/test_permisos.py::test_la_fila_del_administrador_esta_bloqueada[respaldos] PASSED [ 60%]
+tests/test_permisos.py::test_solo_con_permiso_de_permisos_se_guarda PASSED [ 60%]
+tests/test_permisos.py::test_guardar_valida_rol_modulo_y_nivel[JEFE-usuarios-GESTION] PASSED [ 61%]
+tests/test_permisos.py::test_guardar_valida_rol_modulo_y_nivel[INVENTARIO-nada-GESTION] PASSED [ 61%]
+tests/test_permisos.py::test_guardar_valida_rol_modulo_y_nivel[INVENTARIO-usuarios-TODO] PASSED [ 61%]
+tests/test_permisos.py::test_exigir_niega_a_inventario_gestionar_usuarios PASSED [ 61%]
+tests/test_permisos.py::test_nivel_de_modulo_inexistente_es_ninguno PASSED [ 62%]
+tests/test_permisos.py::test_el_permiso_se_lee_de_oracle_en_auth PASSED  [ 62%]
+tests/test_permisos.py::test_exigir_con_cuenta_inexistente_niega PASSED  [ 62%]
+tests/test_permisos.py::test_migrar_borra_los_modulos_retirados PASSED   [ 62%]
+tests/test_permisos.py::test_permisos_migrar_aguanta_otro_escritorio PASSED [ 62%]
+tests/test_respaldos.py::test_crear_y_listar PASSED                      [ 63%]
+tests/test_respaldos.py::test_inventario_no_crea_ni_restaura PASSED      [ 63%]
+tests/test_respaldos.py::test_restaurar_con_el_servicio_que_no_se_detiene PASSED [ 63%]
+tests/test_respaldos.py::test_restaurar_bien PASSED                      [ 63%]
+tests/test_respaldos.py::test_restaurar_sin_servicio_corriendo_no_espera PASSED [ 64%]
+tests/test_respaldos.py::test_restaurar_con_error_deja_los_jobs_habilitados PASSED [ 64%]
+tests/test_respaldos.py::test_guardar_automatico PASSED                  [ 64%]
+tests/test_respaldos.py::test_restaurar_siempre_deja_la_pausa_escrita[DETENIDO-60] PASSED [ 64%]
+tests/test_respaldos.py::test_restaurar_siempre_deja_la_pausa_escrita[PAUSADO-0] PASSED [ 64%]
+tests/test_respaldos_views.py::test_el_dialogo_pide_escribir_restaurar PASSED [ 65%]
+tests/test_respaldos_views.py::test_lista_y_crear PASSED                 [ 65%]
+tests/test_respaldos_views.py::test_hecho_por_dice_automatico_y_antes_de_restaurar PASSED [ 65%]
+tests/test_respaldos_views.py::test_restaurar_emite_restaurado PASSED    [ 65%]
+tests/test_respaldos_views.py::test_tras_restaurar_la_ventana_vuelve_al_login_con_el_aviso FAILED [ 65%]
+tests/test_respaldos_views.py::test_inventario_no_ve_respaldos PASSED    [ 66%]
+tests/test_roles_view.py::test_roles_muestra_los_doce_modulos PASSED     [ 66%]
+tests/test_roles_view.py::test_la_fila_del_administrador_esta_deshabilitada_entera PASSED [ 66%]
+tests/test_roles_view.py::test_roles_cambiar_un_combo_guarda_en_oracle PASSED [ 66%]
+tests/test_roles_view.py::test_roles_sin_permiso_no_consulta PASSED      [ 67%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2026-10] PASSED [ 67%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2026-11] PASSED [ 67%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2026-12] PASSED [ 67%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2027-1] PASSED [ 67%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2027-2] PASSED [ 68%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2028-2] PASSED [ 68%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2026-8] PASSED [ 68%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2025-6] PASSED [ 68%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2025-9] PASSED [ 68%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2024-2] PASSED [ 69%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2023-10] PASSED [ 69%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2026-2] PASSED [ 69%]
+tests/test_selector_fecha.py::test_la_cuadricula_coincide_con_el_calendario_real[2027-5] PASSED [ 69%]
+tests/test_selector_fecha.py::test_todos_los_meses_de_2020_a_2032 PASSED [ 70%]
+tests/test_selector_fecha.py::test_meses_de_4_5_y_6_semanas PASSED       [ 70%]
+tests/test_selector_fecha.py::test_febrero_bisiesto_y_cambio_de_anio PASSED [ 70%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-10-claro] PASSED [ 70%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-10-oscuro] PASSED [ 70%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-11-claro] PASSED [ 71%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-11-oscuro] PASSED [ 71%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-12-claro] PASSED [ 71%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-12-oscuro] PASSED [ 71%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2027-1-claro] PASSED [ 71%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2027-1-oscuro] PASSED [ 72%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2027-2-claro] PASSED [ 72%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2027-2-oscuro] PASSED [ 72%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2028-2-claro] PASSED [ 72%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2028-2-oscuro] PASSED [ 73%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-8-claro] PASSED [ 73%]
+tests/test_selector_fecha.py::test_cada_dia_se_dibuja_en_su_celda[2026-8-oscuro] PASSED [ 73%]
+tests/test_selector_fecha.py::test_el_stylesheet_global_ya_no_afecta_al_calendario PASSED [ 73%]
+tests/test_selector_fecha.py::test_navegacion_entre_meses_y_anios PASSED [ 73%]
+tests/test_selector_fecha.py::test_nombres_en_ingles PASSED              [ 74%]
+tests/test_selector_fecha.py::test_limites_minimo_y_maximo PASSED        [ 74%]
+tests/test_selector_fecha.py::test_abre_desplegable_completo_dentro_de_la_ventana PASSED [ 74%]
+tests/test_selector_fecha.py::test_cerca_de_los_bordes_siempre_dentro[pos0] PASSED [ 74%]
+tests/test_selector_fecha.py::test_cerca_de_los_bordes_siempre_dentro[pos1] PASSED [ 75%]
+tests/test_selector_fecha.py::test_cerca_de_los_bordes_siempre_dentro[pos2] PASSED [ 75%]
+tests/test_selector_fecha.py::test_cerca_de_los_bordes_siempre_dentro[pos3] PASSED [ 75%]
+tests/test_selector_fecha.py::test_cerca_de_los_bordes_siempre_dentro[pos4] PASSED [ 75%]
+tests/test_selector_fecha.py::test_distintos_tamanos_de_ventana[tam0] PASSED [ 75%]
+tests/test_selector_fecha.py::test_distintos_tamanos_de_ventana[tam1] PASSED [ 76%]
+tests/test_selector_fecha.py::test_distintos_tamanos_de_ventana[tam2] PASSED [ 76%]
+tests/test_selector_fecha.py::test_distintos_tamanos_de_ventana[tam3] PASSED [ 76%]
+tests/test_selector_fecha.py::test_la_flecha_del_campo_abre_y_un_dia_lo_cierra PASSED [ 76%]
+tests/test_selector_fecha.py::test_clic_en_el_texto_no_abre_el_calendario PASSED [ 76%]
+tests/test_selector_fecha.py::test_escape_y_clic_fuera_cierran_sin_cambiar_la_fecha PASSED [ 77%]
+tests/test_selector_fecha.py::test_teclado_alt_abajo_flechas_y_enter PASSED [ 77%]
+tests/test_selector_fecha.py::test_hoy_selecciona_la_fecha_actual PASSED [ 77%]
+tests/test_selector_fecha.py::test_desde_posterior_a_hasta_se_rechaza_con_aviso PASSED [ 77%]
+tests/test_selector_fecha.py::test_hasta_anterior_a_desde_se_rechaza_con_aviso PASSED [ 78%]
+tests/test_selector_fecha.py::test_rango_valido_se_acepta_sin_aviso PASSED [ 78%]
+tests/test_selector_fecha.py::test_fecha_escrita_a_mano_invalida_vuelve_al_valor_anterior PASSED [ 78%]
+tests/test_selector_fecha.py::test_el_cambio_programatico_no_avisa PASSED [ 78%]
+tests/test_selector_fecha.py::test_los_filtros_reciben_el_cambio PASSED  [ 78%]
+tests/test_selector_fecha.py::test_estados_visuales_en_ambos_temas[claro] PASSED [ 79%]
+tests/test_selector_fecha.py::test_estados_visuales_en_ambos_temas[oscuro] PASSED [ 79%]
+tests/test_selector_fecha.py::test_cambio_de_tema_se_refleja_al_abrir PASSED [ 79%]
+tests/test_selector_fecha.py::test_con_animaciones_abre_cambia_de_mes_y_cierra PASSED [ 79%]
+tests/test_selector_fecha.py::test_cambio_rapido_de_mes_no_deja_estado_a_medias PASSED [ 79%]
+tests/test_selector_fecha.py::test_causa_original_el_qss_global_elide_los_numeros_de_dos_digitos_del_calendario_nativo PASSED [ 80%]
+tests/test_servicio.py::test_con_latido_reciente_se_ve_el_estado_escrito PASSED [ 80%]
+tests/test_servicio.py::test_con_latido_viejo_esta_detenido[11] PASSED   [ 80%]
+tests/test_servicio.py::test_con_latido_viejo_esta_detenido[600] PASSED  [ 80%]
+tests/test_servicio.py::test_sin_fila_esta_detenido PASSED               [ 81%]
+tests/test_servicio.py::test_pausar_y_reanudar_quedan_en_la_auditoria PASSED [ 81%]
+tests/test_servicio.py::test_responder_el_codigo PASSED                  [ 81%]
+tests/test_servicio.py::test_sin_gestion_en_sync_no_pausa PASSED         [ 81%]
+tests/test_servicio.py::test_el_remoto_publica_el_estado_y_avisa_cada_sincronizacion PASSED [ 81%]
+tests/test_sync_centro.py::test_etapas_siguen_el_estado_real PASSED      [ 82%]
+tests/test_sync_centro.py::test_etapas_marcan_el_error_donde_ocurrio PASSED [ 82%]
+tests/test_sync_centro.py::test_flujo_con_bluetooth_pausado_no_mueve_paquetes PASSED [ 82%]
+tests/test_sync_centro.py::test_flujo_recibiendo_activa_los_dos_primeros_enlaces PASSED [ 82%]
+tests/test_sync_centro.py::test_flujo_procesando_activa_solo_oracle PASSED [ 82%]
+tests/test_sync_centro.py::test_flujo_error_no_representa_transferencia_exitosa PASSED [ 83%]
+tests/test_sync_centro.py::test_velocidad_proporcional_al_trafico_real PASSED [ 83%]
+tests/test_sync_centro.py::test_estado_bluetooth_y_motivos PASSED        [ 83%]
+tests/test_sync_centro.py::test_odometro_expone_el_dato_al_instante PASSED [ 83%]
+tests/test_sync_centro.py::test_escala_del_eje PASSED                    [ 84%]
+tests/test_sync_centro.py::test_grafica_sin_datos_muestra_estado_vacio_no_ceros PASSED [ 84%]
+tests/test_sync_centro.py::test_etapas_widget_guarda_su_estado PASSED    [ 84%]
+tests/test_sync_centro.py::test_actividad_y_contadores_salen_de_oracle PASSED [ 84%]
+tests/test_sync_centro.py::test_sin_actividad_no_hay_tasa PASSED         [ 84%]
+tests/test_sync_centro.py::test_pausado_y_activo_cambian_texto_icono_y_boton PASSED [ 85%]
+tests/test_sync_centro.py::test_error_marca_etapa_y_nodo PASSED          [ 85%]
+tests/test_sync_centro.py::test_tabla_con_errores_y_estado_vacio PASSED  [ 85%]
+tests/test_sync_centro.py::test_filas_resueltas_se_desvanecen_y_no_se_quitan_las_demas PASSED [ 85%]
+tests/test_sync_centro.py::test_oracle_caido_se_ve_en_la_pildora PASSED  [ 85%]
+tests/test_sync_centro.py::test_cambiar_rango_pide_los_datos_de_ese_rango PASSED [ 86%]
+tests/test_sync_centro.py::test_la_ventana_no_repite_su_cabecera_en_sincronizacion PASSED [ 86%]
+tests/test_sync_centro.py::test_pausar_y_reanudar_no_mueven_el_scroll PASSED [ 86%]
+tests/test_sync_motion.py::test_interpolador_no_recrea_la_animacion_si_el_destino_no_cambia PASSED [ 86%]
+tests/test_sync_motion.py::test_interpolador_parte_del_valor_actual_al_cambiar_de_destino PASSED [ 87%]
+tests/test_sync_motion.py::test_duraciones_respetan_la_naturaleza_de_cada_interaccion PASSED [ 87%]
+tests/test_sync_motion.py::test_movimiento_reducido_acorta_y_apaga_lo_decorativo PASSED [ 87%]
+tests/test_sync_motion.py::test_odometro_duracion_segun_el_cambio_y_sin_reiniciar_si_es_igual PASSED [ 87%]
+tests/test_sync_motion.py::test_odometro_no_deja_columnas_fantasma_al_bajar_de_miles_a_una_cifra PASSED [ 87%]
+tests/test_sync_motion.py::test_sin_eventos_no_hay_paquetes_ni_reloj PASSED [ 88%]
+tests/test_sync_motion.py::test_las_lecturas_reales_crean_paquetes_y_el_reloj_se_apaga_solo PASSED [ 88%]
+tests/test_sync_motion.py::test_cantidad_de_paquetes_acotada PASSED      [ 88%]
+tests/test_sync_motion.py::test_el_reloj_del_flujo_y_los_ciclos_se_detienen_al_salir_de_la_pantalla PASSED [ 88%]
+tests/test_sync_motion.py::test_movimiento_reducido_sin_paquetes_ondas_ni_particulas PASSED [ 89%]
+tests/test_sync_motion.py::test_icono_apaga_el_halo_progresivamente_al_pausar PASSED [ 89%]
+tests/test_sync_motion.py::test_error_tine_de_rojo_el_tramo_y_se_recupera PASSED [ 89%]
+tests/test_sync_motion.py::test_boton_cargando_no_bloquea_el_clic_y_muestra_el_resultado PASSED [ 89%]
+tests/test_sync_motion.py::test_boton_actualizar_gira_y_vuelve_a_su_posicion PASSED [ 89%]
+tests/test_sync_motion.py::test_boton_cambia_el_texto_con_cross_fade_pero_el_dato_es_inmediato PASSED [ 90%]
+tests/test_sync_motion.py::test_la_entrada_cinematica_ocurre_al_entrar_no_en_cada_refresco PASSED [ 90%]
+tests/test_sync_motion.py::test_entrada_no_deja_efectos_encendidos_ni_widgets_ocultos_animandose PASSED [ 90%]
+tests/test_sync_motion.py::test_lecturas_reales_del_servicio_mueven_el_flujo PASSED [ 90%]
+tests/test_sync_motion.py::test_reanudar_pasa_por_conectando_y_termina_con_exito PASSED [ 90%]
+tests/test_sync_motion.py::test_reanudar_fallido_revierte_lo_visual PASSED [ 91%]
+tests/test_sync_motion.py::test_fila_resuelta_pasa_a_exito_y_las_que_siguen_se_resaltan PASSED [ 91%]
+tests/test_sync_motion.py::test_solo_las_filas_nuevas_entran_con_animacion PASSED [ 91%]
+tests/test_sync_motion.py::test_esqueleto_hasta_que_llegan_los_datos PASSED [ 91%]
+tests/test_sync_motion.py::test_tarjeta_eleva_en_hover_sin_mover_el_layout_y_suelta_el_efecto PASSED [ 92%]
+tests/test_sync_motion.py::test_cruzar_texto_deja_el_texto_final PASSED  [ 92%]
+tests/test_sync_motion.py::test_dos_fundidos_seguidos_sobre_la_misma_etiqueta_no_rompen PASSED [ 92%]
+tests/test_sync_motion.py::test_la_pantalla_se_dibuja_en_ambos_temas[claro] PASSED [ 92%]
+tests/test_sync_motion.py::test_la_pantalla_se_dibuja_en_ambos_temas[oscuro] PASSED [ 92%]
+tests/test_sync_views.py::test_muestra_el_error_con_sku_y_motivo PASSED  [ 93%]
+tests/test_sync_views.py::test_acciones_por_rol PASSED                   [ 93%]
+tests/test_sync_views.py::test_un_sku_nuevo_no_aparece_como_error_y_suma_al_chip PASSED [ 93%]
+tests/test_sync_views.py::test_reprocesar_sin_errores_no_falla PASSED    [ 93%]
+tests/test_tema_sistema.py::test_sistema_ignora_la_paleta_propia[oscuro-oscuro] PASSED [ 93%]
+tests/test_tema_sistema.py::test_sistema_ignora_la_paleta_propia[claro-claro] PASSED [ 94%]
+tests/test_tema_sistema.py::test_sistema_prefiere_el_esquema_de_qt PASSED [ 94%]
+tests/test_usuarios_views.py::test_movil_se_suspende_con_motivo_y_se_reactiva PASSED [ 94%]
+tests/test_usuarios_views.py::test_administrador_no_se_puede_suspender PASSED [ 94%]
+tests/test_visor_foto.py::test_carga_la_foto_real_y_la_ajusta_sin_deformar PASSED [ 95%]
+tests/test_visor_foto.py::test_zoom_botones_rueda_y_restablecer PASSED   [ 95%]
+tests/test_visor_foto.py::test_girar_90_y_restablecer PASSED             [ 95%]
+tests/test_visor_foto.py::test_el_paneo_no_deja_la_foto_fuera PASSED     [ 95%]
+tests/test_visor_foto.py::test_navegacion_entre_fotos_solo_las_que_existen PASSED [ 95%]
+tests/test_visor_foto.py::test_una_sola_foto_no_muestra_flechas PASSED   [ 96%]
+tests/test_visor_foto.py::test_el_panel_de_informacion_empieza_oculto PASSED [ 96%]
+tests/test_visor_foto.py::test_foto_inexistente_muestra_estado_no_imagen_ficticia PASSED [ 96%]
+tests/test_visor_foto.py::test_archivo_que_no_es_imagen PASSED           [ 96%]
+tests/test_visor_foto.py::test_pide_cerrar_con_escape_y_boton PASSED     [ 96%]
+tests/test_visor_foto.py::test_visor_se_pinta_en_ambos_temas_y_en_ingles PASSED [ 97%]
+tests/test_visor_foto.py::test_resumen_tabla_y_badges PASSED             [ 97%]
+tests/test_visor_foto.py::test_estado_vacio PASSED                       [ 97%]
+tests/test_visor_foto.py::test_miniatura_real_y_apertura_del_visor_con_navegacion PASSED [ 97%]
+tests/test_visor_foto.py::test_la_ventana_no_se_reinicia_al_ver_fotos PASSED [ 98%]
+tests/test_visor_foto.py::test_detalles_y_nota PASSED                    [ 98%]
+tests/test_visor_foto.py::test_error_de_consulta_se_muestra_con_reintentar PASSED [ 98%]
+tests/test_visor_foto.py::test_lecturas_en_ambos_temas[claro] PASSED     [ 98%]
+tests/test_visor_foto.py::test_lecturas_en_ambos_temas[oscuro] PASSED    [ 98%]
+tests/test_workers.py::test_worker_emits_failed_on_oracle_error PASSED   [ 99%]
+tests/test_workers.py::test_worker_emits_finished_with_the_result PASSED [ 99%]
+tests/test_workers.py::test_worker_runs_the_function_off_the_ui_thread PASSED [ 99%]
+tests/test_workers.py::test_las_consultas_reutilizan_la_conexion_de_su_hilo PASSED [ 99%]
+tests/test_workers.py::test_un_resultado_tardio_no_llega_a_una_pantalla_ya_destruida PASSED [100%]
+
+=================================== FAILURES ===================================
+_____________ test_charts_follow_the_system_scheme_when_it_changes _____________
+
+qtbot = <pytestqt.qtbot.QtBot object at 0x7fb7bbb13230>
+puente = <fakes.FakeRemoto object at 0x7fb7bbb9ec10>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb7bba2e810>
+
+    def test_charts_follow_the_system_scheme_when_it_changes(qtbot, puente, monkeypatch):
+        """Con «Sistema» elegido, si el SO pasa de oscuro a claro las gráficas se actualizan solas."""
+        ventana = abrir(qtbot, puente, ANA)
+        monkeypatch.setattr(tema, "_esquema_qt", lambda app: None)
+        portal = {"esquema": "oscuro"}
+        monkeypatch.setattr(tema, "_esquema_portal", lambda: portal["esquema"])
+        ventana.cambiar_tema("sistema")
+>       qtbot.waitUntil(lambda: _graficas_con_el_tema_vigente(ventana), timeout=3000)
+E       pytestqt.exceptions.TimeoutError: waitUntil timed out in 3000 milliseconds
+
+tests/test_app.py:420: TimeoutError
+________________________ test_seis_graficas_y_sus_datos ________________________
+
+vista = (<app.views.charts.ChartsView object at 0x7fb7a4256490>, Sesion(usuario='ana.gomez', nombre='Ana Gómez', rol='ADMIN', correo='ana@example.com', foto=None, tema='sistema', idioma='es', aviso_clave=None))
+
+    def test_seis_graficas_y_sus_datos(vista):
+        v, _ana = vista
+        assert set(CHART_IDS) == {"avance", "top", "danados", "batch"}
+        assert set(EXTRA_IDS) == {"dona", "hora"}
+        assert len(v.plots) == 10 and v.dona is not None and v.anillo is not None and v.dona_buenas is not None
+        assert dict(v.bar_data("top"))["Abarrotes"] == 3.0
+>       assert sum(valor for _c, valor in v.serie("dona")) == 65.0
+E       assert 125.0 == 65.0
+E        +  where 125.0 = sum(<generator object test_seis_graficas_y_sus_datos.<locals>.<genexpr> at 0x7fb7bb8f45f0>)
+
+tests/test_charts_views.py:50: AssertionError
+_____ test_una_grafica_se_redimensiona_con_el_asa_y_la_medida_se_recuerda ______
+
+qtbot = <pytestqt.qtbot.QtBot object at 0x7fb7bbbeab70>
+vista = (<app.views.charts.ChartsView object at 0x7fb7bbdaee90>, Sesion(usuario='ana.gomez', nombre='Ana Gómez', rol='ADMIN', correo='ana@example.com', foto=None, tema='sistema', idioma='es', aviso_clave=None))
+
+    def test_una_grafica_se_redimensiona_con_el_asa_y_la_medida_se_recuerda(qtbot, vista):
+        from PyQt6.QtCore import QPoint, Qt
+        from PyQt6.QtTest import QTest
+        from app import graficas_prefs as gp
+        v, ana = vista
+        v.set_edicion(True)
+        assert v.rejilla.redimensionable
+        b = v.rejilla.baldosa("avance")
+        ov = b._edicion
+        alto0, ancho0 = b.height(), b.width()
+        ini = QPoint(ov.width() - 10, ov.height() - 10)                  # dentro del asa
+        QTest.mousePress(ov, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ini)
+        QTest.mouseMove(ov, ini + QPoint(600, 100))
+        QTest.mouseRelease(ov, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, ini + QPoint(600, 100))
+>       assert b.height() == alto0 + 100 and b.width() > ancho0          # alto libre; ancho por columnas
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert (412 == (312 + 100) and 588 > 588)
+E        +  where 412 = <built-in method height of Baldosa object at 0x7fb7bbcaf070>()
+E        +    where <built-in method height of Baldosa object at 0x7fb7bbcaf070> = <app.views.rejilla_personal.Baldosa object at 0x7fb7bbcaf070>.height
+E        +  and   588 = <built-in method width of Baldosa object at 0x7fb7bbcaf070>()
+E        +    where <built-in method width of Baldosa object at 0x7fb7bbcaf070> = <app.views.rejilla_personal.Baldosa object at 0x7fb7bbcaf070>.width
+
+tests/test_charts_views.py:187: AssertionError
+________ test_actividad_reciente_se_desplaza_cuando_hay_muchas_entradas ________
+
+qtbot = <pytestqt.qtbot.QtBot object at 0x7fb7bba2c500>
+
+    def test_actividad_reciente_se_desplaza_cuando_hay_muchas_entradas(qtbot):
+        from types import SimpleNamespace
+        from PyQt6.QtWidgets import QScrollArea
+        v = vista(qtbot, ANA)
+        v.agregar_widget("actividad_reciente")
+        v._crudo = {"auditoria": [SimpleNamespace(fecha=datetime(2026, 11, 16, 8, 0), nombre=f"P{i}", accion=f"A{i}")
+                                  for i in range(40)]}
+        v._aplicar_datos()
+        zona = next(s for s in v.findChildren(QScrollArea) if s.objectName() == "desplazableTransparente")
+>       assert len(v._etiquetas["actividad_reciente"].text().splitlines()) == 40 and zona.verticalScrollBar().maximum() > 0
+E       AssertionError: assert (40 == 40 and 0 > 0)
+E        +  where 40 = len(['16/11 08:00 · P0 · A0', '16/11 08:00 · P1 · A1', '16/11 08:00 · P2 · A2', '16/11 08:00 · P3 · A3', '16/11 08:00 · P4 · A4', '16/11 08:00 · P5 · A5', ...])
+E        +    where ['16/11 08:00 · P0 · A0', '16/11 08:00 · P1 · A1', '16/11 08:00 · P2 · A2', '16/11 08:00 · P3 · A3', '16/11 08:00 · P4 · A4', '16/11 08:00 · P5 · A5', ...] = <built-in method splitlines of str object at 0x55939f507f10>()
+E        +      where <built-in method splitlines of str object at 0x55939f507f10> = '16/11 08:00 · P0 · A0\n16/11 08:00 · P1 · A1\n16/11 08:00 · P2 · A2\n16/11 08:00 · P3 · A3\n16/11 08:00 · P4 · A4\n16/11 08:00 · P5 · A5\n16/11 08:00 · P6 · A6\n16/11 08:00 · P7 · A7\n16/11 08:00 · P8 · A8\n16/11 08:00 · P9 · A9\n16/11 08:00 · P10 · A10\n16/11 08:00 · P11 · A11\n16/11 08:00 · P12 · A12\n16/11 08:00 · P13 · A13\n16/11 08:00 · P14 · A14\n16/11 08:00 · P15 · A15\n16/11 08:00 · P16 · A16\n16/11 08:00 · P17 · A17\n16/11 08:00 · P18 · A18\n16/11 08:00 · P19 · A19\n16/11 08:00 · P20 · A20\n16/11 08:00 · P21 · A21\n16/11 08:00 · P22 · A22\n16/11 08:00 · P23 · A23\n16/11 08:00 · P24 · A24\n16/11 08:00 · P25 · A25\n16/11 08:00 · P26 · A26\n16/11 08:00 · P27 · A27\n16/11 08:00 · P28 · A28\n16/11 08:00 · P29 · A29\n16/11 08:00 · P30 · A30\n16/11 08:00 · P31 · A31\n16/11 08:00 · P32 · A32\n16/11 08:00 · P33 · A33\n16/11 08:00 · P34 · A34\n16/11 08:00 · P35 · A35\n16/11 08:00 · P36 · A36\n16/11 08:00 · P37 · A37\n16/11 08:00 · P38 · A38\n16/11 08:00 · P39 · A39'.splitlines
+E        +        where '16/11 08:00 · P0 · A0\n16/11 08:00 · P1 · A1\n16/11 08:00 · P2 · A2\n16/11 08:00 · P3 · A3\n16/11 08:00 · P4 · A4\n16/11 08:00 · P5 · A5\n16/11 08:00 · P6 · A6\n16/11 08:00 · P7 · A7\n16/11 08:00 · P8 · A8\n16/11 08:00 · P9 · A9\n16/11 08:00 · P10 · A10\n16/11 08:00 · P11 · A11\n16/11 08:00 · P12 · A12\n16/11 08:00 · P13 · A13\n16/11 08:00 · P14 · A14\n16/11 08:00 · P15 · A15\n16/11 08:00 · P16 · A16\n16/11 08:00 · P17 · A17\n16/11 08:00 · P18 · A18\n16/11 08:00 · P19 · A19\n16/11 08:00 · P20 · A20\n16/11 08:00 · P21 · A21\n16/11 08:00 · P22 · A22\n16/11 08:00 · P23 · A23\n16/11 08:00 · P24 · A24\n16/11 08:00 · P25 · A25\n16/11 08:00 · P26 · A26\n16/11 08:00 · P27 · A27\n16/11 08:00 · P28 · A28\n16/11 08:00 · P29 · A29\n16/11 08:00 · P30 · A30\n16/11 08:00 · P31 · A31\n16/11 08:00 · P32 · A32\n16/11 08:00 · P33 · A33\n16/11 08:00 · P34 · A34\n16/11 08:00 · P35 · A35\n16/11 08:00 · P36 · A36\n16/11 08:00 · P37 · A37\n16/11 08:00 · P38 · A38\n16/11 08:00 · P39 · A39' = <built-in method text of QLabel object at 0x7fb7a415e210>()
+E        +          where <built-in method text of QLabel object at 0x7fb7a415e210> = <PyQt6.QtWidgets.QLabel object at 0x7fb7a415e210>.text
+E        +  and   0 = <built-in method maximum of QScrollBar object at 0x7fb7a415c870>()
+E        +    where <built-in method maximum of QScrollBar object at 0x7fb7a415c870> = <PyQt6.QtWidgets.QScrollBar object at 0x7fb7a415c870>.maximum
+E        +      where <PyQt6.QtWidgets.QScrollBar object at 0x7fb7a415c870> = <built-in method verticalScrollBar of QScrollArea object at 0x7fb7a415f930>()
+E        +        where <built-in method verticalScrollBar of QScrollArea object at 0x7fb7a415f930> = <PyQt6.QtWidgets.QScrollArea object at 0x7fb7a415f930>.verticalScrollBar
+
+tests/test_dashboard_personal.py:261: AssertionError
+__ test_la_cifra_de_una_tarjeta_nunca_queda_invisible_tras_un_hover_sin_leave __
+
+qtbot = <pytestqt.qtbot.QtBot object at 0x7fb7bb878b30>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb7bb878290>
+
+    def test_la_cifra_de_una_tarjeta_nunca_queda_invisible_tras_un_hover_sin_leave(qtbot, monkeypatch):
+        """Regresión: el cursor entra antes de que lleguen los datos y Qt no manda ``leaveEvent`` al reubicarla."""
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QEnterEvent
+        from app.views import widgets
+        monkeypatch.setattr(widgets, "ANIMAR", True)
+        c = widgets.TarjetaKpi("Avance")
+        qtbot.addWidget(c)
+        c.show()
+        c.enterEvent(QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(5, 5)))
+        qtbot.wait(400)                                                  # la animación de volteo termina
+        c.set_valor(100, lambda v: str(round(v)))
+        c.set_detalle("")
+        qtbot.wait(800)
+>       assert c._op_valor.opacity() == 1.0 and c.texto_visible() == "100"
+E       AssertionError: assert (1.0 == 1.0 and '96' == '100'
+E        +  where 1.0 = opacity()
+E        +    where opacity = <app.views.widgets.EtiquetaFundible object at 0x7fb7bbbb8690>.opacity
+E        +      where <app.views.widgets.EtiquetaFundible object at 0x7fb7bbbb8690> = <app.views.widgets.TarjetaKpi object at 0x7fb7a415e170>._op_valor
+E         
+E         - 100
+E         + 96)
+
+tests/test_dashboard_personal.py:354: AssertionError
+----------------------------- Captured Qt messages -----------------------------
+QtWarningMsg: This plugin does not support propagateSizeHints()
+________________________ test_kpis_del_conteo_continuo _________________________
+
+vista = (<app.views.dashboard.DashboardView object at 0x7fb7bb91c5f0>, Sesion(usuario='ana.gomez', nombre='Ana Gómez', rol='ADMIN', correo='ana@example.com', foto=None, tema='sistema', idioma='es', aviso_clave=None))
+
+    def test_kpis_del_conteo_continuo(vista):
+        v, _ana = vista
+>       assert v.card_text("avance") == "6,2 %"
+E       AssertionError: assert '3,2 %' == '6,2 %'
+E         
+E         - 6,2 %
+E         ? ^
+E         + 3,2 %
+E         ? ^
+
+tests/test_dashboard_views.py:37: AssertionError
+____________________ test_fetch_resumen_del_conteo_continuo ____________________
+
+contado = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7fb7bbcdd760>, log_mark=0)
+
+    def test_fetch_resumen_del_conteo_continuo(contado):
+        r = dbq.fetch_resumen()
+        assert r is not None
+>       assert (r.skus_totales, r.contados, r.avance_pct) == (65, 4, 6.15)
+E       AssertionError: assert (125, 4, 3.2) == (65, 4, 6.15)
+E         
+E         At index 0 diff: 125 != 65
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           (
+E         -     65,
+E         ?     ^...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_db.py:42: AssertionError
+____________________ test_fetch_conciliacion_cinco_columnas ____________________
+
+contado = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7fb7a7dfbf60>, log_mark=0)
+
+    def test_fetch_conciliacion_cinco_columnas(contado):
+        filas = {f.sku: f for f in dbq.fetch_conciliacion()}
+>       assert set(filas) >= {"A1", "A2", "A3", "A4", "A5"} and len(filas) == 65
+E       AssertionError: assert ({'7701234000001', '7701234000002', '7701234000003', '7701234000004', '7701234000005', '7701234000006', ...} >= {'A1', 'A2', 'A3', 'A4', 'A5'} and 125 == 65)
+E        +  where {'7701234000001', '7701234000002', '7701234000003', '7701234000004', '7701234000005', '7701234000006', ...} = set({'7701234000001': FilaInventario(sku='7701234000001', nombre='Arroz 500 g', categoria='Abarrotes', cant_contada=None, cant_sistema=18.0), '7701234000002': FilaInventario(sku='7701234000002', nombre='Azúcar 1 kg', categoria='Abarrotes', cant_contada=None, cant_sistema=201.0), '7701234000003': FilaInventario(sku='7701234000003', nombre='Aceite de Girasol 1 L', categoria='Abarrotes', cant_contada=None, cant_sistema=82.0), '7701234000004': FilaInventario(sku='7701234000004', nombre='Lentejas 500 g', categoria='Abarrotes', cant_contada=None, cant_sistema=74.0), ...})
+E        +  and   125 = len({'7701234000001': FilaInventario(sku='7701234000001', nombre='Arroz 500 g', categoria='Abarrotes', cant_contada=None, cant_sistema=18.0), '7701234000002': FilaInventario(sku='7701234000002', nombre='Azúcar 1 kg', categoria='Abarrotes', cant_contada=None, cant_sistema=201.0), '7701234000003': FilaInventario(sku='7701234000003', nombre='Aceite de Girasol 1 L', categoria='Abarrotes', cant_contada=None, cant_sistema=82.0), '7701234000004': FilaInventario(sku='7701234000004', nombre='Lentejas 500 g', categoria='Abarrotes', cant_contada=None, cant_sistema=74.0), ...})
+
+tests/test_db.py:49: AssertionError
+_______________________ test_fetch_series_seis_graficas ________________________
+
+contado = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7fb7a7dfc540>, log_mark=0)
+
+    def test_fetch_series_seis_graficas(contado):
+        datos = dbq.fetch_series()
+        assert {"Abarrotes", "Aseo", "Lácteos"} <= set(datos["_categorias"])
+        assert len(datos["avance_categoria"]) == len(datos["_categorias"])
+        assert all(0.0 <= pct <= 100.0 for _c, pct in datos["avance_categoria"])
+>       assert dict(datos["contados_pendientes"]) == {"contados": 4.0, "pendientes": 61.0}
+E       AssertionError: assert {'contados': ...entes': 121.0} == {'contados': ...ientes': 61.0}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'pendientes': 121.0} != {'pendientes': 61.0}
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           {...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_db.py:236: AssertionError
+_________ test_tras_restaurar_la_ventana_vuelve_al_login_con_el_aviso __________
+
+qtbot = <pytestqt.qtbot.QtBot object at 0x7fb7a7fad970>
+cuentas = <module 'app.auth' from '/work/desktop/app/auth.py'>
+respaldos_db = <module 'app.respaldos' from '/work/desktop/app/respaldos.py'>
+
+    def test_tras_restaurar_la_ventana_vuelve_al_login_con_el_aviso(qtbot, cuentas, respaldos_db):
+        ana = cuentas.registrar("ana.gomez", "Ana Gómez", "conteo2026", "conteo2026", correo="ana@example.com",
+                                pregunta=PREGUNTAS[0], respuesta="firulais")
+        ventana = build_window(FakeRemoto(), auto_refresh_ms=0, sesion=ana)
+        qtbot.addWidget(ventana)
+        assert "Respaldos" in ventana.secciones()
+        ventana.vista("Respaldos").restaurado.emit()
+        assert ventana.sesion() is None
+        assert any("Bluetooth" in aviso or "pausa" in aviso for aviso in ventana.avisos_visibles())
+>       _sin_consultas_pendientes(qtbot, ventana)
+
+tests/test_respaldos_views.py:78: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_respaldos_views.py:84: in _sin_consultas_pendientes
+    esperar(qtbot, lambda: all(getattr(v, "_runner", None) is None or v._runner.pendientes == 0 for v in vistas))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+qtbot = <pytestqt.qtbot.QtBot object at 0x7fb7a7fad970>
+condicion = <function _sin_consultas_pendientes.<locals>.<lambda> at 0x7fb7bb8abb00>
+
+    def esperar(qtbot, condicion):
+>       qtbot.waitUntil(condicion, timeout=15000)
+E       pytestqt.exceptions.TimeoutError: waitUntil timed out in 15000 milliseconds
+
+tests/test_respaldos_views.py:13: TimeoutError
+=========================== short test summary info ============================
+FAILED tests/test_app.py::test_charts_follow_the_system_scheme_when_it_changes
+FAILED tests/test_charts_views.py::test_seis_graficas_y_sus_datos - assert 12...
+FAILED tests/test_charts_views.py::test_una_grafica_se_redimensiona_con_el_asa_y_la_medida_se_recuerda
+FAILED tests/test_dashboard_personal.py::test_actividad_reciente_se_desplaza_cuando_hay_muchas_entradas
+FAILED tests/test_dashboard_personal.py::test_la_cifra_de_una_tarjeta_nunca_queda_invisible_tras_un_hover_sin_leave
+FAILED tests/test_dashboard_views.py::test_kpis_del_conteo_continuo - Asserti...
+FAILED tests/test_db.py::test_fetch_resumen_del_conteo_continuo - AssertionEr...
+FAILED tests/test_db.py::test_fetch_conciliacion_cinco_columnas - AssertionEr...
+FAILED tests/test_db.py::test_fetch_series_seis_graficas - AssertionError: as...
+FAILED tests/test_respaldos_views.py::test_tras_restaurar_la_ventana_vuelve_al_login_con_el_aviso
+================== 10 failed, 454 passed in 430.07s (0:07:10) ==================
+EXIT=1

@@ -1,0 +1,525 @@
+inicio 2026-11-17T16:30:25Z
+============================= test session starts ==============================
+platform linux -- Python 3.12.16, pytest-9.2.0, pluggy-1.7.0 -- /usr/local/bin/python
+rootdir: /work/server
+configfile: pyproject.toml
+collecting ... collected 238 items
+
+server/tests/test_batch.py::test_valid_row_becomes_procesado_with_typed_fields PASSED [  0%]
+server/tests/test_batch.py::test_capture_timestamp_is_utc_from_epoch_ms PASSED [  0%]
+server/tests/test_batch.py::test_recount_same_location_latest_wins PASSED [  1%]
+server/tests/test_batch.py::test_tie_same_timestamp_higher_id_transito_wins PASSED [  1%]
+server/tests/test_batch.py::test_older_reading_arriving_later_does_not_override PASSED [  2%]
+server/tests/test_batch.py::test_same_sku_counted_by_two_people_keeps_only_the_latest PASSED [  2%]
+server/tests/test_batch.py::test_unknown_sku_goes_to_nuevo_sku_and_batch_continues PASSED [  2%]
+server/tests/test_batch.py::test_lowercase_sku_matches_uppercase_product_and_stores_canonical PASSED [  3%]
+server/tests/test_batch.py::test_sku_with_spaces_around_matches_product PASSED [  3%]
+server/tests/test_batch.py::test_unknown_sku_with_invalid_quantity_is_error_not_nuevo_sku PASSED [  4%]
+server/tests/test_batch.py::test_other_validation_errors[-1-CANTIDAD_INVALIDA] PASSED [  4%]
+server/tests/test_batch.py::test_other_validation_errors[1,5-CANTIDAD_INVALIDA] PASSED [  5%]
+server/tests/test_batch.py::test_other_validation_errors[1.2345-CANTIDAD_INVALIDA] PASSED [  5%]
+server/tests/test_batch.py::test_reprocesar_errores_mantiene_su_comportamiento PASSED [  5%]
+server/tests/test_batch.py::test_operator_and_note_roundtrip PASSED      [  6%]
+server/tests/test_batch.py::test_long_note_and_operator_are_truncated PASSED [  6%]
+server/tests/test_batch.py::test_empty_operator_and_note_are_null PASSED [  7%]
+server/tests/test_batch.py::test_quantity_parses_with_dot_under_comma_nls PASSED [  7%]
+server/tests/test_batch.py::test_stale_procesando_row_is_recovered_and_fresh_one_is_not PASSED [  7%]
+server/tests/test_batch.py::test_two_concurrent_batches_process_each_row_once PASSED [  8%]
+server/tests/test_batch.py::test_purge_deletes_only_old_processed PASSED [  8%]
+server/tests/test_batch.py::test_purge_keeps_highest_seq_per_device_so_ready_survives PASSED [  9%]
+server/tests/test_batch.py::test_log_batch_row_written PASSED            [  9%]
+server/tests/test_batch.py::test_store_run_batch_returns_counts_of_its_own_run PASSED [ 10%]
+server/tests/test_batch.py::test_scheduler_job_is_defined_every_60_seconds PASSED [ 10%]
+server/tests/test_batch.py::test_danados_se_guardan PASSED               [ 10%]
+server/tests/test_batch.py::test_danados_invalidos_o_mayores_que_la_cantidad[11] PASSED [ 11%]
+server/tests/test_batch.py::test_danados_invalidos_o_mayores_que_la_cantidad[abc] PASSED [ 11%]
+server/tests/test_batch.py::test_danados_invalidos_o_mayores_que_la_cantidad[-1] PASSED [ 12%]
+server/tests/test_batch.py::test_alta_y_procesar_crea_producto_stock_conciliacion_y_procesa PASSED [ 12%]
+server/tests/test_batch.py::test_alta_y_procesar_procesa_todas_las_lecturas_de_ese_sku PASSED [ 13%]
+server/tests/test_batch.py::test_alta_y_procesar_con_sku_existente_no_falla_ni_duplica PASSED [ 13%]
+server/tests/test_batch.py::test_alta_y_procesar_tambien_resuelve_lecturas_viejas_en_error PASSED [ 13%]
+server/tests/test_batch.py::test_alta_y_procesar_valida_las_entradas[-Producto-Aseo-SKU_INVALIDO] PASSED [ 14%]
+server/tests/test_batch.py::test_alta_y_procesar_valida_las_entradas[XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-Producto-Aseo-SKU_INVALIDO] PASSED [ 14%]
+server/tests/test_batch.py::test_alta_y_procesar_valida_las_entradas[ZZ9--Aseo-NOMBRE_INVALIDO] PASSED [ 15%]
+server/tests/test_batch.py::test_alta_y_procesar_valida_las_entradas[ZZ9-Producto--CATEGORIA_INVALIDA] PASSED [ 15%]
+server/tests/test_batch.py::test_alta_y_procesar_deja_error_si_la_lectura_es_invalida PASSED [ 15%]
+server/tests/test_batch.py::test_descartar_nuevo_sku_deja_descartado_y_no_cuenta PASSED [ 16%]
+server/tests/test_batch.py::test_descartar_solo_afecta_nuevo_sku PASSED  [ 16%]
+server/tests/test_batch.py::test_descartar_nuevo_sku_valida_el_sku PASSED [ 17%]
+server/tests/test_batch.py::test_v_nuevos_sku_columnas_en_orden_y_fila PASSED [ 17%]
+server/tests/test_batch.py::test_v_estado_batch_columnas_en_orden PASSED [ 18%]
+server/tests/test_batch.py::test_alta_sku_crea_stock_y_refresca_conciliacion PASSED [ 18%]
+server/tests/test_batch.py::test_alta_sku_duplicado_falla PASSED         [ 18%]
+server/tests/test_batch.py::test_purga_borra_descartado_viejo_con_las_mismas_protecciones PASSED [ 19%]
+server/tests/test_batch.py::test_purga_conserva_descartado_con_foto PASSED [ 19%]
+server/tests/test_batch.py::test_v_errores_captura_solo_lecturas PASSED  [ 20%]
+server/tests/test_bluez.py::test_begin_and_serve_register_agent_profile_and_make_visible PASSED [ 20%]
+server/tests/test_bluez.py::test_spp_uuid_registers_without_channel PASSED [ 21%]
+server/tests/test_bluez.py::test_stop_restores_adapter_unregisters_and_can_reopen PASSED [ 21%]
+server/tests/test_bluez.py::test_leftover_state_from_a_killed_copy_is_not_taken_as_the_original PASSED [ 21%]
+server/tests/test_bluez.py::test_bluetooth_name_is_configurable PASSED   [ 22%]
+server/tests/test_bluez.py::test_serve_before_begin_pairing_is_a_programming_error PASSED [ 22%]
+server/tests/test_bluez.py::test_powered_off_and_blocked_explains_rfkill PASSED [ 23%]
+server/tests/test_bluez.py::test_powered_off_asks_to_turn_it_on PASSED   [ 23%]
+server/tests/test_bluez.py::test_missing_adapter PASSED                  [ 23%]
+server/tests/test_bluez.py::test_bluetoothd_not_running PASSED           [ 24%]
+server/tests/test_bluez.py::test_no_system_bus_mentions_the_dbus_mount PASSED [ 24%]
+server/tests/test_bluez.py::test_failure_halfway_rolls_back_what_was_registered PASSED [ 25%]
+server/tests/test_bluez.py::test_profile_rejected_by_bluez_is_bluetooth_unavailable PASSED [ 25%]
+server/tests/test_bluez.py::test_passkey_is_shown_with_six_digits_and_acceptance_returns PASSED [ 26%]
+server/tests/test_bluez.py::test_passkey_rejected_on_the_pc_is_rejected_to_bluez PASSED [ 26%]
+server/tests/test_bluez.py::test_bluez_cancel_withdraws_the_pending_code PASSED [ 26%]
+server/tests/test_bluez.py::test_authorize_service_only_for_our_uuid_and_paired_devices PASSED [ 27%]
+server/tests/test_bluez.py::test_new_connection_hands_a_line_connection_to_the_handler PASSED [ 27%]
+server/tests/test_bluez.py::test_second_connection_while_busy_gets_nak_ocupado PASSED [ 28%]
+server/tests/test_bluez.py::test_unpaired_device_connection_is_closed_without_calling_the_handler PASSED [ 28%]
+server/tests/test_bluez.py::test_stop_cuts_the_active_connection PASSED  [ 28%]
+server/tests/test_bluez.py::test_request_disconnection_cuts_the_active_connection PASSED [ 29%]
+server/tests/test_bluez.py::test_connection_oversized_line_is_delivered_once_and_the_rest_skipped PASSED [ 29%]
+server/tests/test_bluez.py::test_connection_write_to_a_gone_phone_raises_oserror PASSED [ 30%]
+server/tests/test_bluez.py::test_controller_full_cycle_over_bluez_transport PASSED [ 30%]
+server/tests/test_bluez.py::test_controller_timeout_closes_the_window_and_rejects_the_pending_code PASSED [ 31%]
+server/tests/test_bluez.py::test_bluez_cancel_returns_the_controller_to_waiting PASSED [ 31%]
+server/tests/test_bluez.py::test_default_is_open_mode_without_pairing PASSED [ 31%]
+server/tests/test_bluez.py::test_open_mode_registers_a_silent_agent_and_the_profile_needs_no_authentication PASSED [ 32%]
+server/tests/test_bluez.py::test_open_mode_agent_accepts_pairing_silently_and_never_shows_a_code PASSED [ 32%]
+server/tests/test_bluez.py::test_pairing_mode_agent_still_rejects_pairing_without_a_code PASSED [ 33%]
+server/tests/test_bluez.py::test_open_mode_authorizes_our_service_for_any_device_and_rejects_the_rest_silently PASSED [ 33%]
+server/tests/test_bluez.py::test_pairing_mode_still_requires_authentication_and_authorization PASSED [ 34%]
+server/tests/test_bluez.py::test_open_mode_accepts_a_device_that_never_paired PASSED [ 34%]
+server/tests/test_bluez.py::test_open_mode_second_connection_is_still_busy PASSED [ 34%]
+server/tests/test_bluez.py::test_open_mode_never_asks_for_a_code_and_a_full_sync_works PASSED [ 35%]
+server/tests/test_conciliacion.py::test_conciliacion_matches_scenario_exactly PASSED [ 35%]
+server/tests/test_conciliacion.py::test_resumen_matches_scenario_exactly FAILED [ 36%]
+server/tests/test_conciliacion.py::test_recount_updates_conciliation PASSED [ 36%]
+server/tests/test_conciliacion.py::test_counted_sku_with_zero_stock_is_conciliated PASSED [ 36%]
+server/tests/test_conciliacion.py::test_un_counted_sku_has_null_count_and_difference PASSED [ 37%]
+server/tests/test_conciliacion.py::test_v_dif_categoria_values FAILED    [ 37%]
+server/tests/test_conciliacion.py::test_v_top_desvios_order PASSED       [ 38%]
+server/tests/test_conciliacion.py::test_v_actividad_counts_by_operator FAILED [ 38%]
+server/tests/test_conciliacion.py::test_v_estado_batch_counts PASSED     [ 39%]
+server/tests/test_conciliacion.py::test_concurrent_batches_leave_same_conciliation_as_single_run FAILED [ 39%]
+server/tests/test_conciliacion.py::test_seed_conteo_is_conciliated_from_the_start PASSED [ 39%]
+server/tests/test_concurrent_connect.py::test_simultaneous_connects_from_four_threads_do_not_crash PASSED [ 40%]
+server/tests/test_config.py::test_sin_filas_lee_los_iniciales PASSED     [ 40%]
+server/tests/test_config.py::test_escribir_y_leer PASSED                 [ 41%]
+server/tests/test_config.py::test_migrar_dos_veces PASSED                [ 41%]
+server/tests/test_config.py::test_clave_desconocida_no_se_escribe PASSED [ 42%]
+server/tests/test_config.py::test_el_limite_de_foto_sale_de_la_configuracion PASSED [ 42%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[fotos.max_mb-abc] PASSED [ 42%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[fotos.max_mb-0] PASSED [ 43%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[respaldos.conservar-0] PASSED [ 43%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[respaldos.hora-9:00] PASSED [ 44%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[respaldos.hora-24:00] PASSED [ 44%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[respaldos.auto-talvez] PASSED [ 44%]
+server/tests/test_config.py::test_un_valor_invalido_guardado_vale_el_inicial[lote.intervalo_min-0] PASSED [ 45%]
+server/tests/test_controller.py::test_start_moves_idle_to_waiting PASSED [ 45%]
+server/tests/test_controller.py::test_passkey_callback_sets_confirm_state_and_code PASSED [ 46%]
+server/tests/test_controller.py::test_confirm_false_rejects_pairing PASSED [ 46%]
+server/tests/test_controller.py::test_timeout_returns_to_idle_and_stops_transport PASSED [ 47%]
+server/tests/test_controller.py::test_session_end_runs_batch_once_then_listo PASSED [ 47%]
+server/tests/test_controller.py::test_batch_failure_reports_error_and_controller_keeps_running PASSED [ 47%]
+server/tests/test_controller.py::test_progress_event_updates_recibidos PASSED [ 48%]
+server/tests/test_controller.py::test_start_twice_is_idempotent PASSED   [ 48%]
+server/tests/test_controller.py::test_on_change_called_on_every_transition PASSED [ 49%]
+server/tests/test_controller.py::test_bluetooth_unavailable_sets_error_state_with_message PASSED [ 49%]
+server/tests/test_controller.py::test_cut_before_end_keeps_waiting_and_does_not_run_batch PASSED [ 50%]
+server/tests/test_controller.py::test_cancel_mid_session_returns_to_idle_without_batch PASSED [ 50%]
+server/tests/test_controller.py::test_tcp_transport_real_store_end_to_end FAILED [ 50%]
+server/tests/test_cuentas.py::test_sincronizar_cuenta_crea_pendiente PASSED [ 51%]
+server/tests/test_cuentas.py::test_sincronizar_cuenta_idempotente PASSED [ 51%]
+server/tests/test_cuentas.py::test_devuelve_el_motivo_de_una_cuenta_suspendida PASSED [ 52%]
+server/tests/test_cuentas.py::test_usuario_igual_a_cuenta_de_escritorio_se_rechaza PASSED [ 52%]
+server/tests/test_cuentas.py::test_cuenta_queda_vinculada_al_primer_telefono PASSED [ 52%]
+server/tests/test_cuentas.py::test_operador_sin_permiso_de_bluetooth_no_sincroniza PASSED [ 53%]
+server/tests/test_cuentas.py::test_store_close_libera_la_conexion PASSED [ 53%]
+server/tests/test_e2e_tcp.py::test_full_count_end_to_end PASSED          [ 54%]
+server/tests/test_e2e_tcp.py::test_phone_killed_midway_and_resumed_no_duplicates PASSED [ 54%]
+server/tests/test_e2e_tcp.py::test_clock_skew_is_corrected PASSED        [ 55%]
+server/tests/test_e2e_tcp.py::test_retry_does_not_apply_offset_twice PASSED [ 55%]
+server/tests/test_e2e_tcp.py::test_second_connection_while_busy_gets_nak_ocupado PASSED [ 55%]
+server/tests/test_e2e_tcp.py::test_insert_latency_reported PASSED        [ 56%]
+server/tests/test_fotos.py::test_foto_completa_se_guarda PASSED          [ 56%]
+server/tests/test_fotos.py::test_crc_malo_no_guarda_nada PASSED          [ 57%]
+server/tests/test_fotos.py::test_foto_demasiado_grande PASSED            [ 57%]
+server/tests/test_fotos.py::test_foto_repetida_no_duplica PASSED         [ 57%]
+server/tests/test_fotos.py::test_corte_a_mitad_no_deja_nada PASSED       [ 58%]
+server/tests/test_fotos.py::test_foto_de_una_lectura_que_no_llego PASSED [ 58%]
+server/tests/test_fotos.py::test_parte_fuera_de_orden PASSED             [ 59%]
+server/tests/test_fotos.py::test_esquema_migrar_idempotente_y_recompila PASSED [ 59%]
+server/tests/test_fotos.py::test_la_purga_conserva_las_lecturas_con_foto PASSED [ 60%]
+server/tests/test_fotos.py::test_uuid_con_ruta_se_rechaza_en_el_saludo[../../fuera] PASSED [ 60%]
+server/tests/test_fotos.py::test_uuid_con_ruta_se_rechaza_en_el_saludo[/tmp/absoluto] PASSED [ 60%]
+server/tests/test_fotos.py::test_uuid_con_ruta_se_rechaza_en_el_saludo[tst-a/b] PASSED [ 61%]
+server/tests/test_fotos.py::test_uuid_con_ruta_se_rechaza_en_el_saludo[tst-..\\x] PASSED [ 61%]
+server/tests/test_fotos.py::test_guardar_foto_no_escribe_fuera_de_la_carpeta PASSED [ 62%]
+server/tests/test_notificaciones.py::test_crear_con_rol_y_con_usuario_y_clave_unica PASSED [ 62%]
+server/tests/test_notificaciones.py::test_una_sincronizacion_completa_notifica_a_admin_e_inventario PASSED [ 63%]
+server/tests/test_notificaciones.py::test_si_notificar_falla_la_sincronizacion_termina_igual PASSED [ 63%]
+server/tests/test_notificaciones.py::test_una_cuenta_nueva_del_movil_notifica_la_solicitud PASSED [ 63%]
+server/tests/test_notificaciones.py::test_el_respaldo_automatico_notifica_lo_creado_y_el_fallo PASSED [ 64%]
+server/tests/test_notificaciones.py::test_avisar_nuevos_sku_crea_una_por_lectura_y_no_duplica PASSED [ 64%]
+server/tests/test_notificaciones.py::test_avisar_nuevos_sku_acepta_las_filas_del_escritorio PASSED [ 65%]
+server/tests/test_notificaciones.py::test_run_batch_deja_en_la_campana_los_sku_nuevos_pendientes FAILED [ 65%]
+server/tests/test_oracle_connect.py::test_server_version_is_11_2 PASSED  [ 65%]
+server/tests/test_oracle_connect.py::test_database_charset_is_al32utf8 PASSED [ 66%]
+server/tests/test_oracle_connect.py::test_btsync_package_importable PASSED [ 66%]
+server/tests/test_protocol.py::test_frame_matches_all_vectors PASSED     [ 67%]
+server/tests/test_protocol.py::test_parse_matches_all_vectors PASSED     [ 67%]
+server/tests/test_protocol.py::test_text_roundtrip_special_chars PASSED  [ 68%]
+server/tests/test_protocol.py::test_crc_mismatch_raises_crc PASSED       [ 68%]
+server/tests/test_protocol.py::test_too_few_fields_raises_format PASSED  [ 68%]
+server/tests/test_protocol.py::test_line_over_4000_bytes_raises_linea_larga PASSED [ 69%]
+server/tests/test_protocol.py::test_rec_to_raw_excludes_crc PASSED       [ 69%]
+server/tests/test_protocol.py::test_cli_frame_prints_vector PASSED       [ 70%]
+server/tests/test_protocol.py::test_mensajes_de_tareas_exigen_sus_campos PASSED [ 70%]
+server/tests/test_protocol.py::test_acct_acctst_round_trip_con_crc PASSED [ 71%]
+server/tests/test_protocol.py::test_rec_lleva_danados_y_foto_viaja_en_partes PASSED [ 71%]
+server/tests/test_respaldo.py::test_crear_y_restaurar_devuelve_lo_mismo PASSED [ 71%]
+server/tests/test_respaldo.py::test_la_secuencia_queda_por_delante PASSED [ 72%]
+server/tests/test_respaldo.py::test_una_fila_invalida_no_cambia_nada PASSED [ 72%]
+server/tests/test_respaldo.py::test_otra_version_se_rechaza_sin_tocar_nada[<lambda>0] PASSED [ 73%]
+server/tests/test_respaldo.py::test_otra_version_se_rechaza_sin_tocar_nada[<lambda>1] PASSED [ 73%]
+server/tests/test_respaldo.py::test_otra_version_se_rechaza_sin_tocar_nada[<lambda>2] PASSED [ 73%]
+server/tests/test_respaldo.py::test_columna_que_el_respaldo_no_trae_toma_su_valor_por_defecto PASSED [ 74%]
+server/tests/test_respaldo.py::test_sin_permiso_de_escritura_no_queda_nada_a_medias PASSED [ 74%]
+server/tests/test_respaldo.py::test_un_parcial_no_aparece_en_la_lista PASSED [ 75%]
+server/tests/test_respaldo.py::test_podar_borra_solo_los_automaticos_mas_viejos PASSED [ 75%]
+server/tests/test_respaldo.py::test_automatico_una_vez_al_dia_despues_de_la_hora PASSED [ 76%]
+server/tests/test_respaldo.py::test_automatico_desactivado_no_crea PASSED [ 76%]
+server/tests/test_respaldo.py::test_el_servicio_corre_el_automatico PASSED [ 76%]
+server/tests/test_respaldo.py::test_restaurar_deja_los_jobs_como_estaban PASSED [ 77%]
+server/tests/test_respaldo.py::test_si_fallan_las_fotos_los_jobs_vuelven_y_no_queda_carpeta_nueva PASSED [ 77%]
+server/tests/test_respaldo.py::test_otra_sesion_con_cambios_sin_confirmar_no_se_mezcla PASSED [ 78%]
+server/tests/test_respaldo.py::test_un_job_que_sigue_corriendo_impide_restaurar PASSED [ 78%]
+server/tests/test_respaldo.py::test_una_secuencia_rara_no_deja_las_fotos_viejas PASSED [ 78%]
+server/tests/test_respaldo.py::test_restaurar_no_gasta_numeros_de_una_secuencia_que_va_por_delante PASSED [ 79%]
+server/tests/test_schema.py::test_seed_counts FAILED                     [ 79%]
+server/tests/test_schema.py::test_duplicate_device_seq_rejected PASSED   [ 80%]
+server/tests/test_schema.py::test_invalid_estado_rejected PASSED         [ 80%]
+server/tests/test_schema.py::test_id_autogenerated PASSED                [ 81%]
+server/tests/test_schema.py::test_varchar_limits_are_in_characters PASSED [ 81%]
+server/tests/test_schema.py::test_gen_seed_is_deterministic PASSED       [ 81%]
+server/tests/test_schema.py::test_truth_json_covers_all_seeded_skus FAILED [ 82%]
+server/tests/test_servicio.py::test_el_primer_tick_abre_la_recepcion_y_escribe_el_latido PASSED [ 82%]
+server/tests/test_servicio.py::test_vencida_la_ventana_la_vuelve_a_abrir PASSED [ 83%]
+server/tests/test_servicio.py::test_pausar_en_reposo_y_reanudar PASSED   [ 83%]
+server/tests/test_servicio.py::test_pausar_no_corta_una_sincronizacion_en_curso PASSED [ 84%]
+server/tests/test_servicio.py::test_codigo_de_emparejamiento_se_acepta_desde_la_fila PASSED [ 84%]
+server/tests/test_servicio.py::test_un_error_de_transporte_espera_antes_de_reintentar PASSED [ 84%]
+server/tests/test_servicio.py::test_oracle_caido_en_un_tick_no_tumba_el_servicio PASSED [ 85%]
+server/tests/test_servicio.py::test_arrancar_conserva_la_pausa PASSED    [ 85%]
+server/tests/test_servicio.py::test_una_tarea_periodica_lenta_no_congela_el_latido PASSED [ 86%]
+server/tests/test_session.py::test_old_protocol_version_is_rejected_before_touching_the_database PASSED [ 86%]
+server/tests/test_session.py::test_happy_path_sends_ready_catalog_acks_and_bye PASSED [ 86%]
+server/tests/test_session.py::test_catalog_never_contains_system_stock PASSED [ 87%]
+server/tests/test_session.py::test_duplicate_rec_in_new_session_is_not_inserted PASSED [ 87%]
+server/tests/test_session.py::test_reconnect_ready_returns_last_seq PASSED [ 88%]
+server/tests/test_session.py::test_bad_crc_naks_expected_seq_and_survives PASSED [ 88%]
+server/tests/test_session.py::test_seq_gap_naks_once_and_ignores_followers PASSED [ 89%]
+server/tests/test_session.py::test_line_over_4000_bytes_naks_linea_larga PASSED [ 89%]
+server/tests/test_session.py::test_connection_cut_after_30_rec_keeps_25 PASSED [ 89%]
+server/tests/test_session.py::test_write_failure_is_treated_as_cut_and_rolls_back PASSED [ 90%]
+server/tests/test_session.py::test_oracle_down_replies_nak_db_unavailable PASSED [ 90%]
+server/tests/test_session.py::test_session_never_calls_run_batch PASSED  [ 91%]
+server/tests/test_session.py::test_rec_con_cuenta_pendiente_recibe_nak_cuenta_no_activa PASSED [ 91%]
+server/tests/test_session.py::test_aprobar_a_mitad_de_sesion_no_cambia_la_sesion_en_curso PASSED [ 92%]
+server/tests/test_session.py::test_sin_acct_tras_hello_se_rechaza PASSED [ 92%]
+server/tests/test_session.py::test_acct_con_datos_invalidos_recibe_nak[Usuario Malo-x] PASSED [ 92%]
+server/tests/test_session.py::test_acct_con_datos_invalidos_recibe_nak[ab-x] PASSED [ 93%]
+server/tests/test_session.py::test_acct_con_datos_invalidos_recibe_nak[uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu-x] PASSED [ 93%]
+server/tests/test_session.py::test_acct_con_datos_invalidos_recibe_nak[tst-ok-nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn] PASSED [ 94%]
+server/tests/test_session.py::test_acct_con_datos_invalidos_recibe_nak[tst-ok-] PASSED [ 94%]
+server/tests/test_session.py::test_otro_telefono_con_el_mismo_usuario_no_entrega_lecturas PASSED [ 94%]
+server/tests/test_session.py::test_version_4_se_rechaza PASSED           [ 95%]
+server/tests/test_session.py::test_sesion_envia_un_pseudo_catalogo_y_todos_los_productos FAILED [ 95%]
+server/tests/test_session.py::test_inicio_se_acepta_y_se_ignora PASSED   [ 96%]
+server/tests/test_store.py::test_last_seq_zero_for_unknown_device PASSED [ 96%]
+server/tests/test_store.py::test_insert_staging_returns_false_on_duplicate PASSED [ 97%]
+server/tests/test_store.py::test_register_device_is_idempotent PASSED    [ 97%]
+server/tests/test_store.py::test_catalog_is_a_single_pseudo_catalogo FAILED [ 97%]
+server/tests/test_uml.py::test_every_puml_has_start_end_and_title PASSED [ 98%]
+server/tests/test_uml.py::test_class_diagrams_match_code FAILED          [ 98%]
+server/tests/test_uml.py::test_check_classes_reports_a_missing_class PASSED [ 99%]
+server/tests/test_uml.py::test_index_lists_every_puml_and_nothing_else PASSED [ 99%]
+server/tests/test_uml.py::test_index_covers_all_applicable_uml_types PASSED [100%]
+
+=================================== FAILURES ===================================
+____________________ test_resumen_matches_scenario_exactly _____________________
+
+contado = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7f139a2a2e80>, log_mark=1261)
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_resumen_matches_scenario_exactly(contado, db):
+>       assert resumen(db) == RESUMEN
+E       AssertionError: assert (125, 104, 83..., 24, 21, ...) == (65, 4, 6.15, 0, 1, 3, ...)
+E         
+E         At index 0 diff: 125 != 65
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           (
+E         +     125,
+E         +     104,...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+server/tests/test_conciliacion.py:68: AssertionError
+_________________________ test_v_dif_categoria_values __________________________
+
+contado = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7f139a2a0ea0>, log_mark=1261)
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_v_dif_categoria_values(contado, db):
+        cur = db.cursor()
+        cur.execute(
+            "SELECT categoria, diferencia, valor_diferencia FROM v_dif_categoria WHERE id_conteo = :c", c=C
+        )
+>       assert {r[0]: (r[1], r[2]) for r in cur} == {
+            "Abarrotes": (-4, -3000),
+            "Aseo": (3, 9000),
+            "Lácteos": (4, 2800),
+        }
+E       AssertionError: assert {'Lácteos': (...-965000), ...} == {'Abarrotes':...s': (4, 2800)}
+E         
+E         Differing items:
+E         {'Lácteos': (73, 660300)} != {'Lácteos': (4, 2800)}
+E         {'Abarrotes': (21, -77800)} != {'Abarrotes': (-4, -3000)}
+E         {'Aseo': (-114, -309800)} != {'Aseo': (3, 9000)}
+E         Left contains 5 more items:
+E         {'Bebidas': (23, 65200),...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+server/tests/test_conciliacion.py:97: AssertionError
+_____________________ test_v_actividad_counts_by_operator ______________________
+
+contado = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7f139a2a3560>, log_mark=1261)
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_v_actividad_counts_by_operator(contado, db):
+        cur = db.cursor()
+        cur.execute(
+            "SELECT operador, SUM(registros), COUNT(DISTINCT hora) FROM v_actividad "
+            "WHERE id_conteo = :c GROUP BY operador",
+            c=C,
+        )
+>       assert {r[0]: (r[1], r[2]) for r in cur} == {"Ana": (3, 1), "Luis": (2, 1)}
+E       AssertionError: assert {'marta.rios'...69, 156), ...} == {'Ana': (3, 1...Luis': (2, 1)}
+E         
+E         Omitting 2 identical items, use -vv to show
+E         Left contains 4 more items:
+E         {'ana.torres': (325, 296),
+E          'diego.pena': (169, 156),
+E          'luis.gomez': (235, 223),
+E          'marta.rios': (223, 216)}...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+server/tests/test_conciliacion.py:125: AssertionError
+________ test_concurrent_batches_leave_same_conciliation_as_single_run _________
+
+escenario = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7f139a2a39c0>, log_mark=1261)
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_concurrent_batches_leave_same_conciliation_as_single_run(escenario, db):
+        escenario.cargar_lecturas()
+        barrier = threading.Barrier(4)
+        errors = []
+    
+        def worker(proc, args, repeat):
+            conn = connect()
+            try:
+                barrier.wait(timeout=30)
+                for _ in range(repeat):
+                    conn.cursor().callproc(proc, args)
+            except Exception as exc:  # p. ej. ORA-00001 sobre la PK de CONCILIACION
+                errors.append(exc)
+            finally:
+                conn.close()
+    
+        threads = [
+            threading.Thread(target=worker, args=("pkg_batch.procesar_pendientes", [], 1)),
+            threading.Thread(target=worker, args=("pkg_batch.procesar_pendientes", [], 1)),
+            threading.Thread(target=worker, args=("pkg_batch.conciliar", [C], 5)),
+            threading.Thread(target=worker, args=("pkg_batch.conciliar", [C], 5)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=120)
+        assert errors == []
+        assert conciliacion(db) == ESPERADO
+>       assert resumen(db) == RESUMEN
+E       AssertionError: assert (125, 104, 83..., 24, 21, ...) == (65, 4, 6.15, 0, 1, 3, ...)
+E         
+E         At index 0 diff: 125 != 65
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           (
+E         +     125,
+E         +     104,...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+server/tests/test_conciliacion.py:176: AssertionError
+___________________ test_tcp_transport_real_store_end_to_end ___________________
+
+escenario = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7f139a0cc040>, log_mark=1261)
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_tcp_transport_real_store_end_to_end(escenario, db):
+        """Lo mismo con piezas reales: TCP + Oracle. Al llegar a LISTO el batch ya concilió."""
+        store = Store(os.environ["DB_DSN"], os.environ["DB_USER"], os.environ["DB_PASSWORD"])
+        transport = TcpTransport("127.0.0.1", 0)
+        changes = []
+        controller = SyncController(transport, store, changes.append)
+        controller.start()
+        try:
+            wait_for(lambda: transport.port != 0, what="que TCP escuche")
+            lecturas = [("A1", "60", "Ana"), ("A1", "101", "Luis"), ("A2", "45", "Ana"),
+                        ("A3", "23", "Ana"), ("A5", "4", "Luis")]
+            with socket.create_connection(("127.0.0.1", transport.port), timeout=10) as sock:
+                sock.sendall(hello("tst-ctl-tcp") + acct())
+                for i, (sku, cant, operador) in enumerate(lecturas, start=1):
+                    sock.sendall(rec(i, sku=sku, cant=cant, operador=operador))
+                sock.sendall(end(len(lecturas)))
+                replies = sock.makefile("rb")
+                kinds = []
+                while not kinds or kinds[-1] != "BYE":
+                    kinds.append(parse(replies.readline()).kind)
+            wait_for(lambda: controller.status()["estado"] == LISTO, timeout=15, what="LISTO")
+        finally:
+            controller.cancel()
+            store.rollback()
+            store.close()
+    
+        assert controller.status()["recibidos"] == 5 and controller.status()["ultimo_error"] is None
+        cur = db.cursor()
+        cur.execute(
+            "SELECT skus_totales, contados, avance_pct, ok, faltantes, sobrantes, exactitud_pct, "
+            "valor_faltante, valor_sobrante FROM v_resumen_conteo WHERE id_conteo = 'ACTUAL'"
+        )
+>       assert cur.fetchone() == (65, 4, 6.15, 0, 1, 3, 0, 5000, 13800)
+E       AssertionError: assert (125, 104, 83..., 24, 21, ...) == (65, 4, 6.15, 0, 1, 3, ...)
+E         
+E         At index 0 diff: 125 != 65
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           (
+E         +     125,
+E         +     104,...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+server/tests/test_controller.py:386: AssertionError
+_________ test_run_batch_deja_en_la_campana_los_sku_nuevos_pendientes __________
+
+escenario = namespace(cargar_lecturas=<function escenario.<locals>.<lambda> at 0x7f139a164e00>, log_mark=1553)
+store = <btsync.store.Store object at 0x7f139a0d3da0>
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_run_batch_deja_en_la_campana_los_sku_nuevos_pendientes(escenario, store, db):
+        """Cubre «el móvil sincronizó con la app cerrada»: el batch deja el aviso sin depender del escritorio."""
+        staging(db, "tst-notif", 1, 1731170400000, "ACTUAL", "zz9", 4)
+        store.run_batch("SYNC")
+        avisos = [f for f in filas() if f[0] == "NUEVO_SKU"]
+>       assert len(avisos) == 1
+E       AssertionError: assert 3 == 1
+E        +  where 3 = len([('NUEVO_SKU', 'Nuevo SKU zz9: decide «Crear y procesar» o «No crear» en Sincronización.', 'Sincronización', 'ADMIN', None), ('NUEVO_SKU', 'Nuevo SKU 7701234009902: decide «Crear y procesar» o «No crear» en Sincronización.', 'Sincronización', 'ADMIN', None), ('NUEVO_SKU', 'Nuevo SKU 7701234009901: decide «Crear y procesar» o «No crear» en Sincronización.', 'Sincronización', 'ADMIN', None)])
+
+server/tests/test_notificaciones.py:135: AssertionError
+_______________________________ test_seed_counts _______________________________
+
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_seed_counts(db):
+>       assert _scalar(db, "SELECT COUNT(*) FROM productos") == 60
+E       AssertionError: assert 120 == 60
+E        +  where 120 = _scalar(<oracledb.Connection to app@127.0.0.1:1521/XE>, 'SELECT COUNT(*) FROM productos')
+
+server/tests/test_schema.py:35: AssertionError
+____________________ test_truth_json_covers_all_seeded_skus ____________________
+
+db = <oracledb.Connection to app@127.0.0.1:1521/XE>
+
+    def test_truth_json_covers_all_seeded_skus(db):
+        truth = json.loads((ROOT / "tools" / "truth.json").read_text(encoding="utf-8"))
+        truth_skus = {row["sku"] for row in truth["fisico"]}
+        cur = db.cursor()
+        cur.execute("SELECT sku FROM productos")
+        all_skus = {row[0] for row in cur}
+>       assert len(all_skus) == 60
+E       AssertionError: assert 120 == 60
+E        +  where 120 = len({'7701234000001', '7701234000002', '7701234000003', '7701234000004', '7701234000005', '7701234000006', ...})
+
+server/tests/test_schema.py:115: AssertionError
+__________ test_sesion_envia_un_pseudo_catalogo_y_todos_los_productos __________
+
+store = <btsync.store.Store object at 0x7f139a0ac3e0>
+
+    def test_sesion_envia_un_pseudo_catalogo_y_todos_los_productos(store):
+        conn, _ = run(store, [*inicio(), end(0)])
+        out = sent(conn)
+        areas = [m.fields for m in out if m.kind == "CATTAREA"]
+>       assert areas == [["CATALOGO", "Catálogo", "", "", "ABIERTO", "60", "0"]]
+E       AssertionError: assert [['CATALOGO',..., '120', ...]] == [['CATALOGO',...', '60', ...]]
+E         
+E         At index 0 diff: ['CATALOGO', 'Catálogo', '', '', 'ABIERTO', '120', '100'] != ['CATALOGO', 'Catálogo', '', '', 'ABIERTO', '60', '0']
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               [
+E                   'CATALOGO',...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+server/tests/test_session.py:302: AssertionError
+___________________ test_catalog_is_a_single_pseudo_catalogo ___________________
+
+store = <btsync.store.Store object at 0x7f139a1c4890>
+
+    def test_catalog_is_a_single_pseudo_catalogo(store):
+        catalog = store.catalog(None)
+        assert [c[0] for c in catalog.tareas] == ["CATALOGO"]
+        tarea = catalog.tareas[0]
+        assert tarea[1] == "Catálogo" and tarea[2] == "" and tarea[3] == "" and tarea[4] == "ABIERTO"
+>       assert len(catalog.productos) == 60
+E       AssertionError: assert 120 == 60
+E        +  where 120 = len([('7701234000001', 'Arroz 500 g', 'Abarrotes', 'UND'), ('7701234000002', 'Azúcar 1 kg', 'Abarrotes', 'UND'), ('7701234000003', 'Aceite de Girasol 1 L', 'Abarrotes', 'UND'), ('7701234000004', 'Lentejas 500 g', 'Abarrotes', 'UND'), ('7701234000005', 'Fríjol Cargamanto 500 g', 'Abarrotes', 'UND'), ('7701234000006', 'Harina de Trigo 1 kg', 'Abarrotes', 'UND'), ...])
+E        +    where [('7701234000001', 'Arroz 500 g', 'Abarrotes', 'UND'), ('7701234000002', 'Azúcar 1 kg', 'Abarrotes', 'UND'), ('7701234000003', 'Aceite de Girasol 1 L', 'Abarrotes', 'UND'), ('7701234000004', 'Lentejas 500 g', 'Abarrotes', 'UND'), ('7701234000005', 'Fríjol Cargamanto 500 g', 'Abarrotes', 'UND'), ('7701234000006', 'Harina de Trigo 1 kg', 'Abarrotes', 'UND'), ...] = Catalog(tareas=[('CATALOGO', 'Catálogo', '', '', 'ABIERTO', 120, 100)], items=[('CATALOGO', '7701234000001', 'N'), ('CATALOGO', '7701234000002', 'N'), ('CATALOGO', '7701234000003', 'N'), ('CATALOGO', '7701234000004', 'N'), ('CATALOGO', '7701234000005', 'N'), ('CATALOGO', '7701234000006', 'N'), ('CATALOGO', '7701234000007', 'N'), ('CATALOGO', '7701234000008', 'N'), ('CATALOGO', '7701234000009', 'N'), ('CATALOGO', '7701234000010', 'N'), ('CATALOGO', '7701234000011', 'N'), ('CATALOGO', '7701234000012', 'N'), ('CATALOGO', '7701234000013', 'N'), ('CATALOGO', '7701234000014', 'N'), ('CATALOGO', '7701234000015', 'N'), ('CATALOGO', '7701234000016', 'N'), ('CATALOGO', '7701234000017', 'N'), ('CATALOGO', '7701234000018', 'N'), ('CATALOGO', '7701234000019', 'N'), ('CATALOGO', '7701234000020', 'N'), ('CATALOGO', '7701234000021', 'N'), ('CATALOGO', '7701234000022', 'N'), ('CATALOGO', '7701234000023', 'N'), ('CATALOGO', '7701234000024', 'N'), ('CATALOGO', '7701234000025', 'N'), ('CATALOGO', '7701234000026', 'N'), ('CATALOGO', '7701234000027', 'N'), ('CATALOGO', '7701234000028', 'N'), ('CATALOGO', '7701234000029', 'N'), ('CATALOGO', '7701234000030', 'N'), ('CATALOGO', '7701234000031', 'N'), ('C...r 400 mL', 'Cuidado Personal', 'UND'), ('7701234000102', 'Gel Antibacterial 250 mL', 'Cuidado Personal', 'UND'), ('7701234000103', 'Pañitos Húmedos x80', 'Cuidado Personal', 'UND'), ('7701234000104', 'Cortaúñas', 'Cuidado Personal', 'UND'), ('7701234000105', 'Peine', 'Cuidado Personal', 'UND'), ('7701234000106', 'Concentrado Perro 2 kg', 'Mascotas', 'UND'), ('7701234000107', 'Concentrado Gato 1.5 kg', 'Mascotas', 'UND'), ('7701234000108', 'Arena para Gato 4 kg', 'Mascotas', 'UND'), ('7701234000109', 'Snack para Perro 100 g', 'Mascotas', 'UND'), ('7701234000110', 'Collar Mediano', 'Mascotas', 'UND'), ('7701234000111', 'Correa 1.5 m', 'Mascotas', 'UND'), ('7701234000112', 'Plato Metálico', 'Mascotas', 'UND'), ('7701234000113', 'Juguete de Hueso', 'Mascotas', 'UND'), ('7701234000114', 'Shampoo para Mascotas 250 mL', 'Mascotas', 'UND'), ('7701234000115', 'Antipulgas Spot-on', 'Mascotas', 'UND'), ('7701234000116', 'Cama Pequeña', 'Mascotas', 'UND'), ('7701234000117', 'Pelota de Goma', 'Mascotas', 'UND'), ('7701234000118', 'Rascador de Cartón', 'Mascotas', 'UND'), ('7701234000119', 'Pechera Ajustable', 'Mascotas', 'UND'), ('7701234000120', 'Comida Húmeda Gato 85 g', 'Mascotas', 'UND')]).productos
+
+server/tests/test_store.py:30: AssertionError
+________________________ test_class_diagrams_match_code ________________________
+
+    def test_class_diagrams_match_code():
+        for nombre in CLASS_DIAGRAMS:
+            puml = UML / nombre
+            raices = [ROOT / r for r in declared_roots(puml)]
+            assert raices, f"{nombre}: falta la línea ' @code: <ruta>"
+>           assert check_classes(puml, raices) == [], f"{nombre}: clases que no existen en el código"
+E           AssertionError: 02-clases-escritorio.puml: clases que no existen en el código
+E           assert ['Transicion'] == []
+E             
+E             Left contains one more item: 'Transicion'
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     'Transicion',
+E             + ]
+
+server/tests/test_uml.py:37: AssertionError
+=========================== short test summary info ============================
+FAILED server/tests/test_conciliacion.py::test_resumen_matches_scenario_exactly
+FAILED server/tests/test_conciliacion.py::test_v_dif_categoria_values - Asser...
+FAILED server/tests/test_conciliacion.py::test_v_actividad_counts_by_operator
+FAILED server/tests/test_conciliacion.py::test_concurrent_batches_leave_same_conciliation_as_single_run
+FAILED server/tests/test_controller.py::test_tcp_transport_real_store_end_to_end
+FAILED server/tests/test_notificaciones.py::test_run_batch_deja_en_la_campana_los_sku_nuevos_pendientes
+FAILED server/tests/test_schema.py::test_seed_counts - AssertionError: assert...
+FAILED server/tests/test_schema.py::test_truth_json_covers_all_seeded_skus - ...
+FAILED server/tests/test_session.py::test_sesion_envia_un_pseudo_catalogo_y_todos_los_productos
+FAILED server/tests/test_store.py::test_catalog_is_a_single_pseudo_catalogo
+FAILED server/tests/test_uml.py::test_class_diagrams_match_code - AssertionEr...
+================== 11 failed, 227 passed in 61.17s (0:01:01) ===================
+EXIT=1

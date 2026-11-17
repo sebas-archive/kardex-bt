@@ -1,0 +1,18 @@
+@startuml
+!include estilo.iuml
+title Diagrama 9b · Máquina de estados de una fila de CAPTURA_TRANSITO
+hide empty description
+
+[*] --> PENDIENTE : insert_staging (llega un REC)
+PENDIENTE --> PROCESANDO : procesar_pendientes\nreclama la fila
+PROCESANDO --> PROCESADO : validada e insertada\nen registros_procesados
+PROCESANDO --> ERROR : FORMATO_INVALIDO · SKU_DESCONOCIDO ·\nCANTIDAD_INVALIDA · DANADOS_INVALIDO
+PROCESANDO --> PENDIENTE : huérfana: más de 5 min en PROCESANDO\n(el batch que la reclamó murió)
+ERROR --> PENDIENTE : reprocesar_errores\n(SKU dado de alta o dato corregido)
+PROCESADO --> [*] : purga del staging\n(se conserva la de mayor seq de cada dispositivo)
+
+note right of PROCESADO
+  La de mayor seq de cada dispositivo
+  se conserva: de ella sale READY|ultimo_seq.
+end note
+@enduml
