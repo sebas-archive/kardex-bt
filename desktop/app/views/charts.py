@@ -1,22 +1,30 @@
 """Pantalla «Gráficas»: seis gráficas básicas del conteo continuo, con filtros por categoría y por
 cantidad de resultados del top. Sin clasificación ni etiquetas de faltante/sobrante en el inventario:
 aquí solo se analiza el avance, el ritmo y la calidad de las lecturas.
+
+Movimiento (solo presentación; los datos y las consultas no cambian):
+
+* las gráficas **evolucionan** desde su estado anterior en vez de reiniciarse (``graficas_motion``): cada barra y cada
+  punto se empareja por etiqueta y parte de lo que mostraba;
+* la rejilla se actualiza **de forma incremental** (añadir, quitar y cambiar de tamaño no reconstruyen las demás);
+* entrada coordinada de la pantalla, modo edición con despliegue, menús flotantes y feedback de Guardar PNG.
 """
 
 from __future__ import annotations
 
 import math
+from functools import partial
 
 import pyqtgraph as pg
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCursor, QFont
+from PyQt6 import sip
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (QSizePolicy,
     QComboBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -29,10 +37,13 @@ from ..dashboard_prefs import NOMBRE_TAMANO
 from ..i18n import registrar, t
 from ..models import fmt_num, fmt_pct
 from ..tema import colores
-from . import widgets
+from . import motion, motion_global, widgets
 from .base import QueryRunner, StateBanner
 from .graficas_interactivas import HoverBarras, HoverLinea
+from .graficas_motion import GraficaBarras, GraficaLinea, etiqueta_corta
 from .iconos import icono
+from .menu_flotante import Entrada, MenuFlotante, separador, titulo
+from .motion import Dur
 from .rejilla_personal import Baldosa, RejillaPersonal
 from .widgets import Anillo, Dona
 
@@ -75,6 +86,10 @@ registrar({
     "SKUs contados": "Counted SKUs",
     "Buenas": "Good",
     "Dañadas": "Damaged",
+    "Guardando…": "Saving…",
+    "Guardado": "Saved",
+    "No se pudo guardar": "Could not save",
+    "Añadida": "Added",
 })
 
 ROJO, AMBAR, GRIS = "#F04438", "#F79009", "#98A2B3"
@@ -102,14 +117,16 @@ SERIE_DE = {"avance": "avance_categoria", "top": "top_categorias", "hora": "por_
 BARRAS_NUEVAS = ("dia", "operadores", "pendientes", "skus")   # barras verticales como «top», pero de otra serie
 CON_CLIC = ("avance", "top", "danados", "pendientes")          # las que filtran el inventario por categoría
 SIN_PLOT = ("dona", "global", "buenas")                        # se dibujan con un widget propio, no con pyqtgraph
+LINEAS = ("hora", "acumulado")                                 # series en el tiempo: línea con área
+BARRAS = ("avance", "top", "danados") + BARRAS_NUEVAS          # barras de una serie
+
+# Coreografía de entrada (ms): cada pieza sube unos píxeles y se funde; nada cambia de sitio.
+PASO_FILTROS, RETARDO_BALDOSAS, PASO_BALDOSAS, TOPE_BALDOSAS = 34, 150, 55, 5
+_etiqueta_corta = etiqueta_corta
 
 
 def _entero(valor: float) -> str:
     return fmt_num(round(valor, 0))
-
-
-def _etiqueta_corta(texto: str) -> str:
-    return texto if len(texto) <= 10 else "…" + texto[-6:]
 
 
 def _cargar(categoria: str | None, top: int) -> dict:
@@ -139,10 +156,10 @@ class ChartsView(QWidget):
         self._cargado = False
         self._datos: dict[str, list] = {c: [] for c in CHART_IDS + BARRAS_NUEVAS}
         self._series: dict[str, list] = {c: [] for c in EXTRA_IDS + ("acumulado", "buenas")}
-        self._barras: dict[str, pg.BarGraphItem] = {}
-        self._anims: dict[str, object] = {}
+        self._graficas: dict[str, GraficaBarras | GraficaLinea] = {}   # un controlador de movimiento por gráfica
         self._hovers: dict[str, object] = {}
         self._color = colores()
+        self._menu_abierto: MenuFlotante | None = None
 
         self.banner = StateBanner()
         self.banner.retry.connect(self.refresh)
@@ -155,14 +172,19 @@ class ChartsView(QWidget):
         self.combo_top.setCurrentIndex(2)
         self.btn_guardar = QPushButton(t("Guardar PNG"))
         self.btn_guardar.setToolTip(t("Guarda todas las gráficas en un PNG"))
+        for campo in (self.combo_categoria, self.combo_top):
+            motion_global.instalar_realce(campo)            # feedback inmediato del selector (foco y hover)
         filtros = QHBoxLayout()
+        self._piezas_filtro: list[QWidget] = []
         for texto, campo in ((t("Categoría"), self.combo_categoria), (t("Mostrar"), self.combo_top)):
             etiqueta = QLabel(texto)
             etiqueta.setObjectName("subtitulo")
             filtros.addWidget(etiqueta)
             filtros.addWidget(campo)
+            self._piezas_filtro += [etiqueta, campo]
         filtros.addStretch(1)
         filtros.addWidget(self.btn_guardar)
+        self._piezas_filtro.append(self.btn_guardar)
 
         self.plots: dict[str, pg.PlotWidget] = {}
         self.dona = Dona({"contados": self._color["acento"], "pendientes": self._color["texto_suave"]},
@@ -176,11 +198,11 @@ class ChartsView(QWidget):
             marco.setObjectName("card")
             lay = QVBoxLayout(marco)
             lay.setContentsMargins(10, 10, 10, 10)
-            titulo = QLabel(t(TITULOS[chart_id]))
-            titulo.setObjectName("seccion")
-            titulo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+            etiqueta_titulo = QLabel(t(TITULOS[chart_id]))
+            etiqueta_titulo.setObjectName("seccion")
+            etiqueta_titulo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
             lay.setContentsMargins(16, 14, 16, 12)
-            lay.addWidget(titulo)
+            lay.addWidget(etiqueta_titulo)
             if chart_id in SIN_PLOT:
                 lay.addWidget({"dona": self.dona, "global": self.anillo, "buenas": self.dona_buenas}[chart_id])
             else:
@@ -198,6 +220,7 @@ class ChartsView(QWidget):
                 plot.getAxis("bottom").setTickFont(FUENTE_CHICA)
                 lay.addWidget(plot)
                 self.plots[chart_id] = plot
+                self._crear_grafica(chart_id, plot, formato)
             self._marcos[chart_id] = marco
 
         self._contenido = QWidget()
@@ -206,13 +229,13 @@ class ChartsView(QWidget):
         raiz.setSpacing(12)
         raiz.addLayout(filtros)
         raiz.addWidget(self.banner)
-        pista = QLabel(t("Haz clic en una categoría para filtrar el inventario."))
-        pista.setObjectName("ayuda")
+        self.pista = QLabel(t("Haz clic en una categoría para filtrar el inventario."))
+        self.pista.setObjectName("ayuda")
         self.btn_personalizar = QPushButton(" " + t("Personalizar gráficas"))
         self.btn_personalizar.setIcon(icono("sliders", tam=16))
         self.btn_personalizar.setCursor(Qt.CursorShape.PointingHandCursor)
         encabezado = QHBoxLayout()
-        encabezado.addWidget(pista, 1)
+        encabezado.addWidget(self.pista, 1)
         encabezado.addWidget(self.btn_personalizar)
         raiz.addLayout(encabezado)
 
@@ -223,6 +246,14 @@ class ChartsView(QWidget):
         fila.setSpacing(8)
         ayuda_edicion = QLabel(t("Arrastra para reordenar y la esquina ◢ para cambiar el tamaño. Usa ⋯ para quitar la gráfica."))
         ayuda_edicion.setObjectName("ayuda")
+        # Confirmación discreta de que lo hecho ya quedó guardado (aparece y se va sola; no es un aviso ni pide nada).
+        self.lbl_guardado = widgets.EtiquetaFundible(t("Guardado"))
+        self.lbl_guardado.setObjectName("ayuda")
+        self.lbl_guardado.setOpacity(0.0)
+        self._t_guardado = QTimer(self)
+        self._t_guardado.setSingleShot(True)
+        self._t_guardado.timeout.connect(self._apagar_guardado)
+        self._a_guardado = None
         self.btn_agregar = QPushButton(" " + t("Añadir gráfica"))
         self.btn_restaurar = QPushButton(" " + t("Restaurar predeterminado"))
         self.btn_listo = QPushButton(" " + t("Listo"))
@@ -233,6 +264,7 @@ class ChartsView(QWidget):
         for b in (self.btn_agregar, self.btn_restaurar, self.btn_listo):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
         fila.addWidget(ayuda_edicion, 1)
+        fila.addWidget(self.lbl_guardado)
         fila.addWidget(self.btn_agregar)
         fila.addWidget(self.btn_restaurar)
         fila.addWidget(self.btn_listo)
@@ -250,14 +282,14 @@ class ChartsView(QWidget):
         self.rejilla.medidas_cambiadas.connect(self._medidas_cambiadas)
         raiz.addWidget(self.rejilla)
         raiz.addStretch(1)
-        desplazable = QScrollArea()
-        desplazable.setWidgetResizable(True)
-        desplazable.setFrameShape(QFrame.Shape.NoFrame)
-        desplazable.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        desplazable.setWidget(self._contenido)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setWidget(self._contenido)
         exterior = QVBoxLayout(self)
         exterior.setContentsMargins(0, 0, 0, 0)
-        exterior.addWidget(desplazable)
+        exterior.addWidget(self._scroll)
 
         self.combo_categoria.currentIndexChanged.connect(lambda _: self.refresh())
         self.combo_top.currentIndexChanged.connect(lambda _: self.refresh())
@@ -270,6 +302,30 @@ class ChartsView(QWidget):
         self._medidas: dict[str, tuple[int, int]] = {}                # medida propia (columnas, alto) si se redimensionó
         self._edicion = False
         self._poner_baldosas()
+
+    # ------------------------------------------------------- controladores
+    def _crear_grafica(self, chart_id: str, plot: pg.PlotWidget, formato) -> None:
+        """Un controlador de movimiento por gráfica, creado **una vez**: los ítems de pyqtgraph se conservan y se
+        transforman con cada dato nuevo (antes se destruían y se reconstruían desde cero)."""
+        c = self._color
+        if chart_id in LINEAS:
+            self._graficas[chart_id] = GraficaLinea(plot, c["acento"], c["tarjeta"])
+            self._hovers[chart_id] = HoverLinea(plot, [], [], lambda _e, _v: None)
+        elif chart_id == "batch":
+            g = GraficaBarras(plot, formato, c["texto"], colores_serie=(c["acento"], c["error"]), ancho=0.34,
+                              desplazamientos=(-0.19, 0.19), cifras=False)
+            self._graficas[chart_id] = g
+            hover = HoverBarras(plot, _entero, None, clicable=False)
+            hover.al_pulsar = g.pulsar
+            self._hovers[chart_id] = hover
+        else:
+            g = GraficaBarras(plot, formato, c["texto"])
+            self._graficas[chart_id] = g
+            con_clic = chart_id in CON_CLIC
+            hover = HoverBarras(plot, formato, self._clic_categoria if con_clic else (lambda _e, _v: None),
+                                clicable=con_clic)
+            hover.al_pulsar = g.pulsar
+            self._hovers[chart_id] = hover
 
     # ------------------------------------------------------------------ API
     def set_sesion(self, sesion: auth.Sesion | None) -> None:
@@ -297,29 +353,62 @@ class ChartsView(QWidget):
         return list(self._items)
 
     def set_edicion(self, si: bool) -> None:
+        """Entra o sale del modo edición: la barra se despliega, el botón «Personalizar» se funde y las baldosas revelan
+        (o retiran) sus asas y menús ⋯ en cascada corta. Las acciones responden desde el primer instante."""
         self._edicion = si
         self.rejilla.set_edicion(si)
-        self.barra_edicion.setVisible(si)
-        self.btn_personalizar.setVisible(not si)
+        motion_global.desplegar(self.barra_edicion, si)
+        self._fundir_personalizar(not si)
+
+    def _fundir_personalizar(self, visible: bool) -> None:
+        b = self.btn_personalizar
+        if not widgets.ANIMAR or not self.isVisible():
+            b.setVisible(visible)
+            return
+        if visible:
+            b.show()
+            motion.entrar(b, dy=4, ms_=motion.dur(Dur.ESTADO), radio=8)
+        else:
+            motion.salir(b, ms_=140, escala=0.98, radio=8,
+                         al_terminar=lambda: None if sip.isdeleted(b) or not self._edicion else b.hide())
 
     def en_edicion(self) -> bool:
         return self._edicion
 
     def agregar_grafica(self, chart_id: str) -> bool:
+        """Añade una gráfica **sin reconstruir la rejilla**: solo la baldosa nueva aparece (fundido) y las demás se
+        reacomodan; las que ya estaban conservan su contenido y sus animaciones."""
         if chart_id not in prefs.IDS or any(c == chart_id for c, _t in self._items):
             return False
         self._items.append((chart_id, prefs.TAM_INICIAL))
-        self._poner_baldosas()
+        b = self._baldosa(chart_id, prefs.TAM_INICIAL)
+        self.rejilla.setVisible(True)
+        self.rejilla.agregar(b)
+        self._marcos[chart_id].show()
+        self._revelar_grafica(chart_id, 120)          # su visualización se dibuja cuando la baldosa ya asoma
+        self._actualizar_estado()
         self._persistir()
         return True
 
     def quitar_grafica(self, chart_id: str) -> None:
+        """Quita una gráfica: su baldosa se va con una salida suave y el espacio se contrae. El marco (con su gráfica)
+        sobrevive para seguir recibiendo datos, como antes."""
         if all(c != chart_id for c, _t in self._items):
             return
         self._items = [(c, tam) for c, tam in self._items if c != chart_id]
         self._medidas.pop(chart_id, None)
-        self._poner_baldosas()
+        self.rejilla.quitar(chart_id, al_destruir=self._soltar_marco)
+        self._actualizar_estado()
         self._persistir()
+
+    def _soltar_marco(self, baldosa: Baldosa) -> None:
+        """Antes de destruir una baldosa: su marco (gráfica y datos) pasa al contenedor, oculto."""
+        marco = baldosa.contenido
+        if marco.parent() is baldosa:                 # si la gráfica ya volvió a otra baldosa, no se toca
+            marco.hide()
+            marco.setParent(self._contenido)
+        if not self._items:
+            self.rejilla.hide()
 
     def cambiar_tam(self, chart_id: str, tam: str) -> None:
         if tam not in prefs.TAMS:
@@ -351,7 +440,7 @@ class ChartsView(QWidget):
         else:
             self._items = prefs.predeterminado()
         self._medidas = {}
-        self._poner_baldosas()
+        self._poner_baldosas(transicion=True)           # la distribución anterior se funde hacia la predeterminada
 
     def bar_data(self, chart_id: str) -> list[tuple[str, float]]:
         return list(self._datos[chart_id])
@@ -360,70 +449,131 @@ class ChartsView(QWidget):
         return list(self._series[chart_id])
 
     def alturas_dibujadas(self, chart_id: str) -> list[float]:
-        barras = self._barras.get(chart_id)
-        return [] if barras is None else [float(h) for h in barras.opts["height"]]
+        grafica = self._graficas.get(chart_id)
+        return grafica.alturas() if isinstance(grafica, GraficaBarras) else []
+
+    def terminar_animaciones(self) -> None:
+        """Lleva todo al estado final real: tooltips fuera, gráficas y entradas terminadas. Lo usa Guardar PNG para que
+        la imagen exporte siempre el dato definitivo y no un fotograma de una transición."""
+        for g in self._graficas.values():
+            g.terminar()
+        for w in (self.dona, self.anillo, self.dona_buenas):
+            w.terminar()
+        for h in self._hovers.values():
+            h.tooltip.ocultar(inmediato=True)
+        for b in self.rejilla.baldosas():
+            motion.cancelar_entrada(b)
 
     def guardar_imagen(self, ruta: str) -> bool:
+        """Guarda un PNG con todas las gráficas **en su estado final** (las transiciones en curso se completan antes)."""
+        self.terminar_animaciones()
         return self._contenido.grab().save(str(ruta))
 
     # ------------------------------------------------------------- internos
-    def _poner_baldosas(self) -> None:
-        """Arma la rejilla con las gráficas elegidas. Los marcos (con sus gráficas) sobreviven: se sueltan antes de
-        que la rejilla destruya las baldosas, así los datos siguen llegando aunque una gráfica esté quitada."""
+    def _baldosa(self, chart_id: str, tam: str) -> Baldosa:
+        cols, alto = self._medidas.get(chart_id, (0, 0))
+        b = Baldosa(chart_id, "grafico", tam, self._marcos[chart_id], cols, alto)
+        b.menu_pedido.connect(self._menu)
+        b.quitar.connect(self.quitar_grafica)
+        return b
+
+    def _soltar_marcos(self) -> None:
         for marco in self._marcos.values():
             marco.hide()
             marco.setParent(self._contenido)
-        baldosas = []
-        for chart_id, tam in self._items:
-            cols, alto = self._medidas.get(chart_id, (0, 0))
-            b = Baldosa(chart_id, "grafico", tam, self._marcos[chart_id], cols, alto)
-            b.menu_pedido.connect(self._menu)
-            b.quitar.connect(self.quitar_grafica)
-            baldosas.append(b)
-        self.rejilla.poner(baldosas)
+
+    def _poner_baldosas(self, transicion: bool = False) -> None:
+        """Arma la rejilla entera (al cargar la sesión o restaurar). Los marcos (con sus gráficas) sobreviven: se sueltan
+        antes de que la rejilla destruya las baldosas, así los datos siguen llegando aunque una gráfica esté quitada.
+        Añadir y quitar una gráfica ya **no** pasa por aquí: es incremental (``agregar_grafica``/``quitar_grafica``)."""
+        self.rejilla.poner(lambda: [self._baldosa(c, tam) for c, tam in self._items], transicion=transicion,
+                           antes=self._soltar_marcos)
         for chart_id, _tam in self._items:
             self._marcos[chart_id].show()
-        self.vacio.setVisible(not self._items)
-        self.rejilla.setVisible(bool(self._items))
-        faltan = len(self._items) < len(prefs.IDS)
-        self.btn_agregar.setEnabled(faltan)
+        self._actualizar_estado()
+
+    def _actualizar_estado(self) -> None:
+        """Aviso de «sin gráficas», rejilla y botón de añadir según lo que haya puesto."""
+        if self._items:
+            if self.vacio.isVisible() and widgets.ANIMAR:
+                self.vacio.hide()
+            self.vacio.setVisible(False)
+            self.rejilla.setVisible(True)
+        elif not self.vacio.isVisible():
+            self.vacio.setVisible(True)
+            motion.entrar(self.vacio, dy=6, ms_=motion.dur(Dur.ESTADO), radio=8)
+        self.btn_agregar.setEnabled(len(self._items) < len(prefs.IDS))
 
     def _persistir(self) -> None:
         if self._sesion is not None:
             prefs.guardar(self._sesion.usuario, self._items, self._medidas)
+            self._senal_guardado()
+
+    # Confirmación discreta de guardado: «Guardado» aparece junto a los botones de edición y se va sola. Es solo
+    # presentación: el guardado ya ocurrió (sin retardos) antes de mostrarla.
+    def _senal_guardado(self) -> None:
+        if not self._edicion:
+            return
+        motion.detener(self._a_guardado)
+        self._t_guardado.start(1500)
+        if widgets.ANIMAR and self.isVisible():
+            self._a_guardado = motion.animar(self.lbl_guardado, self.lbl_guardado.opacity(), 1.0, motion.dur(150),
+                                             self.lbl_guardado.setOpacity)
+        else:
+            self.lbl_guardado.setOpacity(1.0)
+
+    def _apagar_guardado(self) -> None:
+        motion.detener(self._a_guardado)
+        if widgets.ANIMAR and self.isVisible():
+            self._a_guardado = motion.animar(self.lbl_guardado, self.lbl_guardado.opacity(), 0.0, motion.dur(320),
+                                             self.lbl_guardado.setOpacity)
+        else:
+            self.lbl_guardado.setOpacity(0.0)
 
     def _orden_cambiado(self, ids: list[str]) -> None:
         tam = dict(self._items)
         self._items = [(i, tam[i]) for i in ids if i in tam]
         self._persistir()
 
+    # ------------------------------------------------------------------ menús
     def _menu(self, chart_id: str) -> None:
+        """Menú ⋯ de la baldosa, pegado a su botón: tamaño y quitar (las mismas acciones de siempre)."""
         tam_actual = dict(self._items).get(chart_id)
-        m = QMenu(self)
-        tam = m.addMenu(t("Tamaño"))
+        entradas = [titulo(t("Tamaño"))]
         for x in prefs.TAMS:
-            a = tam.addAction(t(NOMBRE_TAMANO[x]), lambda v=x: self.cambiar_tam(chart_id, v))
-            a.setCheckable(True)
-            a.setChecked(tam_actual == x and chart_id not in self._medidas)
+            entradas.append(Entrada(f"tam:{x}", t(NOMBRE_TAMANO[x]), marcada=tam_actual == x and chart_id not in self._medidas))
         if chart_id in self._medidas:
-            a = tam.addAction(t("Personalizado"))
-            a.setCheckable(True)
-            a.setChecked(True)
-            a.setEnabled(False)
-        m.addSeparator()
-        m.addAction(t("Quitar de Gráficas"), lambda: self.quitar_grafica(chart_id))
-        m.exec(QCursor.pos())
+            entradas.append(Entrada("personalizado", t("Personalizado"), marcada=True, habilitada=False))
+        entradas += [separador(), Entrada("quitar", t("Quitar de Gráficas"), peligro=True)]
+        baldosa = self.rejilla.baldosa(chart_id)
+        ancla = baldosa.btn_menu if baldosa is not None else self
+        self._abrir_menu(entradas, ancla.mapToGlobal(QPoint(ancla.width(), ancla.height())), True,
+                         partial(self._accion_menu, chart_id))
+
+    def _accion_menu(self, chart_id: str, clave: str) -> None:
+        if clave.startswith("tam:"):
+            self.cambiar_tam(chart_id, clave[4:])
+        elif clave == "quitar":
+            self.quitar_grafica(chart_id)
 
     def _menu_agregar(self) -> None:
+        """Catálogo de gráficas: las 13, con las que ya están marcadas y sin poder repetirse."""
         puestas = {c for c, _t in self._items}
-        m = QMenu(self)
-        for chart_id in prefs.IDS:
-            if chart_id not in puestas:
-                m.addAction(t(TITULOS[chart_id]), lambda c=chart_id: self.agregar_grafica(c))
-        if m.isEmpty():
-            m.addAction(t("Ya están todas las gráficas")).setEnabled(False)
-        m.exec(self.btn_agregar.mapToGlobal(self.btn_agregar.rect().bottomLeft()))
+        entradas = [Entrada(c, t(TITULOS[c]), marcada=c in puestas, habilitada=c not in puestas,
+                            nota=t("Añadida") if c in puestas else "") for c in prefs.IDS]
+        ancla = self.btn_agregar
+        self._abrir_menu(entradas, ancla.mapToGlobal(QPoint(0, ancla.height())), False, self.agregar_grafica)
 
+    def _abrir_menu(self, entradas: list[Entrada], punto: QPoint, derecha: bool, accion) -> MenuFlotante:
+        if self._menu_abierto is not None and not sip.isdeleted(self._menu_abierto):
+            self._menu_abierto.close()
+        m = MenuFlotante(self, entradas)
+        m.elegida.connect(accion)
+        self._menu_abierto = m
+        m.abrir(punto, derecha)
+        return m
+
+    # ------------------------------------------------------------------ datos
     def _mostrar(self, datos: dict) -> None:
         self._cargado = True
         actual = self.combo_categoria.currentText()
@@ -441,9 +591,9 @@ class ChartsView(QWidget):
 
     def _pintar(self, datos: dict) -> None:
         formatos = {"avance": fmt_pct}
-        for chart_id in ("avance", "top", "danados") + BARRAS_NUEVAS:
+        for chart_id in BARRAS:
             nuevos = list(datos.get(SERIE_DE[chart_id], []))
-            if nuevos == self._datos[chart_id] and chart_id in self._barras:
+            if nuevos == self._datos[chart_id] and self._graficas[chart_id].finales():
                 continue
             self._datos[chart_id] = nuevos
             self._dibujar(chart_id, nuevos, formatos.get(chart_id, _entero))
@@ -467,122 +617,126 @@ class ChartsView(QWidget):
         self.dona_buenas.set_datos(self._series["buenas"])
         self._batch(list(datos.get("batch", [])), list(datos.get("batch_errores", [])))
 
-    def _preparar(self, chart_id: str) -> pg.PlotWidget:
-        plot = self.plots[chart_id]
-        plot.clear()
-        self._barras.pop(chart_id, None)
-        return plot
-
     def _dibujar(self, chart_id: str, datos: list[tuple[str, float]], formato) -> None:
-        plot = self._preparar(chart_id)
-        eje = plot.getAxis("bottom")
-        if not datos:
-            eje.setTicks([[]])
-            return
-        xs, valores = list(range(len(datos))), [v for _, v in datos]
+        """Barras de una serie: las que siguen parten de su altura anterior, las nuevas entran y las que ya no están
+        salen. La escala del eje se ajusta con la misma transición."""
+        valores = [v for _, v in datos]
         if chart_id == "avance":
             colores_barras = [self._color["acento"]] * len(datos)
         else:
             colores_barras = [self._color["acento"] if v > 0 else self._color["texto_suave"] for v in valores]
-        barras = pg.BarGraphItem(x=xs, height=[0.0] * len(xs), width=0.6, pen=pg.mkPen(None),
-                                 brushes=[pg.mkBrush(color) for color in colores_barras])
-        plot.addItem(barras)
-        self._barras[chart_id] = barras
-        hover = self._hovers.get(chart_id)
-        if hover is None:
-            hover = HoverBarras(plot, formato, self._clic_categoria if chart_id in CON_CLIC else (lambda _e, _v: None))
-            self._hovers[chart_id] = hover
-        hover.set_datos([e for e, _ in datos], valores, colores_barras, barras)
-        muchas = len(datos) > 6
-        mayor = max(abs(v) for v in valores) or 1.0
-        for x, valor in zip(xs, valores):
-            if muchas and abs(valor) < 0.06 * mayor:
-                continue
-            texto = pg.TextItem(formato(valor), color=self._color["texto"], anchor=(0.5, 1.0))
-            texto.setPos(x, valor)
-            plot.addItem(texto)
-        eje.setTicks([[(x, _etiqueta_corta(e) if muchas else e) for x, (e, _) in enumerate(datos)]])
-        plot.setXRange(-0.8, len(datos) - 0.2, padding=0)
         maximo = max(valores + [0.0])
         tope = 110.0 if chart_id == "avance" else maximo * 1.25 + 0.5
-        plot.setYRange(0, tope, padding=0)
         paso = 20 if chart_id == "avance" else max(1, math.ceil(tope / 5))
-        plot.getAxis("left").setTickSpacing(major=paso, minor=paso)
-        widgets._detener(self._anims.get(chart_id))
-        self._anims[chart_id] = widgets.animar(self, 0.0, 1.0, 700,
-                                               lambda f: barras.setOpts(height=[v * f for v in valores]))
+        grafica = self._graficas[chart_id]
+        grafica.poner([(e, (v,)) for e, v in datos], colores_barras, tope, paso)
+        self._hovers[chart_id].set_datos([e for e, _ in datos], valores, grafica.poner_alfas)
 
     def _linea(self, chart_id: str, datos: list[tuple[str, float]]) -> None:
-        plot = self._preparar(chart_id)
-        if not datos:
-            plot.getAxis("bottom").setTicks([[]])
-            return
-        xs, valores = list(range(len(datos))), [v for _, v in datos]
-        from PyQt6.QtGui import QColor
-
-        relleno = QColor(self._color["acento"])
-        relleno.setAlpha(45)
-        curva = pg.PlotDataItem(xs, [0.0] * len(xs), pen=pg.mkPen(self._color["acento"], width=3), fillLevel=0,
-                                brush=pg.mkBrush(relleno), symbol="o", symbolSize=8,
-                                symbolBrush=pg.mkBrush(self._color["acento"]), symbolPen=pg.mkPen(self._color["tarjeta"]))
-        plot.addItem(curva)
-        un_dia = len({h[:10] for h, _ in datos}) == 1
-        plot.getAxis("bottom").setTicks([[(x, h[-5:] if un_dia else h[5:]) for x, (h, _) in enumerate(datos)]])
-        plot.setXRange(-0.5, max(len(xs) - 0.5, 0.5), padding=0)
+        """Línea y área: la serie anterior se transforma en la nueva; con lecturas nuevas la línea se alarga."""
+        valores = [v for _, v in datos]
         maximo = max(valores + [1.0])
-        plot.setYRange(0, maximo * 1.2 + 1, padding=0)
-        paso = max(1, math.ceil(maximo / 5))
-        plot.getAxis("left").setTickSpacing(major=paso, minor=paso)
-        hover = self._hovers.get(chart_id)
-        if hover is None:
-            hover = HoverLinea(plot, [], [], lambda _e, _v: None)
-            self._hovers[chart_id] = hover
-        hover.set_datos([h for h, _ in datos], valores)
-        widgets._detener(self._anims.get(chart_id))
-        self._anims[chart_id] = widgets.animar(self, 0.0, 1.0, 750,
-                                             lambda f: curva.setData(xs, [v * f for v in valores]))
+        self._graficas[chart_id].poner(datos, maximo * 1.2 + 1, max(1, math.ceil(maximo / 5)))
+        self._hovers[chart_id].set_datos([h for h, _ in datos], valores)
 
     def _batch(self, procesadas: list[tuple[str, float]], errores: list[tuple[str, float]]) -> None:
-        plot = self._preparar("batch")
+        """Estado del batch: procesadas (verde) y con error (rojo) evolucionan juntas, cada serie desde su valor anterior."""
         self._datos["batch"] = list(procesadas)
         self._series["batch_errores"] = list(errores)
-        eje = plot.getAxis("bottom")
-        if not procesadas:
-            eje.setTicks([[]])
-            return
-        xs = list(range(len(procesadas)))
         valores = [v for _, v in procesadas]
         fallos = [v for _, v in errores]
-        barras = pg.BarGraphItem(x=[x - 0.19 for x in xs], height=[0.0] * len(xs), width=0.34,
-                                 brush=pg.mkBrush(self._color["acento"]), pen=pg.mkPen(None))
-        barras_err = pg.BarGraphItem(x=[x + 0.19 for x in xs], height=[0.0] * len(xs), width=0.34,
-                                     brush=pg.mkBrush(self._color["error"]), pen=pg.mkPen(None))
-        plot.addItem(barras)
-        plot.addItem(barras_err)
-        self._barras["batch"] = barras
-        eje.setTicks([[(x, _etiqueta_corta(e)) for x, (e, _) in enumerate(procesadas)]])
-        plot.setXRange(-0.8, len(xs) - 0.2, padding=0)
         maximo = max(valores + fallos + [1.0])
-        plot.setYRange(0, maximo * 1.25 + 0.5, padding=0)
-        paso = max(1, math.ceil(maximo / 5))
-        plot.getAxis("left").setTickSpacing(major=paso, minor=paso)
-        hover = self._hovers.get("batch")
-        if hover is None:
-            hover = HoverBarras(plot, _entero, lambda _e, _v: None)
-            self._hovers["batch"] = hover
-        hover.set_datos([e for e, _ in procesadas], valores, [self._color["acento"]] * len(xs), barras)
-        widgets._detener(self._anims.get("batch"))
-
-        def paso_anim(f: float) -> None:
-            barras.setOpts(height=[v * f for v in valores])
-            barras_err.setOpts(height=[v * f for v in fallos])
-
-        self._anims["batch"] = widgets.animar(self, 0.0, 1.0, 700, paso_anim)
+        datos = [(e, (v, fallos[i] if i < len(fallos) else 0.0)) for i, (e, v) in enumerate(procesadas)]
+        grafica = self._graficas["batch"]
+        grafica.poner(datos, [self._color["acento"]] * len(datos), maximo * 1.25 + 0.5, max(1, math.ceil(maximo / 5)))
+        detalle = [f"{t('Procesadas')}: {_entero(v)}<br>{t('Con error')}: {_entero(f)}" for _, (v, f) in datos]
+        self._hovers["batch"].set_datos([e for e, _ in procesadas], valores, grafica.poner_alfas, detalle)
 
     def _clic_categoria(self, etiqueta: str, _valor: float) -> None:
         self.filtro.emit("categoria", etiqueta)
 
+    # ------------------------------------------------------------------ entrada
+    def entrada_motion(self) -> None:
+        """Coreografía de entrada al abrir la sección (la llama ``motion_global.entrada_pagina``): filtros, estado, pista
+        y «Personalizar» suben unos píxeles y se funden en cascada; después las baldosas, y cada visualización se dibuja
+        cuando su marco ya asoma (no queda un marco vacío esperando). Nada cambia de sitio."""
+        if not widgets.ANIMAR or not self.isVisible():
+            return
+        for i, pieza in enumerate(self._piezas_filtro):
+            motion.entrar(pieza, retardo=i * PASO_FILTROS // 2, dy=6, ms_=motion.dur(280), radio=9)
+        base = len(self._piezas_filtro) * PASO_FILTROS // 2
+        extras = [self.pista, self.btn_personalizar] if self.btn_personalizar.isVisible() else [self.pista]
+        if self.banner.isVisible():
+            extras.insert(0, self.banner)
+        for i, pieza in enumerate(extras):
+            motion.entrar(pieza, retardo=base + i * PASO_FILTROS, dy=5, ms_=motion.dur(260), radio=8)
+        QTimer.singleShot(0, self._entrada_baldosas)      # tras el layout: así se sabe cuáles se ven
+
+    def _en_pantalla(self, b: Baldosa) -> bool:
+        vista = self._scroll.viewport()
+        origen = b.destino.topLeft() if not b.destino.isEmpty() else b.pos()
+        y = self.rejilla.mapTo(vista, origen).y()
+        return y < vista.height() and y + max(b.height(), 1) > 0
+
+    def _entrada_baldosas(self) -> None:
+        if sip.isdeleted(self) or not self.isVisible():
+            return
+        orden = sorted(self.rejilla.baldosas(), key=lambda b: (b.destino.y(), b.destino.x()))
+        k = 0
+        for b in orden:
+            if not self._en_pantalla(b):
+                continue                                   # lo que está fuera de la pantalla no se anima
+            retardo = RETARDO_BALDOSAS + min(k, TOPE_BALDOSAS) * PASO_BALDOSAS
+            motion.entrar(b, retardo=retardo, dy=10, ms_=Dur.ENTRADA, radio=14)
+            self._revelar_grafica(b.id, retardo + 90)      # la gráfica se dibuja cuando su marco ya asoma
+            k += 1
+
+    def _revelar_grafica(self, chart_id: str, retardo: int) -> None:
+        """Repite la entrada de una visualización (la baldosa acaba de aparecer)."""
+        if not widgets.ANIMAR:
+            return
+        grafica = self._graficas.get(chart_id)
+        if grafica is not None:
+            grafica.revelar(retardo)
+            return
+        widget = {"dona": self.dona, "global": self.anillo, "buenas": self.dona_buenas}.get(chart_id)
+        if widget is not None:
+            QTimer.singleShot(retardo, partial(self._revelar_widget, widget))
+
+    @staticmethod
+    def _revelar_widget(widget) -> None:
+        if not sip.isdeleted(widget) and widget.isVisible():
+            widget.revelar()
+
+    # ------------------------------------------------------------- Guardar PNG
     def _elegir_archivo(self) -> None:
         ruta, _ = QFileDialog.getSaveFileName(self, t("Guardar las gráficas"), "graficas.png", "PNG (*.png)")
         if ruta:
-            self.guardar_imagen(ruta)
+            self.exportar(ruta)
+
+    def exportar(self, ruta: str) -> None:
+        """Guardar PNG con feedback: «Guardando…» (el botón se desactiva), luego el resultado y de vuelta al reposo. La
+        captura corre en el siguiente ciclo del bucle de eventos, así el estado se ve antes de que ocurra."""
+        self._estado_guardar("guardando")
+        QTimer.singleShot(0, partial(self._terminar_exportar, ruta))
+
+    def _terminar_exportar(self, ruta: str) -> None:
+        if sip.isdeleted(self):
+            return
+        try:
+            ok = self.guardar_imagen(ruta)
+        except OSError:
+            ok = False
+        self._estado_guardar("ok" if ok else "error")
+        QTimer.singleShot(1800, self._reposo_guardar)
+
+    def _reposo_guardar(self) -> None:
+        if not sip.isdeleted(self):
+            self._estado_guardar("reposo")
+
+    def _estado_guardar(self, estado: str) -> None:
+        texto = {"reposo": "Guardar PNG", "guardando": "Guardando…", "ok": "Guardado ✓",
+                 "error": "No se pudo guardar"}[estado]
+        self.btn_guardar.setProperty("estado", estado)
+        self.btn_guardar.setEnabled(estado != "guardando")
+        self.btn_guardar.setText(t(texto) if estado != "ok" else t("Guardado") + " ✓")

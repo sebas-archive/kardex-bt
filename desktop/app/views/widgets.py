@@ -480,6 +480,8 @@ class Anillo(QWidget):
         self._titulo, self._color = titulo, QColor(color)
         self._valor: float | None = None
         self._visible, self._anim = 0.0, None
+        self._desde = 0.0              # de dónde parte la transición en curso
+        self._asentado = 1.0           # 0 = la cifra va en camino (se atenúa); 1 = ya es el valor definitivo
         self.setMinimumSize(170, 210)
 
     def valor(self) -> float | None:
@@ -488,14 +490,45 @@ class Anillo(QWidget):
     def valor_visible(self) -> float:
         return self._visible
 
+    def en_transicion(self) -> bool:
+        return self._asentado < 1.0
+
     def set_valor(self, valor: float | None) -> None:
+        """Nuevo porcentaje real: el arco **parte del que se veía** y la cifra del centro lo acompaña. Mientras avanzan, la
+        cifra va atenuada (un valor en camino no se presenta como definitivo) y recupera su tinta al asentarse."""
+        nuevo = None if valor is None else float(valor)
+        destino = nuevo or 0.0
+        if nuevo == self._valor and (self._asentado < 1.0 or self._visible == destino):
+            return                                    # el mismo dato (cada refresco lo repite): no se reinicia nada
         _detener(self._anim)
-        self._valor = None if valor is None else float(valor)
-        self._anim = animar(self, self._visible, self._valor or 0.0, 800, self._pintar_hasta)
+        primera = self._valor is None and self._visible == 0.0
+        self._valor = nuevo
+        self._desde, self._asentado = self._visible, 0.0
+        self._anim = animar(self, self._visible, destino, _ms(900 if primera else 560), self._pintar_hasta,
+                            self._asentar)
+
+    def _asentar(self) -> None:
+        self._visible = self._valor or 0.0
+        self._asentado = 1.0
+        self.update()
 
     def _pintar_hasta(self, v: float) -> None:
         self._visible = v
+        destino = self._valor or 0.0
+        recorrido = abs(destino - self._desde)
+        self._asentado = 1.0 if recorrido < 1e-9 else max(0.0, min(1.0, 1.0 - abs(destino - v) / recorrido))
         self.update()
+
+    def terminar(self) -> None:
+        """Salta al valor definitivo (Guardar PNG exporta siempre el dato real, nunca uno a medias)."""
+        _detener(self._anim)
+        self._asentar()
+
+    def revelar(self) -> None:
+        """Repite la entrada: el arco vuelve a llenarse desde cero (la baldosa acaba de aparecer)."""
+        _detener(self._anim)
+        self._visible, self._desde, self._asentado = 0.0, 0.0, 0.0
+        self._anim = animar(self, 0.0, self._valor or 0.0, _ms(900), self._pintar_hasta, self._asentar)
 
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
@@ -509,7 +542,11 @@ class Anillo(QWidget):
         if self._valor is not None and self._visible > 0:
             p.setPen(QPen(self._color, grosor, cap=Qt.PenCapStyle.RoundCap))
             p.drawArc(caja, 90 * 16, -int(360 * 16 * min(self._visible, 100.0) / 100.0))
-        p.setPen(QColor(TINTA))
+        tinta, suave = QColor(TINTA), QColor(TINTA_SUAVE)
+        a = self._asentado                        # la cifra en camino va atenuada; al asentarse recupera su tinta
+        p.setPen(QColor(int(suave.red() + (tinta.red() - suave.red()) * a),
+                        int(suave.green() + (tinta.green() - suave.green()) * a),
+                        int(suave.blue() + (tinta.blue() - suave.blue()) * a)))
         fuente = QFont(self.font())
         fuente.setPixelSize(int(lado * 0.2))
         fuente.setBold(True)
@@ -523,7 +560,56 @@ class Anillo(QWidget):
         p.drawText(QRectF(0, caja.bottom() + grosor / 2 + 8, self.width(), 22), Qt.AlignmentFlag.AlignCenter, self._titulo)
 
 
-class BarraSegmentada(QWidget):
+def _mezclar_color(a: str, b: str, t: float) -> QColor:
+    """Color intermedio entre ``a`` (t = 0) y ``b`` (t = 1)."""
+    ca, cb = QColor(a), QColor(b)
+    t = max(0.0, min(1.0, t))
+    return QColor(int(ca.red() + (cb.red() - ca.red()) * t), int(ca.green() + (cb.green() - ca.green()) * t),
+                  int(ca.blue() + (cb.blue() - ca.blue()) * t))
+
+
+class _SeriesAlternables:
+    """Leyenda interactiva de Dona y BarraSegmentada: ocultar o mostrar una serie la **repliega o la recupera con una
+    transición** (el resto y el total del centro la acompañan) en vez de saltar.
+
+    ``_ocultas`` cambia al instante (es el dato, y lo que lee el resto de la pantalla); ``_factor`` es solo el dibujo:
+    1 = visible, 0 = oculta, y entre ambos mientras dura la transición."""
+
+    def _iniciar_vis(self) -> None:
+        self._vis: dict[str, float] = {}
+        self._vis_anim = None
+
+    def _factor(self, clave: str) -> float:
+        return self._vis.get(clave, 0.0 if clave in self._ocultas else 1.0)    # type: ignore[attr-defined]
+
+    def _claves_serie(self) -> list[str]:              # pragma: no cover - lo define cada gráfica
+        raise NotImplementedError
+
+    def _alternar(self, clave: str) -> None:
+        claves = self._claves_serie()
+        antes = {c: self._factor(c) for c in claves}
+        if clave in self._ocultas:                      # type: ignore[attr-defined]
+            self._ocultas.discard(clave)                # type: ignore[attr-defined]
+        else:
+            self._ocultas.add(clave)                    # type: ignore[attr-defined]
+        hasta = {c: 0.0 if c in self._ocultas else 1.0 for c in claves}   # type: ignore[attr-defined]
+        _detener(self._vis_anim)
+
+        def paso(v: float) -> None:
+            if not sip.isdeleted(self):                 # type: ignore[arg-type]
+                self._vis = {c: antes[c] + (hasta[c] - antes[c]) * v for c in hasta}
+                self.update()                           # type: ignore[attr-defined]
+
+        def fin() -> None:
+            if not sip.isdeleted(self):                 # type: ignore[arg-type]
+                self._vis = {}
+                self.update()                           # type: ignore[attr-defined]
+
+        self._vis_anim = animar(self, 0.0, 1.0, _ms(340), paso, fin)  # type: ignore[arg-type]
+        self.update()                                   # type: ignore[attr-defined]
+
+
+class BarraSegmentada(_SeriesAlternables, QWidget):
     """Una barra partida en segmentos proporcionales (crece de izquierda a derecha) con su leyenda debajo.
 
     Al hacer clic en una entrada de la leyenda se oculta o muestra esa serie (con atenuación de la leyenda).
@@ -533,6 +619,7 @@ class BarraSegmentada(QWidget):
 
     def __init__(self, colores: dict[str, str], nombres: dict[str, str] | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._iniciar_vis()
         self._colores, self._nombres = colores, nombres or {}
         self._segmentos: list[tuple[str, int]] = []
         self._avance, self._anim = 1.0, None
@@ -586,7 +673,7 @@ class BarraSegmentada(QWidget):
         fondo = QPainterPath()
         fondo.addRoundedRect(QRectF(0, 4, ancho, alto), 8, 8)
         p.fillPath(fondo, QColor(PISTA))
-        visibles = [(c, self._n_vis(c, n)) for c, n in self._segmentos if c not in self._ocultas]
+        visibles = [(c, self._n_vis(c, n) * self._factor(c)) for c, n in self._segmentos if self._factor(c) > 0.001]
         total = sum(n for _, n in visibles)
         if total > 0:
             p.setClipPath(fondo)
@@ -602,29 +689,44 @@ class BarraSegmentada(QWidget):
         self._leyenda = []
         x = 0.0
         for clave, n in self._segmentos:
-            oculta = clave in self._ocultas
+            factor = self._factor(clave)
             tono = QColor(self._colores.get(clave, VERDE))
-            if oculta:
-                tono.setAlpha(70)
+            tono.setAlpha(int(70 + 185 * factor))
             p.setBrush(tono)
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QPointF(x + 5, 40), 5, 5)
-            p.setPen(QColor(TINTA_SUAVE if oculta else TINTA))
+            p.setPen(_mezclar_color(TINTA_SUAVE, TINTA, factor))
             texto = f"{self._nombres.get(clave, clave)}  {n}"
             ancho_texto = p.fontMetrics().horizontalAdvance(texto)
             p.drawText(QRectF(x + 15, 30, 200, 20), Qt.AlignmentFlag.AlignVCenter, texto)
             self._leyenda.append((QRectF(x, 28, 18 + ancho_texto, 24), clave))
             x += 28 + ancho_texto
 
+    def _claves_serie(self) -> list[str]:
+        return [c for c, _ in self._segmentos]
 
-class Dona(QWidget):
-    """Gráfica de dona: los sectores se abren en abanico hasta su tamaño; el total va en el centro."""
+    def mousePressEvent(self, evento) -> None:
+        for caja, clave in self._leyenda:
+            if caja.contains(evento.position()):
+                self._alternar(clave)
+                self.alternada.emit(clave)
+                evento.accept()
+                return
+        super().mousePressEvent(evento)
+
+
+class Dona(_SeriesAlternables, QWidget):
+    """Gráfica de dona: los sectores se abren en abanico hasta su tamaño; el total va en el centro.
+
+    Al pasar el cursor por un sector (o por su fila de la leyenda) ese sector crece un poco y los demás se atenúan; ocultar
+    o mostrar una serie con la leyenda la repliega o la recupera con una transición y el total del centro la sigue."""
 
     alternada = pyqtSignal(str)       # clic en la leyenda: clave del sector que se oculta o muestra
 
     def __init__(self, colores: dict[str, str], nombres: dict[str, str] | None = None, parent: QWidget | None = None,
                  unidad: str = "SKU") -> None:
         super().__init__(parent)
+        self._iniciar_vis()
         self._colores, self._nombres, self._unidad = colores, nombres or {}, unidad
         self._datos: list[tuple[str, float]] = []
         self._avance, self._anim = 1.0, None
@@ -632,9 +734,69 @@ class Dona(QWidget):
         self._mezcla = 1.0
         self._ocultas: set[str] = set()
         self._leyenda: list[tuple[QRectF, str]] = []
+        self._sectores: list[tuple[str, float, float]] = []     # (clave, inicio, barrido) en grados, desde arriba, horario
+        self._geo: tuple[float, float, float, float] | None = None   # centro x, y, radio del aro y grosor
+        self._hover: str | None = None
+        self._hov: dict[str, float] = {}            # realce de cada sector (0–1), con transición
+        self._hov_desde: dict[str, float] = {}
+        self._hov_hasta: dict[str, float] = {}
+        self._a_hover = QVariantAnimation(self)     # una sola, reutilizada en cada cambio de hover
+        self._a_hover.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._a_hover.valueChanged.connect(self._paso_hover)
         self.setMinimumHeight(230)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _claves_serie(self) -> list[str]:
+        return [c for c, _ in self._datos]
+
+    def hover(self) -> str | None:
+        return self._hover
+
+    def _apuntar(self, clave: str | None) -> None:
+        if clave == self._hover:
+            return
+        self._hover = clave
+        claves = [c for c, _ in self._datos]
+        hasta = {c: 1.0 if c == clave else 0.0 for c in claves}
+        if not ANIMAR:
+            self._hov = hasta
+            self.update()
+            return
+        self._hov_desde = {c: self._hov.get(c, 0.0) for c in claves}
+        self._hov_hasta = hasta
+        self._a_hover.stop()
+        self._a_hover.setDuration(_ms(150))
+        self._a_hover.setStartValue(0.0)
+        self._a_hover.setEndValue(1.0)
+        self._a_hover.start()
+
+    def _paso_hover(self, v) -> None:
+        f = float(v)
+        self._hov = {c: d + (self._hov_hasta.get(c, 0.0) - d) * f for c, d in self._hov_desde.items()}
+        self.update()
+
+    def _sector_en(self, pos: QPointF) -> str | None:
+        if self._geo is None:
+            return None
+        cx, cy, radio, grosor = self._geo
+        dx, dy = pos.x() - cx, pos.y() - cy
+        if abs(math.hypot(dx, dy) - radio) > grosor / 2 + 3:
+            return None
+        ang = math.degrees(math.atan2(dx, -dy)) % 360.0
+        for clave, inicio, barrido in self._sectores:
+            if inicio <= ang < inicio + barrido:
+                return clave
+        return None
+
+    def mouseMoveEvent(self, evento) -> None:
+        clave = next((c for caja, c in self._leyenda if caja.contains(evento.position())), None)
+        self._apuntar(clave if clave is not None else self._sector_en(evento.position()))
+        super().mouseMoveEvent(evento)
+
+    def leaveEvent(self, evento) -> None:
+        self._apuntar(None)
+        super().leaveEvent(evento)
 
     def datos(self) -> list[tuple[str, float]]:
         return list(self._datos)
@@ -671,6 +833,20 @@ class Dona(QWidget):
         self._avance = v
         self.update()
 
+    def terminar(self) -> None:
+        """Salta al estado final real (sin transiciones a medias): lo usa Guardar PNG."""
+        _detener(self._anim)
+        _detener(self._vis_anim)
+        self._a_hover.stop()
+        self._prev, self._mezcla, self._avance, self._vis = {}, 1.0, 1.0, {}
+        self.update()
+
+    def revelar(self) -> None:
+        """Repite la entrada: los sectores se abren de nuevo en abanico (la baldosa acaba de aparecer)."""
+        _detener(self._anim)
+        self._prev, self._mezcla, self._avance = {}, 1.0, 0.0
+        self._anim = animar(self, 0.0, 1.0, _ms(850), self._pintar_hasta)
+
     def paintEvent(self, _evento) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -678,17 +854,26 @@ class Dona(QWidget):
         caja = QRectF(16, (self.height() - lado) / 2, lado, lado)
         grosor = lado * 0.2
         aro = caja.adjusted(grosor / 2, grosor / 2, -grosor / 2, -grosor / 2)
-        visibles = [(c, self._v_vis(c, v)) for c, v in self._datos if c not in self._ocultas]
+        visibles = [(c, self._v_vis(c, v) * self._factor(c)) for c, v in self._datos if self._factor(c) > 0.001]
         total = sum(v for _, v in visibles)
         p.setPen(QPen(QColor(PISTA), grosor))
         p.drawArc(aro, 0, 360 * 16)
         angulo = 90.0
+        self._geo = (aro.center().x(), aro.center().y(), aro.width() / 2, grosor)
+        self._sectores = []
+        atenuacion = max(self._hov.values(), default=0.0)       # cuánto hay de «algo señalado» (0 = nada)
         if total > 0:
+            recorrido = 0.0
             for clave, v in visibles:
                 barrido = 360.0 * v / total * self._avance
-                p.setPen(QPen(QColor(self._colores.get(clave, VERDE)), grosor, cap=Qt.PenCapStyle.FlatCap))
+                realce = self._hov.get(clave, 0.0)
+                color = QColor(self._colores.get(clave, VERDE))
+                color.setAlphaF(1.0 - 0.5 * atenuacion * (1.0 - realce))
+                p.setPen(QPen(color, grosor * (1.0 + 0.14 * realce), cap=Qt.PenCapStyle.FlatCap))
                 p.drawArc(aro, int(angulo * 16), -int(barrido * 16))
+                self._sectores.append((clave, recorrido, barrido))
                 angulo -= barrido
+                recorrido += barrido
         fuente = QFont(self.font())
         fuente.setPixelSize(int(lado * 0.2))
         fuente.setBold(True)
@@ -706,14 +891,20 @@ class Dona(QWidget):
         p.setFont(fuente)
         self._leyenda = []
         for clave, v in self._datos:
-            oculta = clave in self._ocultas
+            factor = self._factor(clave)
             tono = QColor(self._colores.get(clave, VERDE))
-            if oculta:
-                tono.setAlpha(70)
+            tono.setAlpha(int(70 + 185 * factor))
+            realce = self._hov.get(clave, 0.0)
+            if realce > 0.01:                                    # fila señalada: un fondo suave que aparece y se va
+                fondo = QColor(TINTA)
+                fondo.setAlpha(int(26 * realce))
+                p.setBrush(fondo)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.drawRoundedRect(QRectF(x - 6, y, max(40, self.width() - x - 14), 24), 7, 7)
             p.setBrush(tono)
             p.setPen(Qt.PenStyle.NoPen)
             p.drawRoundedRect(QRectF(x, y + 4, 12, 12), 3, 3)
-            p.setPen(QColor(TINTA_SUAVE if oculta else TINTA))
+            p.setPen(_mezclar_color(TINTA_SUAVE, TINTA, factor))
             pct = f"{100 * v / total:.0f} %" if total > 0 else "—"
             p.drawText(QRectF(x + 20, y, self.width() - x - 24, 20), Qt.AlignmentFlag.AlignVCenter,
                        f"{self._nombres.get(clave, clave)}  ·  {v:.0f}  ({pct})")
@@ -723,12 +914,8 @@ class Dona(QWidget):
     def mousePressEvent(self, evento) -> None:
         for caja, clave in self._leyenda:
             if caja.contains(evento.position()):
-                if clave in self._ocultas:
-                    self._ocultas.discard(clave)
-                else:
-                    self._ocultas.add(clave)
+                self._alternar(clave)
                 self.alternada.emit(clave)
-                self.update()
                 evento.accept()
                 return
         super().mousePressEvent(evento)
