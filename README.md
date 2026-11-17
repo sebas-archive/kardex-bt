@@ -181,7 +181,7 @@ docker compose up -d --wait oracle
 La primera vez descarga la imagen y crea la base con el esquema, la semilla (conteo continuo `ACTUAL` con 120 SKU en 8 categorías),
 el paquete `PKG_BATCH`, los jobs del Scheduler y las vistas: puede tardar varios minutos. El archivo `db/init/08_demo.sql` añade **13 meses de datos de demostración** para ver todas las pantallas y gráficas:
 4 operadores con su teléfono, 615 sincronizaciones, ~950 lecturas con recuentos, dañados, errores, SKU nuevos pendientes de
-decisión y corridas del batch. Cuentas del PC: `admin` (Administrador) e `inventario`, ambas con la contraseña `Demo1234`;
+decisión y corridas del batch. Cuentas del PC: `admin` (Administrador) e `inventario`, ambas con la contraseña de demostración definida en `CLAVE_DEMO` de `tools/gen_demo.py`;
 `laura.mora` y `sofia.vega` quedan pendientes en Solicitudes. Para una base **sin** datos de demo, borra `08_demo.sql`
 antes de crear la base; para regenerarlo: `python tools/gen_seed.py --seed 42 && python tools/gen_demo.py --seed 42`.
 

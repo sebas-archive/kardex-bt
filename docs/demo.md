@@ -1,6 +1,6 @@
 # Guion de demo (5 minutos)
 
-Datos: el conteo continuo `ACTUAL` de la semilla (120 SKU; con `08_demo.sql` ya trae 13 meses de historia y las cuentas `admin`/`inventario`, clave `Demo1234`). La demo muestra el ciclo completo: **contar sin red →
+Datos: el conteo continuo `ACTUAL` de la semilla (120 SKU; con `08_demo.sql` ya trae 13 meses de historia y las cuentas `admin`/`inventario`, contraseña `CLAVE_DEMO` de `tools/gen_demo.py`). La demo muestra el ciclo completo: **contar sin red →
 subir por Bluetooth → batch → conciliación → inventario y gráficas → alta de un SKU → reproceso**. No hay cierre de
 conteo: el sistema siempre está contando.
 
