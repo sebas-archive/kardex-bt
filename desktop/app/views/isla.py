@@ -45,6 +45,11 @@ ENTRADA_MS, SALIDA_MS, TRANSFORMA_MS = 380, 300, 260
 MARGEN_SUPERIOR = 14
 
 
+def _factor() -> float:
+    from . import widgets
+    return float(widgets.FACTOR_TIEMPO)
+
+
 def _animar() -> bool:
     from . import widgets
     return bool(widgets.ANIMAR)
@@ -129,7 +134,7 @@ class _Icono(QWidget):
             self._anim_mezcla = QVariantAnimation(self)
             self._anim_mezcla.setStartValue(0.0)
             self._anim_mezcla.setEndValue(1.0)
-            self._anim_mezcla.setDuration(TRANSFORMA_MS)
+            self._anim_mezcla.setDuration(int(TRANSFORMA_MS * _factor()))
             self._anim_mezcla.setEasingCurve(QEasingCurve.Type.OutBack)
             self._anim_mezcla.valueChanged.connect(self._mezclar)
             self._anim_mezcla.start()
@@ -554,7 +559,7 @@ class Capsula(QWidget):
         a = QVariantAnimation(self)
         a.setStartValue(float(ini))
         a.setEndValue(float(fin))
-        a.setDuration(ms)
+        a.setDuration(int(ms * _factor()))
         a.setEasingCurve(curva)
         a.valueChanged.connect(lambda v: paso(float(v)))
         if al_terminar is not None:

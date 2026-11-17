@@ -69,7 +69,7 @@ def test_la_entrada_es_escalonada_termina_rapido_y_deja_todo_en_su_sitio(qtbot, 
     assert any(e.opacidad() < 1.0 for e in efectos)
     assert v.titulo.graphicsEffect() is not None
     qtbot.waitUntil(lambda: sin_efectos(v) and v.titulo.graphicsEffect() is None
-                    and v.subtitulo.graphicsEffect() is None, timeout=1500)       # …y la cascada cabe en ~0,5 s
+                    and v.subtitulo.graphicsEffect() is None, timeout=3000)       # …y la cascada cabe en ~0,5 s
     assert {b.id: b.geometry() for b in v.rejilla.baldosas()} == destinos         # posición final exacta
 
 
@@ -426,12 +426,12 @@ def test_barra_dona_y_mapa_interpolan_y_terminan_exactas(qtbot, con_movimiento):
     barra.set_segmentos([("a", 3), ("b", 1)])
     dona.set_datos([("a", 3.0), ("b", 1.0)])
     mapa.set_datos([("A-1", "A", 4), ("A-2", "A", 1)])
-    qtbot.wait(900)
+    qtbot.wait(1600)
     barra.set_segmentos([("a", 1), ("b", 3)])
     dona.set_datos([("a", 1.0), ("b", 3.0)])
     mapa.set_datos([("A-1", "A", 1), ("A-2", "A", 4)])
     assert barra._mezcla < 1.0 and dona._mezcla < 1.0 and mapa._mezcla < 1.0
-    qtbot.wait(900)
+    qtbot.wait(1600)
     assert barra._prev == {} and dona._prev == {} and mapa._prev == {}
     assert barra.segmentos() == [("a", 1), ("b", 3)] and dona.datos() == [("a", 1.0), ("b", 3.0)]
     assert barra._n_vis("a", 1) == 1 and dona._v_vis("b", 3.0) == 3.0 and mapa._sk_vis("A-2", 4) == 4

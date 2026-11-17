@@ -39,7 +39,7 @@ def escalonar(pasos: list[Callable[[], None]], intervalo: int = 28, tope: int = 
             paso()
         return
     for i, paso in enumerate(pasos):
-        QTimer.singleShot(min(i, tope) * intervalo, paso)
+        QTimer.singleShot(int(min(i, tope) * intervalo * widgets.FACTOR_TIEMPO), paso)
 
 
 class _Velo(QWidget):
