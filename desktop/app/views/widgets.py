@@ -236,10 +236,10 @@ class TarjetaKpi(QFrame):
         self._anim_tend = None
         self._titulo = QLabel(titulo)
         self._titulo.setObjectName("cardTitulo")
-        self._valor = EtiquetaFundible("—")
+        self._valor = EtiquetaFundible("—", self)
         self._valor.setObjectName("cardValor")
         self._valor.setMinimumHeight(34)
-        self._detalle = EtiquetaFundible("")
+        self._detalle = EtiquetaFundible("", self)
         self._detalle.setObjectName("cardDetalle")
         self._detalle.setMinimumHeight(34)
         self._detalle.setWordWrap(True)
