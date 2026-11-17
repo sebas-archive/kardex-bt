@@ -137,7 +137,7 @@ def test_access_preferences_override_account_preferences_for_this_app_run(qtbot,
     """Lo elegido antes de entrar no se reemplaza con lo guardado en la cuenta."""
     from PyQt6.QtCore import QSettings
 
-    ajustes = QSettings("GestionInventario", "Acceso")
+    ajustes = QSettings("Kardex", "Acceso")
     ajustes.clear()
     ventana = build_window(puente, auto_refresh_ms=0)
     ventana.comprobar_oracle = lambda: None
@@ -254,7 +254,7 @@ def test_requests_only_allow_inventory_for_pc_and_operator_for_mobile(qtbot, mon
 
 def test_window_title_and_oracle_chip(qtbot, puente):
     ventana = abrir(qtbot, puente, ANA)
-    assert ventana.windowTitle() == "Gestión de inventario"
+    assert ventana.windowTitle() == "Kardex — Gestión de inventario"
     ventana._oracle_ok(True)
     assert ventana.chip_oracle.text() == "Oracle: conectado"
     ventana._oracle_fallo("ORA-12541")
@@ -332,7 +332,7 @@ def test_access_two_panel_card_and_strength_meter(qtbot):
 
 def test_access_remembers_the_username(qtbot):
     from PyQt6.QtCore import QSettings
-    ajustes = QSettings("GestionInventario", "Acceso")
+    ajustes = QSettings("Kardex", "Acceso")
     ajustes.clear()
     vista = AccesoView()
     qtbot.addWidget(vista)
@@ -349,7 +349,7 @@ def test_access_gear_changes_theme_and_language_only_for_the_current_app_run(qtb
     from PyQt6.QtCore import QSettings
     from PyQt6.QtWidgets import QLabel
     from app import tema as tema_mod
-    ajustes = QSettings("GestionInventario", "Acceso")
+    ajustes = QSettings("Kardex", "Acceso")
     ajustes.clear()
     try:
         vista = AccesoView()
