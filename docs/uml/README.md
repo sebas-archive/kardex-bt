@@ -1,11 +1,11 @@
 # Diagramas UML
 
-Los diagramas están escritos en **PlantUML** (`*.puml`, fuente) y se dibujan a SVG en `../img/uml/`.
+Los diagramas están escritos en **PlantUML** (`*.puml`, fuente) y se dibujan a SVG y PNG en `../img/uml/`. La galería con las imágenes y las instrucciones de edición está en [`../documentacion/diagramas/README.md`](../documentacion/diagramas/README.md).
 Son 22 diagramas de 13 tipos. Se escribieron contra el código real: los nombres de clases, mensajes, estados y
 tablas son los del proyecto, y una prueba (`server/tests/test_uml.py`) comprueba que las clases de los diagramas
 01, 02 y 03 existen en el código.
 
-Regenerar los SVG (PlantUML 1.2024.7 en Docker, sin instalar nada en el host):
+Regenerar los SVG y PNG (PlantUML 1.2024.7 en Docker, sin instalar nada en el host):
 
 ```bash
 tools/render_uml.sh
@@ -37,9 +37,9 @@ docker compose run --rm pybase pytest server/tests/test_uml.py -v
 |---|---|---|
 | [10-casos-de-uso.puml](10-casos-de-uso.puml) | Casos de uso | Operador, Inventario, Administrador y Scheduler de Oracle con sus casos, `«include»` y `«extend»`. |
 | [11-actividad-conteo-movil.puml](11-actividad-conteo-movil.puml) | Actividad con carriles | El flujo del operador en el móvil: iniciar sesión, abrir el Catálogo, escanear (barras o QR), guardar y sincronizar. |
-| [12-actividad-batch.puml](12-actividad-batch.puml) | Actividad con carriles (Móvil / App / Oracle) | De la subida al `ACK` y el batch `PROCESAR_PENDIENTES` sobre `ACTUAL` paso a paso. |
+| [12-actividad-batch.puml](12-actividad-batch.puml) | Actividad con carriles (Móvil / App / Oracle) | De la subida al `ACK` y el batch `PROCESAR_PENDIENTES` sobre `ACTUAL` paso a paso, incluido el desvío a `NUEVO_SKU` cuando el SKU no está en `PRODUCTOS`. |
 | [16-estados-sync-controller.puml](16-estados-sync-controller.puml) | Máquina de estados | `IDLE … ERROR` del controlador, con eventos y guardas (plazo, cancelación, corte, ocupado). |
-| [17-estados-fila-transito.puml](17-estados-fila-transito.puml) | Máquina de estados | Una fila de `CAPTURA_TRANSITO`: `PENDIENTE → PROCESANDO → PROCESADO \| ERROR`, con recuperación de huérfanas. |
+| [17-estados-fila-transito.puml](17-estados-fila-transito.puml) | Máquina de estados | Una fila de `CAPTURA_TRANSITO`: `PENDIENTE → PROCESANDO → PROCESADO \| ERROR`, con recuperación de huérfanas y los estados `NUEVO_SKU` y `DESCARTADO` del flujo «Nuevo SKU». |
 | [18-estados-lectura-outbox.puml](18-estados-lectura-outbox.puml) | Máquina de estados | Una lectura en el móvil: `PENDIENTE → ENVIADO → CONFIRMADO` y el regreso a `PENDIENTE` tras un corte. |
 | [19-estados-cuenta.puml](19-estados-cuenta.puml) | Máquina de estados | `PENDIENTE → ACTIVO \| RECHAZADO`, `ACTIVO → SUSPENDIDO → ACTIVO`, y qué ve cada estado al entrar. |
 
@@ -49,7 +49,7 @@ docker compose run --rm pybase pytest server/tests/test_uml.py -v
 |---|---|---|
 | [13-secuencia-sincronizacion.puml](13-secuencia-sincronizacion.puml) | Secuencia | La sincronización completa: conexión, `HELLO`, `ACCT`, `READY`, catálogo `CATALOGO`, `REC` con `ACTUAL`, `ACK`, fotos, `BYE`, batch y refresco. |
 | [14-secuencia-corte-reanudacion.puml](14-secuencia-corte-reanudacion.puml) | Secuencia | Corte a mitad de lote, `READY\|25` y reenvío con go-back-N sin duplicados. |
-| [15-secuencia-errores-y-reproceso.puml](15-secuencia-errores-y-reproceso.puml) | Secuencia | Una fila en `ERROR`, el alta del SKU, `REPROCESAR_ERRORES` y la conciliación de `ACTUAL`. |
+| [15-secuencia-errores-y-reproceso.puml](15-secuencia-errores-y-reproceso.puml) | Secuencia | Una lectura con SKU nuevo (`NUEVO_SKU`), el aviso «Nuevo SKU» (**Crear y procesar** / **No crear**) y, aparte, `REPROCESAR_ERRORES`. |
 | [20-comunicacion.puml](20-comunicacion.puml) | Comunicación | La colaboración numerada entre `Session`, `Store`, `SyncController`, `PKG_BATCH` y `ServicioRemoto`. |
 | [21-vision-interaccion.puml](21-vision-interaccion.puml) | Visión general de interacción | El flujo de alto nivel que enlaza los diagramas 13, 14 y 15 con sus decisiones. |
 | [22-tiempos.puml](22-tiempos.puml) | Tiempos | El latido del servicio (1 s; `DETENIDO` a los 10 s) y la ventana de 50 `REC` entre `ACK`. |
