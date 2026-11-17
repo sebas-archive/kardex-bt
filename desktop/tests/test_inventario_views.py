@@ -138,3 +138,23 @@ def test_exportar_csv_respeta_los_filtros(vista, tmp_path):
     with open(ruta, encoding="utf-8-sig", newline="") as fh:
         filas = list(csv.reader(fh, delimiter=";"))[1:]
     assert len(filas) == len(v.filas()) and all(f[3] == "" for f in filas)
+
+
+def test_columna_producto_ocupa_el_ancho_en_la_primera_carga(qtbot, cuentas, contado, monkeypatch):
+    """Con la vista ya visible y animaciones activas, la primera carga debe dejar la columna Producto (Stretch)
+    llenando la tabla: antes quedaba con el ancho de su contenido hasta el siguiente cambio de tamaño."""
+    from app.views import motion_global, widgets
+    ana = cuentas.registrar("ana.gomez", "Ana Gómez", CLAVE, CLAVE, correo="ana@example.com",
+                            pregunta=PREGUNTAS[0], respuesta="firulais")
+    monkeypatch.setattr(widgets, "ANIMAR", True)
+    v = InventarioView()
+    qtbot.addWidget(v)
+    v.resize(1100, 600)
+    v.show()
+    qtbot.waitExposed(v)
+    v.set_sesion(ana)
+    esperar(qtbot, lambda: v.tabla.rowCount() >= 65)
+    motion_global.entrada_filas(v.tabla, v._claves, v._huellas)      # la entrada de la pantalla revela las filas
+    qtbot.wait(1500)                 # que terminen las animaciones antes de medir y de cerrar
+    cab = v.tabla.horizontalHeader()
+    assert cab.length() == v.tabla.viewport().width()

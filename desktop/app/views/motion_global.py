@@ -563,6 +563,23 @@ def capturar_filas(tabla: QTableWidget, claves: list[str], huellas: list[str]) -
     return InstantaneaFilas(tabla.viewport().grab(), _filas_visibles(tabla, claves, huellas))
 
 
+def _anchos_finales(tabla: QTableWidget) -> None:
+    """Deja las columnas con su ancho definitivo sin esperar al cálculo diferido de la cabecera. Un
+    ``resizeSections(ResizeToContents)`` general ignoraba el modo Stretch y la columna que debe llenar la tabla se
+    quedaba con el ancho de su contenido hasta el siguiente cambio de tamaño: aquí solo se miden las columnas
+    «ResizeToContents» y las Stretch reciben lo que sobra."""
+    cab = tabla.horizontalHeader()
+    Modo = cab.ResizeMode
+    estirar = [c for c in range(cab.count()) if cab.sectionResizeMode(c) == Modo.Stretch]
+    for c in range(cab.count()):
+        if cab.sectionResizeMode(c) == Modo.ResizeToContents:
+            cab.resizeSection(c, max(cab.sectionSizeHint(c), tabla.sizeHintForColumn(c)))
+    if estirar:
+        resto = tabla.viewport().width() - sum(cab.sectionSize(c) for c in range(cab.count()) if c not in estirar)
+        for c in estirar:
+            cab.resizeSection(c, max(cab.minimumSectionSize(), resto // len(estirar)))
+
+
 def revelar_filas(tabla: QTableWidget, antes: InstantaneaFilas | None, claves: list[str], huellas: list[str],
                   ms: int | None = None) -> None:
     """Segunda mitad: llamar DESPUÉS de cambiar el contenido. Anima solo lo que cambió (entran, salen, se mueven o
@@ -577,7 +594,7 @@ def revelar_filas(tabla: QTableWidget, antes: InstantaneaFilas | None, claves: l
     if despues_filas == antes.filas:
         return
     cabecera = tabla.horizontalHeader()
-    cabecera.resizeSections(cabecera.ResizeMode.ResizeToContents)        # anchos ya finales antes de la foto
+    _anchos_finales(tabla)                                               # anchos ya finales antes de la foto
     despues = InstantaneaFilas(visor.grab(), _filas_visibles(tabla, claves, huellas))
     color = QColor(visor.palette().color(visor.backgroundRole()))
     capa = _CapaFilas(visor, antes, despues, color)
