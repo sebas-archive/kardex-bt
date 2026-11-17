@@ -262,6 +262,8 @@ def entrar(widget: QWidget, retardo: int = 0, dy: float = 14, escala: float = 1.
     def arrancar() -> None:
         if sip.isdeleted(widget) or getattr(widget, "_entrada_tok", None) is not token:
             return
+        if sip.isdeleted(efecto):                            # otra capa reemplazó el efecto mientras esperaba su turno
+            return
         if not widget.isVisible():                           # se salió de la pantalla antes de que le tocara: no se anima
             efecto.set_opacidad(1.0)
             efecto.set_dy(0.0)
@@ -549,13 +551,15 @@ def sacudir(contenedor: QWidget, amplitud: int = 7, ms: int = 330) -> None:
     grupo.start()
 
 
-def destello(widget: QWidget, color: str = VERDE, ms: int = 420) -> None:
-    """Flash breve sobre el área copiada / el destino de un drop."""
+def destello(widget: QWidget, color: str = VERDE, ms: int = 420, radio: int = 6) -> None:
+    """Flash breve sobre el área copiada / el destino de un drop (``radio``: el de las esquinas del widget)."""
+    if not widgets.ANIMAR:
+        return
     objetivo = widget.viewport() if isinstance(widget, QAbstractScrollArea) else widget
     capa = QWidget(objetivo)
     capa.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     capa.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-    capa.setStyleSheet(f"background: rgba({_rgb(color)}, 0.28); border-radius: 6px;")
+    capa.setStyleSheet(f"background: rgba({_rgb(color)}, 0.28); border-radius: {radio}px;")
     capa.setGeometry(objetivo.rect())
     capa.show()
     capa.raise_()

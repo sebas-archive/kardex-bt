@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QInputDi
 
 from .. import auth
 from ..i18n import t
+from . import motion_global
 from .base import QueryRunner, StateBanner
 
 RESULTADO = {auth.ACTIVO: "Aprobada", auth.RECHAZADO: "Rechazada"}
@@ -65,6 +66,12 @@ class SolicitudesView(QWidget):
         self.btn_aprobar = QPushButton(t("Aprobar contraseña"))
         self.btn_rechazar_clave = QPushButton(t("Rechazar…"))
         self.tabla_historial = _tabla(("Usuario", "Nombre", "Resultado", "Rol", "Motivo", "Por"))
+        # Identidad de las filas: aprobar o rechazar se ve como una fila que sale de su tabla y otra que entra al historial.
+        self._vivas = {tabla: motion_global.FilasVivas(tabla)
+                       for tabla in (self.tabla_cuentas, self.tabla_claves, self.tabla_historial)}
+        self._ayuda, self._rotulos = ayuda, []
+        self._actividad = motion_global.Actividad(self, self._runner)
+        motion_global.instalar_realces(self.combo_rol)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(4, 4, 4, 4)
@@ -78,6 +85,7 @@ class SolicitudesView(QWidget):
                 ("Historial", self.tabla_historial, ())):
             rotulo = QLabel(t(titulo))
             rotulo.setObjectName("seccion")
+            self._rotulos.append(rotulo)
             acciones = QHBoxLayout()
             for widget in widgets:
                 acciones.addWidget(widget)
@@ -131,13 +139,22 @@ class SolicitudesView(QWidget):
                 self.tabla_claves.selectRow(fila)
 
     # ------------------------------------------------------------- internos
-    @staticmethod
-    def _llenar(tabla: QTableWidget, filas: list[tuple[str, ...]]) -> None:
+    def _llenar(self, tabla: QTableWidget, filas: list[tuple[str, ...]], claves: list[str]) -> None:
+        """Escribe las filas completas y solo después deja que la capa de movimiento anime lo que cambió."""
+        vivas = self._vivas[tabla]
+        antes = vivas.capturar()
         tabla.setRowCount(len(filas))
         for f, fila in enumerate(filas):
             for c, texto in enumerate(fila):
                 tabla.setItem(f, c, QTableWidgetItem(texto))
         tabla.resizeColumnsToContents()
+        vivas.revelar(antes, claves, ["\x1f".join(fila) for fila in filas])
+
+    def entrada_motion(self) -> None:
+        """Entrada de la pantalla (la llama ``motion_global.entrada_pagina``): ayuda, estado y cada sección en cascada."""
+        piezas = [self._ayuda, self.banner, *self._rotulos, self.combo_rol, self.btn_aprobar_cuenta,
+                  self.btn_rechazar_cuenta, self.btn_aprobar, self.btn_rechazar_clave]
+        motion_global.entrada_cascada(piezas, list(self._vivas.values()))
 
     def _mostrar(self, datos: tuple[list[auth.Usuario], list[auth.Solicitud]]) -> None:
         usuarios, historial = datos
@@ -147,13 +164,15 @@ class SolicitudesView(QWidget):
         self._claves = [u for u in usuarios if u.estado == auth.ACTIVO and u.clave_solicitada]
         self._llenar(self.tabla_cuentas, [
             (u.usuario, u.nombre, u.correo or "", t(ORIGEN.get(u.origen, u.origen)),
-             f"{u.registrado:%d/%m/%Y}" if u.registrado else "") for u in self._nuevas])
+             f"{u.registrado:%d/%m/%Y}" if u.registrado else "") for u in self._nuevas],
+            [u.usuario for u in self._nuevas])
         self._llenar(self.tabla_claves, [
             (u.usuario, u.nombre, t(auth.NOMBRE_ROL[u.rol]) if u.rol else "", t(ORIGEN.get(u.origen, u.origen)))
-            for u in self._claves])
+            for u in self._claves], [u.usuario for u in self._claves])
         self._llenar(self.tabla_historial, [
             (h.usuario, h.nombre, t(RESULTADO.get(h.estado, h.estado)),
-             t(auth.NOMBRE_ROL[h.rol]) if h.rol else "", h.motivo or "", h.resuelto_por or "") for h in historial])
+             t(auth.NOMBRE_ROL[h.rol]) if h.rol else "", h.motivo or "", h.resuelto_por or "") for h in historial],
+            [f"{h.usuario}|{h.estado}|{h.motivo or ''}" for h in historial])
         self.tabla_cuentas.clearSelection()
         self.tabla_claves.clearSelection()
         if cuenta is not None:

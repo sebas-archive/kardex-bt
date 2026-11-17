@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (QBoxLayout, QButtonGroup, QComboBox, QFrame, QHBoxL
 from .. import auth, configuracion, i18n
 from ..i18n import registrar, t
 from ..tema import NOMBRE_MODO
-from . import components
+from . import components, motion, motion_global, widgets
 from .base import QueryRunner
 from .iconos import icono
 from .isla import isla
@@ -210,6 +210,10 @@ class PerfilView(QWidget):
         # ---------------------------------------------------------- página: ancho máximo y centrada
         descripcion = QLabel(t("Tu cuenta, tu seguridad y tus preferencias."))
         descripcion.setObjectName("subtitulo")
+        self._descripcion, self._tarjeta_usuario = descripcion, tarjeta_usuario
+        self._tarjeta_clave, self._tarjeta_pref = tarjeta_clave, tarjeta_pref
+        motion_global.instalar_realces(self.txt_actual, self.txt_nueva, self.txt_confirmacion)
+        self._actividad = motion_global.Actividad(self, self._runner)
         self._columnas = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self._columnas.setSpacing(16)
         for tarjeta in (tarjeta_clave, tarjeta_pref):
@@ -320,6 +324,22 @@ class PerfilView(QWidget):
         self._cargar_max_mb()
         self.refresh()
 
+    def entrada_motion(self) -> None:
+        """Entrada de la pantalla (la llama ``motion_global.entrada_pagina``): la descripción y luego cada tarjeta suben
+        unos píxeles con fundido y en cascada. Es la misma para todos los roles: lo que cada rol ve ya lo decide
+        ``set_sesion``; aquí solo se anima lo que está visible."""
+        if not widgets.ANIMAR or not self.isVisible():
+            return
+        motion.entrar(self._descripcion, dy=4, ms_=motion.dur(240), radio=6)
+        for i, tarjeta in enumerate((self._tarjeta_usuario, self._tarjeta_clave, self._tarjeta_pref), start=1):
+            if tarjeta.isVisible():
+                motion.entrar(tarjeta, retardo=i * 48, dy=8, ms_=motion.dur(320), radio=14)
+
+    def _cruzar_avatar(self) -> None:
+        """La foto nueva (o la inicial) aparece con un fundido en lugar de cambiar de golpe."""
+        if widgets.ANIMAR and self.lbl_avatar.isVisible() and motion.sin_efecto_en_ancestros(self.lbl_avatar):
+            motion.desvanecer(self.lbl_avatar, 0.25, 1.0, motion.dur(motion.Dur.ESTADO))
+
     def resizeEvent(self, evento) -> None:
         """Dos columnas en ventanas amplias; en las pequeñas todo se apila y los botones bajan a su propia fila."""
         super().resizeEvent(evento)
@@ -362,12 +382,14 @@ class PerfilView(QWidget):
     def _clave_lista(self, mensaje: str) -> None:
         self.btn_cambiar.setEnabled(True)
         self._resultado(str(mensaje), True)
+        motion.destello(self._tarjeta_clave, motion.VERDE, 520, radio=12)      # confirmación inmediata en la tarjeta
         for campo in (self.txt_actual, self.txt_nueva, self.txt_confirmacion):
             campo.clear()
 
     def _clave_fallo(self, mensaje: str) -> None:
         self.btn_cambiar.setEnabled(True)
         self._resultado(mensaje, False)
+        motion.sacudir(self._tarjeta_clave, amplitud=6)                          # el rechazo se nota en la tarjeta
 
     def _resultado(self, mensaje: str, ok: bool) -> None:
         self.lbl_resultado.setText(t(mensaje))  # consultable; el aviso lo muestra la Isla
@@ -421,6 +443,7 @@ class PerfilView(QWidget):
     def _foto_lista(self, ruta: str) -> None:
         self._foto = ruta
         self._pintar_avatar()
+        self._cruzar_avatar()
         self.btn_foto.setText(" " + t("Cambiar foto"))
         self.btn_quitar_foto.setEnabled(True)
         self.foto_cambiada.emit(ruta)
@@ -443,6 +466,7 @@ class PerfilView(QWidget):
         borrar_perfil(anterior)
         self._foto = None
         self._pintar_avatar()
+        self._cruzar_avatar()
         self.btn_foto.setText(" " + t("Poner foto"))
         self.btn_quitar_foto.setEnabled(False)
         self.foto_cambiada.emit(None)

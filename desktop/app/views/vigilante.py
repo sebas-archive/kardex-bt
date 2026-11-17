@@ -90,6 +90,8 @@ class Vigilante(QObject):
                 motion_global.instalar_presion(objeto)
             elif isinstance(objeto, QMenu) and objeto.isWindow():
                 motion_global.aparecer_popup(objeto)
+            elif objeto.isWidgetType() and objeto.isWindow() and objeto.metaObject().className() == "QTipLabel":
+                motion_global.aparecer_popup(objeto, 110)      # los tooltips nacen con un fundido corto, como los menús
             if isinstance(objeto, QTableView) and not objeto.property("fundidoInstalado"):
                 _animar_tabla(objeto)
             if isinstance(objeto, QTableView) and not objeto.property("vacioInstalado"):
