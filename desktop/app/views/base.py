@@ -522,6 +522,8 @@ class QueryRunner(QObject):
     (por un refresco más reciente) se descarta.
     """
 
+    trabajo = pyqtSignal(int)   # cuántas consultas siguen en curso (para el indicador de actividad de la pantalla)
+
     def __init__(self, parent: QObject | None = None, pool: QThreadPool | None = None) -> None:
         super().__init__(parent)
         self._pool = pool or QThreadPool.globalInstance()
@@ -549,10 +551,12 @@ class QueryRunner(QObject):
         worker.signals.finished.connect(entrega.exito)
         worker.signals.failed.connect(entrega.fallo)
         self._pool.start(worker)
+        self.trabajo.emit(len(self._activos))
         return worker
 
     def _terminar(self, entrega: _Entrega, callback: Callable | None, valor) -> None:
         self._activos.pop(id(entrega.worker), None)
+        self.trabajo.emit(len(self._activos))
         if entrega.key is not None and self._ultimo.get(entrega.key) != entrega.token:
             return  # llegó tarde: ya hay una consulta más reciente
         if callback is not None:

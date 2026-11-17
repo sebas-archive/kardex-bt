@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QHeaderV
 
 from .. import auditoria, auth
 from ..i18n import registrar, t
+from . import motion_global
 from .base import QueryRunner, StateBanner
 from .selector_fecha import SelectorFecha
 
@@ -72,6 +73,9 @@ class AuditoriaView(QWidget):
         for columna in range(len(ENCABEZADOS) - 1):
             cabecera.setSectionResizeMode(columna, QHeaderView.ResizeMode.ResizeToContents)
         cabecera.setSectionResizeMode(len(ENCABEZADOS) - 1, QHeaderView.ResizeMode.Stretch)
+        self._vivas = motion_global.FilasVivas(self.tabla)
+        self._actividad = motion_global.Actividad(self, self._runner)
+        motion_global.instalar_realces(self.txt_buscar, self.combo_usuario, self.combo_modulo)
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(4, 4, 4, 4)
@@ -104,6 +108,12 @@ class AuditoriaView(QWidget):
         return [tuple(self.tabla.item(f, c).text() if self.tabla.item(f, c) else "" for c in range(len(ENCABEZADOS)))
                 for f in range(self.tabla.rowCount())]
 
+    def entrada_motion(self) -> None:
+        """Entrada de la pantalla (la llama ``motion_global.entrada_pagina``): ayuda, estado y filtros en cascada; la
+        tabla revela sus filas sin moverlas."""
+        motion_global.entrada_cascada([self.lbl_ayuda, self.banner, self.txt_buscar, self.combo_usuario,
+                                       self.combo_modulo, self.fecha_desde, self.fecha_hasta], [self._vivas])
+
     # ------------------------------------------------------------- internos
     @staticmethod
     def _rellenar(combo: QComboBox, valores) -> None:
@@ -133,12 +143,17 @@ class AuditoriaView(QWidget):
                   if (usuario is None or e.usuario == usuario) and (modulo is None or e.modulo == modulo)
                   and e.fecha.date() >= desde and (sin_tope or e.fecha.date() <= hasta)
                   and (not texto or texto in e.accion.lower() or texto in e.detalle.lower())]
+        antes = self._vivas.capturar()
         self.tabla.setRowCount(len(vistas))
+        claves = []
         for fila, e in enumerate(vistas):
             celdas = (f"{e.fecha:%d/%m/%Y %H:%M:%S}", e.nombre, t(auditoria.NOMBRE_MODULO.get(e.modulo, e.modulo)),
                       t(e.accion), e.detalle)
             for columna, valor in enumerate(celdas):
                 self.tabla.setItem(fila, columna, QTableWidgetItem(valor))
+            claves.append("\x1f".join(celdas))
+        # Un registro histórico no cambia: su clave es su contenido, así que solo entran o salen filas (ninguna se reescribe).
+        self._vivas.revelar(antes, claves, [""] * len(claves))
         if not self._todas:
             self.banner.show_empty(t("Todavía no hay acciones registradas."))
         elif not vistas:

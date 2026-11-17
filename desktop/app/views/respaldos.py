@@ -16,6 +16,7 @@ from btsync.respaldo import respaldos_dir
 from .. import auth, respaldos
 from ..i18n import registrar, t
 from .. import i18n
+from . import motion_global
 from .base import QueryRunner, StateBanner
 from .isla import isla
 
@@ -74,6 +75,7 @@ class DialogoRestaurar(QDialog):
                          "continuar.", archivo=archivo, clave=CLAVE))
         texto.setWordWrap(True)
         self.txt = QLineEdit()
+        motion_global.instalar_realce(self.txt)
         self.botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.botones.button(QDialogButtonBox.StandardButton.Ok).setText(t("Restaurar"))
         self.botones.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
@@ -132,6 +134,9 @@ class RespaldosView(QWidget):
         self.spin_conservar = QSpinBox()
         self.spin_conservar.setRange(1, 90)
         self.btn_guardar_auto = QPushButton(t("Guardar"))
+        self._vivas = motion_global.FilasVivas(self.tabla)       # identidad de fila = archivo del respaldo
+        self._ayuda = ayuda
+        motion_global.instalar_realces(self.txt_hora, self.spin_conservar)
 
         arriba = QHBoxLayout()
         arriba.addWidget(self.btn_crear)
@@ -167,6 +172,8 @@ class RespaldosView(QWidget):
         raiz.addWidget(self.lbl_error)
         raiz.addWidget(self.lbl_info)
         raiz.addWidget(tarjeta, 1)
+        self._tarjeta = tarjeta
+        self._actividad = motion_global.Actividad(tarjeta, self._runner)   # barre mientras crea, restaura o guarda
 
         self.btn_crear.clicked.connect(self._crear)
         self.btn_restaurar.clicked.connect(self._restaurar)
@@ -202,18 +209,29 @@ class RespaldosView(QWidget):
         self.banner.clear()
         elegido = self._elegido()
         self._lista = list(lista)
+        antes = self._vivas.capturar()
         self.tabla.setRowCount(len(self._lista))
+        huellas = []
         for f, r in enumerate(self._lista):
             hecho = t("Automático") if r.origen == "auto" else t("Antes de restaurar") if r.origen == "previo" else r.usuario
-            for c, texto in enumerate((f"{r.fecha:%d/%m/%Y %H:%M}", _tamano(r.bytes), t("Sí") if r.fotos else t("No"),
-                                       hecho)):
+            celdas = (f"{r.fecha:%d/%m/%Y %H:%M}", _tamano(r.bytes), t("Sí") if r.fotos else t("No"), hecho)
+            for c, texto in enumerate(celdas):
                 self.tabla.setItem(f, c, QTableWidgetItem(texto))
+            huellas.append("\x1f".join(celdas))
             if elegido is not None and r.archivo == elegido:
                 self.tabla.selectRow(f)
         if not self._lista:
             self.banner.show_empty(t("Aún no hay respaldos."))
         self.tabla.resizeColumnsToContents()
+        self._vivas.revelar(antes, [r.archivo for r in self._lista], huellas)   # el respaldo nuevo entra; los demás no se mueven
         self._habilitar()
+
+    def entrada_motion(self) -> None:
+        """Entrada de la pantalla (la llama ``motion_global.entrada_pagina``): ayuda, tarjeta y sus controles en cascada;
+        la lista revela sus filas."""
+        motion_global.entrada_cascada([self._ayuda, self.btn_crear, self.banner, self.btn_restaurar, self.btn_carpeta,
+                                       self.chk_auto, self.txt_hora, self.spin_conservar, self.btn_guardar_auto],
+                                      [self._vivas])
 
     def _mostrar_auto(self, valores: tuple[bool, str, int]) -> None:
         activo, hora, conservar = valores
