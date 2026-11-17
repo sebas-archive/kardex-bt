@@ -32,6 +32,7 @@ RAPIDO, NORMAL, LENTO = 120, 200, 320
 CURVA = QEasingCurve.Type.OutCubic
 CURVA_SUAVE = QEasingCurve.Type.OutQuint
 VERDE = "#10B981"
+SOMBRA = "#0F172A"   # sombra de elevación (hover, arrastre): neutra, sin tinte de color
 TINTA_SUAVE = "#8A8A8A"
 
 
@@ -126,7 +127,7 @@ class EfectoMovimiento(QGraphicsEffect):
 
     PAD = 30
 
-    def __init__(self, padre: QWidget, radio: float = 16, color: str = VERDE) -> None:
+    def __init__(self, padre: QWidget, radio: float = 16, color: str = SOMBRA) -> None:
         super().__init__(padre)
         # Canales independientes: cada capa de movimiento escribe en el suyo y el dibujo los combina, de modo que dos
         # animaciones (entrada + hover, hover + arrastre) nunca compiten por la misma propiedad.
@@ -209,7 +210,7 @@ class EfectoMovimiento(QGraphicsEffect):
         painter.restore()
 
 
-def efecto_movimiento(widget: QWidget, radio: float = 16, color: str = VERDE) -> EfectoMovimiento:
+def efecto_movimiento(widget: QWidget, radio: float = 16, color: str = SOMBRA) -> EfectoMovimiento:
     """El efecto de movimiento del widget (lo crea si no hay ninguno; si hay otro tipo de efecto lo reemplaza)."""
     actual = widget.graphicsEffect()
     if isinstance(actual, EfectoMovimiento):
@@ -328,7 +329,7 @@ class InteraccionTarjeta(QObject):
     """Hover y pulsación de una tarjeta, sin mover el layout: elevación ligera con sombra ambiental, compresión al
     pulsar y recuperación tipo spring. El efecto solo existe mientras hay movimiento o el cursor está encima."""
 
-    def __init__(self, tarjeta: QWidget, radio: float = 14, color: str = VERDE, elevacion: float = 3.0,
+    def __init__(self, tarjeta: QWidget, radio: float = 14, color: str = SOMBRA, elevacion: float = 3.0,
                  destino: QWidget | None = None) -> None:
         """``destino``: el widget que lleva el efecto (por defecto, la propia tarjeta). Una tarjeta dentro de una baldosa
         deja el efecto a la baldosa: así entrada, hover y arrastre comparten un único ``EfectoMovimiento``."""
@@ -400,7 +401,7 @@ class InteraccionTarjeta(QObject):
         return False
 
 
-def hacer_interactiva(tarjeta: QWidget, radio: float = 14, color: str = VERDE,
+def hacer_interactiva(tarjeta: QWidget, radio: float = 14, color: str = SOMBRA,
                       destino: QWidget | None = None) -> InteraccionTarjeta:
     """Instala (una sola vez) el hover/pulsación premium en una tarjeta (el efecto puede vivir en ``destino``)."""
     previa = getattr(tarjeta, "_interaccion", None)
@@ -493,7 +494,7 @@ def sombra(widget: QWidget, color: str = "#000000", blur: int = 0, dy: int = 0, 
     return efecto
 
 
-def elevar(widget: QWidget, activo: bool, ms: int = NORMAL, color: str = VERDE) -> QVariantAnimation | None:
+def elevar(widget: QWidget, activo: bool, ms: int = NORMAL, color: str = SOMBRA) -> QVariantAnimation | None:
     """Hover de tarjeta: borde con glow (QSS) + sombra que crece y se tiñe del color primario."""
     efecto = sombra(widget, color, 0, 0, 0)
     if not widgets.ANIMAR:
