@@ -22,3 +22,6 @@ web/
 # Exportaciones de prueba que no deben viajar con el código.
 graficas.png
 inventario.csv
+
+# Paquetes de entrega (artefactos, no código)
+ENTREGA/
