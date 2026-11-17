@@ -148,7 +148,7 @@ QFrame#separadorNav { background: rgba(255,255,255,0.07); max-height: 1px; margi
 
 /* Tarjetas con hover rico */
 QFrame#card { border: 1px solid #232323; }
-QFrame#card[hover="true"] { border: 1px solid #2F6B57; }
+QFrame#card[hover="true"] { border: 1px solid #3A3A3A; }
 QWidget#accionesCard { background: transparent; }
 QPushButton#accionCard { padding: 5px 10px; font-size: 11px; border-radius: 7px; color: #CFCFCF; }
 QPushButton#accionCard[primaria="true"] { background: #10B981; color: #04130E; border: none; }
