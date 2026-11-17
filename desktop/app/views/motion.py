@@ -90,7 +90,7 @@ def fijar_reducido(valor: bool | None) -> None:
 
 def dur(base: int) -> int:
     """Duración efectiva: en movimiento reducido las transiciones esenciales se acortan."""
-    return min(base, 160) if reducido() else base
+    return min(base, 160) if reducido() else int(base * widgets.FACTOR_TIEMPO)
 
 
 def desp(distancia: float) -> float:
@@ -272,7 +272,7 @@ def entrar(widget: QWidget, retardo: int = 0, dy: float = 14, escala: float = 1.
         widget._entrada_anim = animar(widget, 0.0, 1.0, ms_, paso, fin, curva)   # type: ignore[attr-defined]
 
     if retardo > 0:
-        QTimer.singleShot(retardo, arrancar)
+        QTimer.singleShot(int(retardo * widgets.FACTOR_TIEMPO), arrancar)
     else:
         arrancar()
 
@@ -534,7 +534,7 @@ def sacudir(contenedor: QWidget, amplitud: int = 7, ms: int = 330) -> None:
     grupo = QVariantAnimation(contenedor)
     grupo.setStartValue(0.0)
     grupo.setEndValue(float(len(pasos) - 1))
-    grupo.setDuration(ms)
+    grupo.setDuration(int(ms * widgets.FACTOR_TIEMPO))
     grupo.setEasingCurve(QEasingCurve.Type.Linear)
 
     def cambiar(v: float) -> None:

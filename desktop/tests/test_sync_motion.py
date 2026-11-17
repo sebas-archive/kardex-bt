@@ -82,7 +82,7 @@ def test_duraciones_respetan_la_naturaleza_de_cada_interaccion():
 
 
 def test_movimiento_reducido_acorta_y_apaga_lo_decorativo():
-    assert motion.decorativo() and motion.dur(500) == 500
+    assert motion.decorativo() and motion.dur(500) == int(500 * widgets.FACTOR_TIEMPO)
     motion.fijar_reducido(True)
     assert not motion.decorativo()
     assert motion.dur(500) <= 160 and motion.desp(10) < 10
