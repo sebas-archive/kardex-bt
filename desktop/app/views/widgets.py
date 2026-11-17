@@ -38,6 +38,9 @@ def _sistema_pide_menos_movimiento() -> bool:
 
 ANIMAR = os.environ.get("APP_SIN_ANIMACIONES") != "1" and not _sistema_pide_menos_movimiento()
 
+# Factor global de tiempo: todas las transiciones duran esto × su duración base (1.0 = original, más = más lentas).
+FACTOR_TIEMPO = 1.6
+
 # Paleta (la misma familia de colores de la app del celular). ``refrescar_paleta`` la pone al día con el tema.
 VERDE, VERDE_OSCURO = "#10B981", "#0B8A62"
 TINTA, TINTA_SUAVE, LINEA, FONDO, PISTA = "#EDEDED", "#8A8A8A", "#2E2E2E", "#0A0A0A", "#1F1F1F"
@@ -66,7 +69,7 @@ def animar(dueno: QWidget, inicio: float, fin: float, ms: int, al_cambiar: Calla
     anim = QVariantAnimation(dueno)
     anim.setStartValue(float(inicio))
     anim.setEndValue(float(fin))
-    anim.setDuration(ms)
+    anim.setDuration(int(ms * FACTOR_TIEMPO))
     anim.setEasingCurve(curva)
     anim.valueChanged.connect(lambda v: al_cambiar(float(v)))
     if al_terminar:
