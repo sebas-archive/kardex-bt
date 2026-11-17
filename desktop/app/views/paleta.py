@@ -54,7 +54,7 @@ class RegistroAtajos:
 
     def __init__(self) -> None:
         self._items: dict[str, Atajo] = {}
-        self._ajustes = QSettings("GestionInventario", "Interfaz")
+        self._ajustes = QSettings("Kardex", "Interfaz")
 
     def registrar(self, atajo: Atajo) -> Atajo:
         self._items[atajo.id] = atajo
