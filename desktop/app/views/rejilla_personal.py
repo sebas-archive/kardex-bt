@@ -354,20 +354,27 @@ class RejillaPersonal(QWidget):
         self._pildora = _PildoraMedida(self)
 
     # ------------------------------------------------------------------ contenido
-    def poner(self, baldosas: list[Baldosa], transicion: bool = False) -> None:
-        """Sustituye todas las baldosas. Con ``transicion`` la distribución anterior se funde hacia la nueva (sin salto)."""
+    def poner(self, baldosas, transicion: bool = False, antes=None) -> None:
+        """Sustituye todas las baldosas. Con ``transicion`` la distribución anterior se funde hacia la nueva (sin salto).
+
+        ``baldosas`` puede ser una lista o una función que la construye; ``antes`` (opcional) se ejecuta justo antes de
+        retirar las viejas. Ambas corren **dentro** del cruce, cuando la imagen anterior ya está congelada: así quien
+        reutiliza el contenido de las baldosas (las gráficas) no lo deja vacío en esa imagen."""
         def aplicar() -> None:
+            if antes is not None:
+                antes()
+            nuevas = baldosas() if callable(baldosas) else list(baldosas)
             for b in self._baldosas:
                 b.hide()
                 b.deleteLater()
-            self._baldosas = list(baldosas)
+            self._baldosas = list(nuevas)
             for b in self._baldosas:
                 b.setParent(self)
                 b.show()
                 b.set_edicion(self._edicion, False)
             self.recolocar(animar=False)
 
-        if transicion and widgets.ANIMAR and self.isVisible() and self._baldosas:
+        if transicion and widgets.ANIMAR and self.isVisible() and self._baldosas:    # el cruce congela lo que se ve
             motion_global.cruzar_contenido(self, aplicar, Dur.ESTADO)
         else:
             aplicar()
@@ -391,7 +398,9 @@ class RejillaPersonal(QWidget):
         if widgets.ANIMAR and self.isVisible():
             motion.entrar(b, dy=10, escala=0.97, ms_=Dur.ENTRADA, radio=14)
 
-    def quitar(self, id_: str) -> None:
+    def quitar(self, id_: str, al_destruir=None) -> None:
+        """Quita una baldosa con una salida suave y reacomoda las demás. ``al_destruir(baldosa)`` (opcional) se llama justo
+        antes de destruirla: ahí quien quiera conservar su contenido (la gráfica con sus datos) lo suelta."""
         b = self.baldosa(id_)
         if b is None:
             return
@@ -399,6 +408,8 @@ class RejillaPersonal(QWidget):
 
         def terminar() -> None:
             if not sip.isdeleted(b):
+                if al_destruir is not None:
+                    al_destruir(b)
                 b.hide()
                 b.deleteLater()
 
