@@ -1,0 +1,174 @@
+@startuml
+!include estilo.iuml
+' @code: desktop/app, server/btsync
+title Diagrama 7c · Clases de la aplicación de escritorio
+left to right direction
+
+class MainWindow {
+  +refresh_requested : pyqtSignal
+  +sesion_cambiada : pyqtSignal
+  +add_view(view, title, modulo, en_barra)
+  +mostrar_estado_cuenta(cuenta)
+  +iniciar(sesion)
+  +cerrar_sesion()
+  +ir_a(titulo)
+  +avisar(texto, tipo)
+}
+class ServicioRemoto <<QObject>> {
+  +status_changed : pyqtSignal
+  +listo : pyqtSignal
+  +fallo : pyqtSignal
+  +sondear()
+  +pausar(sesion)
+  +reanudar(sesion)
+  +responder(sesion, aceptar)
+  +status() : dict
+}
+class EstadoServicio <<dataclass>> {
+  +estado : str
+  +codigo : str
+  +recibidos : int
+  +listos : int
+  +ultima : UltimaSync
+}
+class QueryRunner {
+  +run(fn, on_ok, on_error, key)
+}
+class QueryWorker <<QRunnable>> {
+  +run()
+}
+class WorkerSignals <<QObject>>
+class StateBanner
+
+class AccesoView
+class DashboardView
+class InventarioView
+class SyncView
+class ChartsView
+class PerfilView
+class UsuariosView
+class SolicitudesView
+class RolesView
+class ConfiguracionView
+class RespaldosView
+class NotificacionesView
+class AuditoriaView
+class EstadoCuentaView
+class DetalleLecturas
+class EjeFormato <<AxisItem>>
+
+interface RefreshableView <<Protocol>> {
+  +set_conteo(id_conteo)
+  +refresh()
+}
+
+package "app.auth (cuentas del PC)" as authmod {
+  entity "auth" as auth {
+    registrar(usuario, nombre, clave, confirmacion, correo, pregunta, respuesta)
+    iniciar_sesion(usuario, clave)
+    recuperar(usuario, nueva, confirmacion, respuesta)
+    cambiar_clave(usuario, actual, nueva, confirmacion)
+    listar()
+    cambiar_rol(quien, usuario, rol)
+    aprobar(quien, usuario, rol)
+    rechazar(quien, usuario, motivo)
+    suspender(quien, usuario, motivo)
+    reactivar(quien, usuario)
+    desvincular_telefono(quien, usuario)
+    restablecer_clave(quien, usuario, nueva)
+    resolver_clave(quien, usuario, aprobar, motivo)
+    guardar_preferencias(usuario, tema, idioma)
+    guardar_foto(usuario, ruta)
+    historial_solicitudes()
+    consultar_cuenta(usuario)
+  }
+  entity "permisos" as permisos {
+    nivel(rol, modulo)
+    puede(rol, modulo, minimo)
+    matriz()
+    guardar(quien, rol, modulo, nivel)
+    exigir(quien, modulo, minimo)
+  }
+}
+class Sesion {
+  +usuario
+  +nombre
+  +rol : ADMIN | INVENTARIO | OPERADOR
+  +permisos : (modulo, nivel)…
+  +correo
+  +foto
+  +tema
+  +idioma
+  +puede(modulo, minimo)
+}
+class ErrorDeAcceso <<Exception>>
+class CuentaSinAcceso <<Exception>> {
+  +estado : PENDIENTE | RECHAZADO | SUSPENDIDO
+  +motivo
+}
+class Solicitud
+
+package "app.db (módulo, una conexión Oracle por hilo)" as dbmod {
+  entity "db" as db {
+    conteo_actual()
+    fetch_resumen()
+    fetch_conciliacion(texto, limit)
+    fetch_lecturas(sku)
+    fetch_estado_batch()
+    fetch_errores(limit)
+    procesar_ahora()
+    reprocesar_errores()
+    crear_producto(quien, sku, nombre, categoria)
+    fetch_actividad()
+    fetch_por_categoria()
+    fetch_series(categoria, top)
+  }
+}
+
+class TarjetaKpi
+class BarraSegmentada
+class Dona
+class Indicador
+class Pasos
+class AvisoNuevoSku
+
+RefreshableView <|.. DashboardView
+RefreshableView <|.. InventarioView
+RefreshableView <|.. SyncView
+RefreshableView <|.. ChartsView
+RefreshableView <|.. PerfilView
+RefreshableView <|.. UsuariosView
+RefreshableView <|.. SolicitudesView
+RefreshableView <|.. RolesView
+MainWindow *-- AccesoView : sin sesión
+MainWindow *-- EstadoCuentaView : cuenta sin acceso
+MainWindow o-- RefreshableView : secciones de la barra lateral
+MainWindow ..> Sesion : la del usuario que entró
+MainWindow ..> AvisoNuevoSku : avisos flotantes
+MainWindow *-- StateBanner
+AccesoView ..> auth : registrar / iniciar_sesion / recuperar
+UsuariosView ..> auth : módulo «usuarios»
+SolicitudesView ..> auth : aprobar / rechazar / resolver_clave
+RolesView ..> permisos : matriz / guardar
+auth ..> permisos : exigir
+CuentaSinAcceso --|> ErrorDeAcceso
+auth ..> CuentaSinAcceso : estado ≠ ACTIVO
+auth ..> Solicitud : historial
+PerfilView ..> auth : cambiar_clave / preferencias / foto
+auth ..> db : conexión del hilo
+auth ..> ErrorDeAcceso : lanza
+auth ..> Sesion : devuelve
+RefreshableView ..> QueryRunner : consultas fuera del hilo de la UI
+QueryRunner ..> QueryWorker : lanza
+QueryWorker *-- WorkerSignals
+QueryWorker ..> db : fetch_*
+SyncView --> ServicioRemoto
+ServicioRemoto ..> EstadoServicio : lee SERVICIO_BT (servicio aparte)
+InventarioView *-- DetalleLecturas
+ChartsView *-- EjeFormato
+ChartsView *-- Dona
+DashboardView *-- TarjetaKpi
+DashboardView *-- BarraSegmentada
+SyncView *-- Indicador
+SyncView *-- Pasos
+@enduml

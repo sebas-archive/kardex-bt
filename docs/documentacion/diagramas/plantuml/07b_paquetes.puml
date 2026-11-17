@@ -1,0 +1,69 @@
+@startuml
+!include estilo.iuml
+title Diagrama 7b · Paquetes y dependencias
+left to right direction
+
+package "server/btsync (librería Python)" as sv {
+  package "protocol" as sv_protocol
+  package "store" as sv_store
+  package "session" as sv_session
+  package "controller" as sv_controller
+  package "servicio" as sv_servicio
+  package "respaldo" as sv_respaldo
+  package "config" as sv_config
+  package "transports" as sv_transports {
+    package "base" as sv_base
+    package "tcp" as sv_tcp
+    package "bluez" as sv_bluez
+  }
+}
+
+package "desktop/app (PyQt6)" as dk {
+  package "main" as dk_main
+  package "servicio_remoto" as dk_bridge
+  package "db" as dk_db
+  package "models" as dk_models
+  package "workers" as dk_workers
+  package "views" as dk_views
+}
+
+package "mobile/app (Kotlin)" as mb {
+  package "ui" as mb_ui
+  package "sync" as mb_sync
+  package "protocol" as mb_protocol
+  package "data" as mb_data
+  package "DeviceIdentity" as mb_id
+}
+
+sv_session ..> sv_protocol
+sv_session ..> sv_store
+sv_session ..> sv_base
+sv_controller ..> sv_session
+sv_controller ..> sv_store
+sv_controller ..> sv_base
+sv_tcp ..> sv_base
+sv_bluez ..> sv_base
+
+dk_main ..> dk_views
+dk_main ..> dk_bridge
+dk_main ..> sv_store
+dk_main ..> sv_tcp
+dk_main ..> sv_bluez
+dk_bridge ..> sv_servicio : lee su estado en Oracle
+sv_servicio ..> sv_controller
+sv_servicio ..> sv_respaldo : automático
+sv_session ..> sv_config : fotos.max_mb
+dk_views ..> dk_db
+dk_views ..> dk_workers
+dk_views ..> dk_bridge
+dk_db ..> dk_models
+dk_db ..> sv_store : connect_oracle
+
+mb_ui ..> mb_sync
+mb_ui ..> mb_data
+mb_ui ..> mb_id
+mb_sync ..> mb_protocol
+mb_sync ..> mb_data
+
+mb_protocol .. sv_protocol : mismo formato\n(vectores compartidos)
+@enduml

@@ -1,0 +1,39 @@
+@startuml
+!include estilo.iuml
+title Diagrama 9c · Máquina de estados de una cuenta
+hide empty description
+
+[*] --> PENDIENTE : cuenta del móvil creada\n(o cuenta del PC que no es la primera)
+PENDIENTE --> ACTIVO : el Administrador aprueba\n(móvil → OPERADOR; PC → INVENTARIO)
+PENDIENTE --> RECHAZADO : el Administrador rechaza\ncon motivo (≤ 300)
+RECHAZADO --> [*] : no entra; ve el motivo
+ACTIVO --> SUSPENDIDO : el Administrador suspende\ncon motivo (nunca a sí mismo)
+SUSPENDIDO --> ACTIVO : el Administrador reactiva
+
+state ACTIVO {
+  state "Entra al escritorio o sincroniza\nsegún su rol" as dentro
+}
+state PENDIENTE {
+  state "Estado de cuenta:\n«Comprobar estado» (móvil)" as pend
+}
+state SUSPENDIDO {
+  state "Estado de cuenta:\nmotivo y fecha" as susp
+}
+
+note right of PENDIENTE
+  La cuenta del móvil llega al PC al
+  sincronizar (ACCT). El Administrador
+  la ve en Solicitudes.
+end note
+note right of ACTIVO
+  Solo una cuenta ACTIVO entrega lecturas.
+  El estado se lee al empezar la sesión
+  de sincronización y vale para toda ella.
+end note
+note bottom of SUSPENDIDO
+  El Administrador es único: no se puede
+  suspender ni degradar. Su contraseña se
+  recupera con la pregunta de seguridad
+  desde Acceso, sin pasar por Solicitudes.
+end note
+@enduml

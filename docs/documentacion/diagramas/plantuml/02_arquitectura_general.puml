@@ -1,0 +1,54 @@
+@startuml
+!include estilo.iuml
+title Diagrama 2 · Arquitectura general (capas y canales de comunicación)
+
+actor "Operador de\nInventario" as op
+actor "Administrador /\nInventario" as usr
+
+rectangle "Capa 1 · Captura móvil · Celular Android (Kotlin, minSdk 23)" as c1 {
+  component "Interfaz Compose + ZXing\nCountViewModel" as ui
+  database "Room / SQLite\nOutbox · catálogo" as room
+  component "SyncClient\nProtocol.kt" as cli
+}
+
+rectangle "Capa 2 · Recepción · contenedor «bluetooth» (Python)" as c2 {
+  component "BluezTransport\n(RFCOMM por D-Bus)" as bz
+  component "Session\nCRC · seq · ACK/NAK" as ses
+  component "SyncController\n+ Store" as ctrl
+}
+component "bluetoothd\n(BlueZ, host)" as bluez
+
+rectangle "Capa 3 · Oracle XE 11g" as c3 {
+  database "CAPTURA_TRANSITO\n(staging)" as ct
+  component "PKG_BATCH\n+ DBMS_SCHEDULER" as pkg
+  database "REGISTROS_PROCESADOS\nCONCILIACION · V_*" as rp
+  database "SERVICIO_BT · USUARIOS\nPERMISOS · AUDITORIA" as cfg
+}
+
+rectangle "Capa 4 · Presentación · contenedor «app» (PyQt6)" as c4 {
+  component "MainWindow\n+ vistas" as vistas
+  component "QueryRunner\n(hilos)" as qr
+  component "ServicioRemoto\n(cada 2 s)" as sr
+}
+
+op --> ui : cuenta
+ui --> room : guarda primero
+cli --> room
+cli ..> bluez : RFCOMM\nlíneas + CRC32
+bluez ..> bz : D-Bus
+bz --> ses
+ses --> ctrl
+ctrl --> ct : INSERT,\nCOMMIT cada 25
+ctrl --> pkg : run_batch
+pkg --> ct : lee PENDIENTE
+pkg --> rp : concilia
+ctrl --> cfg : latido y estado
+usr --> vistas
+vistas --> qr
+qr --> rp : SELECT\n(SQL*Net)
+sr --> cfg : lee estado
+
+c1 -[hidden]down-> c2
+c2 -[hidden]down-> c3
+c3 -[hidden]down-> c4
+@enduml

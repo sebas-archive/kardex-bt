@@ -1,0 +1,309 @@
+inicio 2026-11-17T16:35:23Z
+Picked up JAVA_TOOL_OPTIONS: -Duser.home=/gradle-home
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Checking the license for package Android SDK Platform-Tools in /opt/android-sdk/licenses
+License for package Android SDK Platform-Tools accepted.
+Preparing "Install Android SDK Platform-Tools v.37.0.1".
+Warning: Failed to read or create install properties file.
+WARNING: platform-tools package is not installed, and automatic installation failed.
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest
+> Task :app:mergeDebugShaders
+> Task :app:javaPreCompileDebug
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:processDebugManifestForPackage
+> Task :app:processDebugResources
+> Task :app:packageDebugUnitTestForUnitTest
+> Task :app:generateDebugUnitTestConfig
+> Task :app:kspDebugKotlin
+> Task :app:compileDebugKotlin
+> Task :app:compileDebugJavaWithJavac
+> Task :app:processDebugJavaRes
+> Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:bundleDebugClassesToCompileJar
+> Task :app:kspDebugUnitTestKotlin
+
+> Task :app:compileDebugUnitTestKotlin
+w: file:///work/mobile/app/src/test/java/co/edu/umariana/inventario/ui/SyncRunnerTest.kt:38:119 No cast needed
+
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+
+> Task :app:testDebugUnitTest
+Picked up JAVA_TOOL_OPTIONS: -Duser.home=/gradle-home
+
+co.edu.umariana.inventario.DeviceIdentityTest > test_uuid_generated_once_and_persisted PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_forgot_password_resets_with_the_security_answer PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > aplicarEstadoRechazadoGuardaElMotivo PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_correo_es_opcional_y_solo_dato_de_perfil PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_foto_de_perfil_se_guarda_y_se_borra_solo_en_su_cuenta PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_login_accepts_the_right_password_only PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_password_and_answer_are_never_stored_in_plain_text PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_wrong_answers_also_lock_the_account PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_password_strength_grows_with_length_and_variety PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_register_validates_every_field PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > registroNuevoQuedaPendiente PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > aplicarEstadoActivoDejaEntrar PASSED
+
+co.edu.umariana.inventario.auth.AuthRepositoryTest > test_login_locks_for_30_seconds_after_5_failures PASSED
+
+co.edu.umariana.inventario.auth.ClavesTest > crearUsaSha256YSalPorUsuario PASSED
+
+co.edu.umariana.inventario.auth.ClavesTest > verificarAceptaUnaCuentaViejaConSha1 PASSED
+
+co.edu.umariana.inventario.auth.ClavesTest > pbkdf2HmacSha256CoincideConElVectorConocido PASSED
+
+co.edu.umariana.inventario.auth.MigracionCuentasTest > migracionDeRolesLlevaClasificadorYSupervisorAOperador PASSED
+
+co.edu.umariana.inventario.data.MigracionTest > test_upgrade_from_v1_keeps_readings_with_their_seq_and_state PASSED
+
+co.edu.umariana.inventario.data.MigracionTest > deV2aV3ConservaLasLecturasPendientes PASSED
+
+co.edu.umariana.inventario.data.NotificacionesTest > crearListarYMarcarComoLeidas PASSED
+
+co.edu.umariana.inventario.data.OutboxTest > test_reemplazar_never_touches_a_reading_already_sent PASSED
+
+co.edu.umariana.inventario.data.OutboxTest > test_reemplazar_updates_existing_reading_for_same_sku PASSED
+
+co.edu.umariana.inventario.data.OutboxTest > test_confirmarHasta_marks_all_leq_seq PASSED
+
+co.edu.umariana.inventario.fotos.CompresorTest > reduceElLadoMayorA1280YGuardaJpeg PASSED
+
+--- Failed to create image decoder with message 'unimplemented'
+
+> Task :app:testDebugUnitTest
+
+co.edu.umariana.inventario.fotos.CompresorTest > loQueNoEsImagenSeRechaza PASSED
+
+co.edu.umariana.inventario.fotos.CompresorTest > unaFotoPequenaNoSeAgranda PASSED
+
+co.edu.umariana.inventario.imagen.RecorteFotoTest > recortaCuadradoYEscalaAlTamanoDelAvatar PASSED
+
+co.edu.umariana.inventario.imagen.RecorteFotoTest > zoomYRotacionCambianElEncuadre PASSED
+
+co.edu.umariana.inventario.protocol.ProtocolTest > test_text_with_separators_survives_the_wire PASSED
+
+co.edu.umariana.inventario.protocol.ProtocolTest > test_frame_and_parse_match_all_shared_vectors PASSED
+
+co.edu.umariana.inventario.protocol.ProtocolTest > acctYAcctstCoincidenConLosVectores PASSED
+
+co.edu.umariana.inventario.protocol.ProtocolTest > mensajesDeTareasExigenSusCampos PASSED
+
+co.edu.umariana.inventario.protocol.ProtocolTest > test_invalid_lines_are_rejected_with_their_reason PASSED
+
+co.edu.umariana.inventario.protocol.ProtocolTest > recLlevaDanadosYLaFotoViajaEnPartes PASSED
+
+co.edu.umariana.inventario.scan.CodigoEscaneadoTest > test_barcode_is_the_sku PASSED
+
+co.edu.umariana.inventario.scan.CodigoEscaneadoTest > test_unknown_content_is_kept_trimmed_and_cut_to_40_chars PASSED
+
+co.edu.umariana.inventario.scan.CodigoEscaneadoTest > test_qr_with_json PASSED
+
+co.edu.umariana.inventario.scan.CodigoEscaneadoTest > test_qr_with_url PASSED
+
+co.edu.umariana.inventario.scan.CodigoEscaneadoTest > test_qr_with_plain_sku PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > conCuentaActivaEnviaRegistros PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > corteAMitadDeUnaFotoLaDejaPendienteYLasLecturasConfirmadas PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > fotoGrandeQuedaRechazadaYConCrcMaloSeReintenta PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > unNakEnLaUltimaParteDeUnaFotoNoCuelgaLaSincronizacion PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > fotoDeUnaLecturaDeOtraSesionSaleSola PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_go_back_n_on_nak_resends_from_expected_seq PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > lasFotosSalenDespuesDeLasLecturasYQuedanEnviadas PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_timestamps_use_server_offset PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > conCuentaSuspendidaNoSalenFotos PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_catalog_sent_by_the_pc_replaces_the_local_one PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_sends_in_windows_of_50_and_marks_confirmed PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_retry_does_not_apply_offset_twice PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > elCatalogoPseudoCatalogoNoEnviaInicio PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_busy_nak_ends_with_busy PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > conCuentaSuspendidaNoEnviaRegistrosYLosConserva PASSED
+
+co.edu.umariana.inventario.sync.SyncClientTest > test_resumes_from_ready_seq_after_cut PASSED
+
+co.edu.umariana.inventario.ui.AparienciaTest > cadaUsuarioTieneSuTemaYSuIdioma PASSED
+
+co.edu.umariana.inventario.ui.BotonAparienciaTest > cambiaTemaEIdiomaYLosGuardaEnInvitado PASSED
+
+co.edu.umariana.inventario.ui.BotonAparienciaTest > elIdiomaCambiaLosTextosDelDialogoDeInmediato PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > contar_guardado PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > sincronizar_conectando PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > sincronizar_buscar PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > acceso_recuperar PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > sincronizar_listo PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > contar PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > acceso_error PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > inicio PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > contar_con_foto PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > sincronizar_enviando PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > foto_editor PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > estado_cuenta PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > notificaciones_sin_leer PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > inicio_oscuro PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > inicio_sin_catalogo PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > contar_sku_desconocido PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > catalogo PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > mi_cuenta PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > notificaciones PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > contar_oscuro PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > sincronizar_sin_conexion PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > sincronizar_ocupado PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > acceso_bienvenida PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > acceso_entrar PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > acceso_oscuro PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > acceso_crear_cuenta PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > catalogo_vacio PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > pendientes PASSED
+
+co.edu.umariana.inventario.ui.CapturasTest > contado_aqui PASSED
+
+co.edu.umariana.inventario.ui.CorreccionTest > contar_nuevo_empieza_vacio PASSED
+
+co.edu.umariana.inventario.ui.CorreccionTest > desdeElCatalogoNoEsModoCorreccion PASSED
+
+co.edu.umariana.inventario.ui.CorreccionTest > corregir_conserva_cantidad_nota_y_danados PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_recount_replaces_the_previous_reading PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_unknown_sku_warns_but_can_save PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_note_over_255_chars_is_rejected PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_save_requires_operator_name PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > danadosNoPuedenSuperarLaCantidad PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_invalid_quantity_blocks_save PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_counted_list_shows_latest_reading_per_sku PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_recount_after_the_reading_was_sent_adds_a_new_row PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > hayCatalogoCuandoLleganProductos PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_operator_over_60_chars_is_rejected PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > laFotoQuedaAdjuntaALaLectura PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_operator_and_note_with_pipe_and_newline_are_encoded_in_rec PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > recontarEnSitioConFotoNuevaReemplazaLaFotoYLaNota PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_operator_is_remembered_across_instances PASSED
+
+co.edu.umariana.inventario.ui.CountViewModelTest > test_missing_sku_blocks_save PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_done_without_pending_ends_ok PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_cut_is_retried_and_then_completes PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_busy_is_not_retried PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_probe_without_pc_gives_up_after_three_attempts PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_probe_connects_closes_the_socket_and_ends_ok PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_pc_unreachable_is_retried_then_reported PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > cuentaNoActivaNoSeReintenta PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_cut_on_every_attempt_ends_cut_with_pending_count PASSED
+
+co.edu.umariana.inventario.ui.SyncRunnerTest > test_done_with_pending_syncs_again PASSED
+
+co.edu.umariana.inventario.ui.TextosTest > traduceLasEtiquetasYLasPlantillas PASSED
+
+BUILD SUCCESSFUL in 54s
+30 actionable tasks: 30 executed
+EXIT=0
+co.edu.umariana.inventario.DeviceIdentityTest                          tests=1 fallos=0 errores=0
+co.edu.umariana.inventario.auth.AuthRepositoryTest                     tests=12 fallos=0 errores=0
+co.edu.umariana.inventario.auth.ClavesTest                             tests=3 fallos=0 errores=0
+co.edu.umariana.inventario.auth.MigracionCuentasTest                   tests=1 fallos=0 errores=0
+co.edu.umariana.inventario.data.MigracionTest                          tests=2 fallos=0 errores=0
+co.edu.umariana.inventario.data.NotificacionesTest                     tests=1 fallos=0 errores=0
+co.edu.umariana.inventario.data.OutboxTest                             tests=3 fallos=0 errores=0
+co.edu.umariana.inventario.fotos.CompresorTest                         tests=3 fallos=0 errores=0
+co.edu.umariana.inventario.imagen.RecorteFotoTest                      tests=2 fallos=0 errores=0
+co.edu.umariana.inventario.protocol.ProtocolTest                       tests=6 fallos=0 errores=0
+co.edu.umariana.inventario.scan.CodigoEscaneadoTest                    tests=5 fallos=0 errores=0
+co.edu.umariana.inventario.sync.SyncClientTest                         tests=16 fallos=0 errores=0
+co.edu.umariana.inventario.ui.AparienciaTest                           tests=1 fallos=0 errores=0
+co.edu.umariana.inventario.ui.BotonAparienciaTest                      tests=2 fallos=0 errores=0
+co.edu.umariana.inventario.ui.CapturasTest                             tests=29 fallos=0 errores=0
+co.edu.umariana.inventario.ui.CorreccionTest                           tests=3 fallos=0 errores=0
+co.edu.umariana.inventario.ui.CountViewModelTest                       tests=15 fallos=0 errores=0
+co.edu.umariana.inventario.ui.SyncRunnerTest                           tests=9 fallos=0 errores=0
+co.edu.umariana.inventario.ui.TextosTest                               tests=1 fallos=0 errores=0
+TOTAL tests=115 failures=0 errors=0 skipped=0
+terminado

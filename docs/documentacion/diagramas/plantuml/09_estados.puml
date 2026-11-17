@@ -1,0 +1,53 @@
+@startuml
+!include estilo.iuml
+title Diagrama 9 · Máquina de estados de SyncController
+hide empty description
+
+state IDLE
+[*] --> IDLE
+
+state CICLO_EN_MARCHA {
+  state VISIBLE_Y_ESPERANDO {
+    state ESPERANDO_EMPAREJAMIENTO
+    state CONFIRMAR_CODIGO
+    ESPERANDO_EMPAREJAMIENTO --> CONFIRMAR_CODIGO : on_passkey(código)\n[solo con require_pairing]
+    CONFIRMAR_CODIGO --> ESPERANDO_EMPAREJAMIENTO : confirm(True)\n/ el teléfono cancela el código
+  }
+  state CONECTADO
+  state RECIBIENDO
+  state PROCESANDO
+  state LISTO
+  state ERROR
+
+  VISIBLE_Y_ESPERANDO --> CONECTADO : on_connection\n[ventana abierta]
+  CONECTADO --> RECIBIENDO : HELLO válido
+  RECIBIENDO --> PROCESANDO : BYE enviado
+  PROCESANDO --> LISTO : run_batch("SYNC") ok
+  PROCESANDO --> ERROR : el batch lanza una excepción
+  RECIBIENDO --> ERROR : la sesión falla
+  CONECTADO --> VISIBLE_Y_ESPERANDO : corte antes del BYE\n[el servicio renueva la ventana]
+  RECIBIENDO --> VISIBLE_Y_ESPERANDO : corte antes del BYE\n[el teléfono puede reintentar]
+  VISIBLE_Y_ESPERANDO --> ERROR : Bluetooth no disponible
+  LISTO --> ESPERANDO_EMPAREJAMIENTO : start()
+  ERROR --> ESPERANDO_EMPAREJAMIENTO : start()
+}
+
+IDLE --> ESPERANDO_EMPAREJAMIENTO : start()
+CICLO_EN_MARCHA --> IDLE : cancel()
+VISIBLE_Y_ESPERANDO --> IDLE : tiempo agotado\n/ el servicio vuelve a abrir la ventana
+CONFIRMAR_CODIGO --> IDLE : confirm(False)
+
+note left of IDLE
+  Fase 5: el servicio (btsync.servicio) llama a start()
+  cada vez que el controlador vuelve a IDLE o LISTO, así
+  que el PC queda siempre visible. Con pausa, el servicio
+  muestra PAUSANDO mientras haya CONECTADO, RECIBIENDO
+  o PROCESANDO, y luego cancel() → IDLE (se ve PAUSADO).
+end note
+
+note right of RECIBIENDO
+  Un segundo teléfono que se conecte
+  recibe NAK|0|OCUPADO y se cierra
+  (D19): el estado no cambia.
+end note
+@enduml
