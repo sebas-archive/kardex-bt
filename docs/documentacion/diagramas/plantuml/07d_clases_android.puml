@@ -1,0 +1,264 @@
+@startuml
+!include estilo.iuml
+' @code: mobile/app/src/main
+title Diagrama 7d · Clases de la APK Android (MVVM)
+left to right direction
+
+package "auth (contraseña local, estado del PC)" {
+  class AuthRepository {
+    +registrar(usuario, nombre, clave, confirmacion, correo, pregunta, respuesta) : AuthResult
+    +aplicarEstado(usuario, estado, rol, motivo)
+    +iniciarSesion(usuario, clave) : AuthResult
+    +preguntaDe(usuario) : String?
+    +restablecer(usuario, respuesta, clave, confirmacion) : AuthResult
+    +fotoDe(usuario) : String?
+    +guardarFoto(usuario, ruta)
+    +correoDe(usuario) : String?
+    +sesion() : Sesion?
+    +cerrarSesion()
+  }
+  class AuthResult <<sealed>> {
+    Ok(usuario) · CredencialesInvalidas · Bloqueado(segundos)
+    ClaveDebil · UsuarioExiste · RespuestaIncorrecta · …
+  }
+  class Sesion {
+    +usuario
+    +nombre
+    +rol
+    +estado
+    +motivo
+    +correo
+    +foto
+    +puedeTrabajar : Boolean
+  }
+  class Rol <<object>> {
+    OPERADOR
+  }
+  class EstadoCuenta <<object>> {
+    PENDIENTE · ACTIVO · RECHAZADO · SUSPENDIDO
+  }
+  class Claves <<object>> {
+    +crear(secreto) : String
+    +verificar(secreto, guardado) : Boolean
+    +fuerza(clave) : Int
+  }
+  class UsuarioEntity {
+    +usuario
+    +nombre
+    +rol
+    +estado
+    +motivo
+    +claveHash
+    +pregunta
+    +respuestaHash
+    +intentosFallidos
+    +bloqueadoHastaMs
+    +creadoMs
+    +correo
+    +foto
+  }
+  class CuentasDatabase
+}
+
+package "scan" {
+  class CodigoEscaneado <<object>> {
+    +sku(contenido) : String
+  }
+}
+
+package "ui (vista y modelo de vista)" {
+  class AuthActivity
+  class EstadoCuentaActivity
+  class HomeActivity
+  class CatalogoActivity
+  class ContarActivity
+  class LecturasActivity
+  class PendientesActivity
+  class SincronizarActivity
+  class PerfilActivity
+  class NotificacionesActivity
+  class PantallaActivity
+  class CountViewModel {
+    +operador : StateFlow<String>
+    +guardar(sku, cantidad, nota, danados, foto) : SaveResult
+    +ultimaLectura(sku) : LecturaEntity?
+    +productos() / producto(sku)
+    +fotosPendientes() / conFoto() / foto(seq)
+    +lecturas() : List<LecturaEntity>
+  }
+  class SaveResult <<sealed>> {
+    Guardada(seq, reemplazo, skuDesconocido)
+    OperadorFaltante · SinCatalogo
+    SkuFaltante · CantidadInvalida · NotaLarga · DanadosInvalidos
+  }
+  class SyncViewModel {
+    +estado : StateFlow<SyncEstado?>
+    +iniciar(direccion)
+    +cancelar()
+  }
+  class SyncRunner {
+    +ejecutar() : Flow<SyncEstado>
+  }
+  class SyncEstado <<sealed>> {
+    Conectando · Sincronizando · Reintentando · Listo
+    Ocupado · Rechazado · PcNoDisponible · Cortado
+  }
+  class SettingsStore {
+    +operador
+    +pcDireccion
+    +sesion
+    +tema(usuario) / guardarTema(usuario, valor)
+    +idioma(usuario) / guardarIdioma(usuario, valor)
+  }
+  class Servicios
+}
+
+package "sync" {
+  class SyncClient {
+    +sync(socket : BluetoothSocketLike) : Flow<SyncProgress>
+  }
+  class SyncProgress <<sealed>> {
+    Connected(ultimoSeqServidor, porEnviar)
+    Progress(confirmadoHasta, total)
+    Done(aceptados, rechazados, pendientes)
+    Busy · Rejected(motivo) · Cut(motivo, pendientes)
+    CuentaNoActiva(estado, motivo, pendientes)
+  }
+  interface BluetoothSocketLike {
+    +inputStream
+    +outputStream
+  }
+  class AndroidBluetoothSocket
+  class PcConnector {
+    +conectar(direccion) : BluetoothSocketLike
+  }
+  class LineReader {
+    +readLine() : ByteArray?
+  }
+}
+
+package "protocol" {
+  class Protocol <<object>> {
+    +frame(fields) : ByteArray
+    +parse(line) : Message
+    +encodeText(s) : String
+    +decodeText(s) : String
+  }
+  class Message {
+    +kind : String
+    +fields : List<String>
+  }
+  class Rec {
+    +toRaw() : String
+    +toFrame() : ByteArray
+  }
+  class FrameError {
+    +reason : String
+  }
+}
+
+package "data (Room)" {
+  class AppDatabase
+  class Outbox {
+    +insertar(l) : Long
+    +pendientesDesde(seq)
+    +confirmarHasta(seq)
+    +reemplazar(sku, cantidad, ts) : Boolean
+    +ultimaDe(conteo, sku) : LecturaEntity?
+    +vigentes(conteo) : List<LecturaEntity>
+    +contarPendientes() : Int
+  }
+  class LecturaEntity {
+    +seq : Long
+    +tsOriginalMs : Long
+    +idConteo
+    +sku
+    +cantidad
+    +operador
+    +nota
+    +estado
+  }
+  class Estado <<object>> {
+    PENDIENTE · ENVIADO · CONFIRMADO
+  }
+  class CatalogRepository {
+    +reemplazarTodo(c : Catalog)
+    +productos() : List<ProductoEntity>
+    +producto(sku) : ProductoEntity?
+  }
+  class CatalogDao
+  class Catalog
+  class ProductoEntity {
+    +sku
+    +nombre
+    +categoria
+    +unidad
+  }
+  class FotoEntity
+  class FotoRepository {
+    +adjuntar(seq, temporal)
+    +enviables()
+  }
+}
+
+class DeviceIdentity <<object>> {
+  +get(context) : String
+}
+
+AuthActivity --|> PantallaActivity
+EstadoCuentaActivity --|> PantallaActivity
+HomeActivity --|> PantallaActivity
+CatalogoActivity --|> PantallaActivity
+ContarActivity --|> PantallaActivity
+LecturasActivity --|> PantallaActivity
+PendientesActivity --|> PantallaActivity
+SincronizarActivity --|> PantallaActivity
+PerfilActivity --|> PantallaActivity
+NotificacionesActivity --|> PantallaActivity
+AuthActivity --> AuthRepository
+PerfilActivity --> AuthRepository
+HomeActivity ..> AuthRepository : exige sesión
+Servicios *-- AuthRepository
+AuthRepository --> SettingsStore : sesión abierta
+AuthRepository --> CuentasDatabase
+AuthRepository ..> Claves
+AuthRepository ..> AuthResult
+AuthRepository ..> Sesion
+CuentasDatabase "1" o-- "*" UsuarioEntity
+UsuarioEntity ..> Rol
+ContarActivity ..> CodigoEscaneado : barras o QR → SKU
+ContarActivity --> CountViewModel
+CatalogoActivity --> CountViewModel
+SincronizarActivity --> SyncViewModel
+Servicios *-- CountViewModel
+Servicios *-- SettingsStore
+Servicios *-- PcConnector
+CountViewModel --> Outbox
+CountViewModel --> CatalogRepository
+CountViewModel --> SettingsStore
+CountViewModel --> FotoRepository
+CountViewModel ..> SaveResult
+SyncViewModel *-- SyncRunner
+SyncViewModel ..> DeviceIdentity
+SyncRunner --> SyncClient
+SyncRunner ..> SyncEstado
+SyncClient --> Outbox
+SyncClient --> CatalogRepository
+SyncClient --> LineReader
+SyncClient --> Protocol
+SyncClient ..> SyncProgress
+SyncClient ..> BluetoothSocketLike
+BluetoothSocketLike <|.. AndroidBluetoothSocket
+PcConnector ..> AndroidBluetoothSocket : crea
+Protocol ..> Message
+Protocol ..> FrameError
+Rec ..> Protocol
+Outbox "1" o-- "*" LecturaEntity
+LecturaEntity ..> Estado
+AppDatabase *-- Outbox
+AppDatabase *-- CatalogDao
+CatalogRepository --> CatalogDao
+CatalogDao ..> Catalog
+Catalog o-- ProductoEntity
+CatalogDao ..> FotoEntity
+@enduml

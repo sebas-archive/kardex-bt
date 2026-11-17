@@ -1,0 +1,47 @@
+@startuml
+!include estilo.iuml
+title Diagrama 5 · Secuencia: recorrido de un conteo, del teléfono a la consulta en el escritorio
+autonumber
+actor "Operador" as op
+participant "APK\n(SyncClient)" as apk
+participant "Session\n(btsync)" as ses
+participant "Store" as st
+participant "SyncController" as ctrl
+database "Oracle\n(PKG_BATCH)" as ora
+participant "Escritorio\n(vistas V_*)" as gui
+
+op -> apk : guarda (SKU, cantidad, dañados, nota)
+apk -> apk : INSERT en Outbox (Room)\nPENDIENTE · sin red
+== Sincronización por Bluetooth (RFCOMM, líneas con CRC32) ==
+apk -> ses : HELLO|5|uuid|nombre · ACCT|usuario|nombre
+ses -> st : sincronizar_cuenta() · register_device() · last_seq(uuid)
+ses -> apk : ACCTST|usuario|estado|rol|motivo
+ses -> apk : READY|ultimo_seq|epoch_ms
+ses -> apk : CATTAREA · CATITEM · CATPROD · CAT_END\n(sin stock: conteo ciego)
+note right of apk : sin cuenta ACTIVO\nninguna lectura se acepta\n(NAK CUENTA_NO_ACTIVA)
+loop hasta 50 REC sin ACK
+  apk -> ses : REC|seq|ts|ACTUAL|sku|cantidad|operador|nota|danados
+  ses -> ses : valida longitud, CRC32, formato y seq
+  ses -> st : insert_staging(uuid, seq, raw)
+  st -> ora : INSERT CAPTURA_TRANSITO (PENDIENTE)
+  opt cada 25 insertados
+    ses -> st : commit()
+    ses -> apk : ACK|n
+  end
+end
+apk -> ses : END|n
+ses -> st : commit()
+ses -> apk : ACK|n · BYE|aceptados|rechazados
+apk -> apk : Outbox: confirmadas ≤ n → CONFIRMADO
+== Procesamiento (fuera de la sesión, D9) ==
+ses --> ctrl : fin de sesión
+ctrl -> st : run_batch("SYNC")
+st -> ora : PKG_BATCH.procesar_pendientes('SYNC')
+ora -> ora : valida · REGISTROS_PROCESADOS\nlectura vigente · CONCILIACION
+ora --> ctrl : procesados, errores
+== Consulta ==
+ctrl -> ora : estado LISTO en SERVICIO_BT
+gui -> ora : ServicioRemoto lee SERVICIO_BT cada 2 s
+gui -> ora : SELECT sobre V_* en hilos de trabajo
+ora --> gui : inventario, dashboard, gráficas
+@enduml
