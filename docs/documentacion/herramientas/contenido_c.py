@@ -174,10 +174,10 @@ def bloques() -> list:
         ]),
         Fig("f_mov1", C + "movil/movil_montaje_1_acceso.png", "Pantallas de acceso y cuenta de la APK.",
             ["Fuente: renderizados de CapturasTest (mobile/app/src/test/.../ui/CapturasTest.kt) a 1080 × 2340 px; originales en capturas/movil/originales/. No son fotografías de un teléfono físico.",
-             "Demuestra: acceso, alta de cuenta con pregunta de seguridad, recuperación, error de acceso, bienvenida y cuenta pendiente. Criterio: UI/UX."], max_h=11300),
+             "Demuestra: acceso, alta de cuenta con pregunta de seguridad, recuperación, error de acceso, bienvenida y cuenta pendiente. Criterio: UI/UX."], max_h=9900),
         Fig("f_mov2", C + "movil/movil_montaje_2_captura.png", "Pantallas de captura de la APK.",
             ["Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).",
-             "Demuestra: inicio, catálogo, contar con escáner o digitación, SKU fuera del catálogo, contado y pendientes. Criterio: Funcionalidad y UI/UX."], max_h=11300),
+             "Demuestra: inicio, catálogo, contar con escáner o digitación, SKU fuera del catálogo, contado y pendientes. Criterio: Funcionalidad y UI/UX."], max_h=9900),
         H(2, "11.10 Sincronización móvil"),
         ficha("t_m14", "Sincronización (móvil)", [
             ["Propósito y usuarios", "Subir lo contado al PC. Operador."],
@@ -188,10 +188,10 @@ def bloques() -> list:
         ]),
         Fig("f_mov3", C + "movil/movil_montaje_3_sincronizacion.png", "Estados de la sincronización en la APK.",
             ["Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).",
-             "Demuestra: buscar, conectar, enviar, listo, PC ocupado y sin conexión. Criterio: Conectividad y UI/UX (estados de carga y error)."], max_h=11300),
+             "Demuestra: buscar, conectar, enviar, listo, PC ocupado y sin conexión. Criterio: Conectividad y UI/UX (estados de carga y error)."], max_h=9900),
         Fig("f_mov4", C + "movil/movil_montaje_4_apariencia.png", "Notificaciones, cuenta, editor de foto y tema oscuro en la APK.",
             ["Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).",
-             "Demuestra: avisos, perfil con preferencias, editor de foto y el tema oscuro. Criterio: UI/UX."], max_h=11300),
+             "Demuestra: avisos, perfil con preferencias, editor de foto y el tema oscuro. Criterio: UI/UX."], max_h=9900),
         H(2, "11.11 Servicio Bluetooth y batch de Oracle"),
         P("Estos dos módulos no tienen interfaz propia; su evidencia es la ejecución real descrita en la sección 9.5 y las "
           "pruebas del capítulo 14. El **servicio Bluetooth** (`btsync.servicio`) es el proceso que mantiene el perfil "
@@ -276,6 +276,7 @@ def bloques() -> list:
                ["Auditoría", "Quién, qué y cuándo en la misma transacción que el cambio", "`auditoria.py`, [[f_auditoria]]"],
                ["Secretos", "Credenciales en `.env` (no versionado); `.env.example` solo trae valores de desarrollo local", ".gitignore, README.md"]],
               [2200, 4300, 2860], "Elaboración propia a partir del código.", tam=16),
+        P("La [[c_hash]] muestra cómo se guardan las contraseñas (PBKDF2-HMAC-SHA256 con sal aleatoria), la [[c_perm]] la matriz inicial de permisos con sus tres niveles y la [[c_exigir]] la revalidación en vivo del nivel antes de cambiar datos."),
         cod("codigo_19_hash", "`auth.crear_hash`", "el derivado PBKDF2-HMAC-SHA256 con sal aleatoria de 16 bytes y 200 000 iteraciones.", fid="c_hash"),
         cod("codigo_20_permisos", "`_MATRIZ_INICIAL`, `INTOCABLES`, `alcanza`", "la matriz de 12 módulos y los niveles de acceso, con la fila del Administrador intocable.", fid="c_perm"),
         cod("codigo_21_exigir", "`permisos.exigir`", "la revalidación en vivo del nivel del rol antes de ejecutar una acción que cambia datos.", fid="c_exigir"),

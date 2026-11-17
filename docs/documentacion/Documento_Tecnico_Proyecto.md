@@ -11,13 +11,13 @@ Bogotá D.C. · 17 de noviembre del año 2026
 
 ## 1. Resumen ejecutivo
 
-El sistema **Inventario físico offline: APK → Bluetooth → Oracle → aplicación de escritorio** permite que un operador cuente productos con un teléfono Android sin conexión de red, que el conteo viaje por Bluetooth hasta un computador con Linux, que se almacene en Oracle 11g y que un proceso por lotes (*batch*) escrito en PL/SQL lo concilie contra el stock del sistema. Un único programa de escritorio presenta el resultado en tableros, tablas y gráficas. El conteo es **continuo**: no hay cierre de inventario, y la información se recalcula cada vez que el *batch* procesa nuevas lecturas.
+El proyecto, llamado Inventario físico offline (APK → Bluetooth → Oracle → aplicación de escritorio), permite contar inventario con un teléfono Android sin conexión de red. El conteo viaja por Bluetooth hasta un computador con Linux, se guarda en Oracle 11g y un proceso por lotes (*batch*) escrito en PL/SQL lo concilia contra el stock del sistema. Una aplicación de escritorio muestra el resultado en tableros, tablas y gráficas. El conteo es continuo: no existe un cierre de inventario y las cifras se recalculan cada vez que el *batch* procesa lecturas nuevas.
 
-El problema que resuelve es la toma de inventario físico en bodegas o tiendas donde no hay red confiable: el operador no puede depender de un servidor para registrar cada lectura, pero necesita que lo contado llegue de forma íntegra, sin duplicados y con trazabilidad al equipo central. El sistema está dirigido a tres roles: el **Operador de Inventario** (solo móvil), el rol **Inventario** y el **Administrador** (solo escritorio).
+Está pensado para bodegas y tiendas sin red confiable. Allí el operador no puede depender de un servidor para registrar cada lectura, pero lo que cuenta debe llegar completo, sin duplicados y con trazabilidad hasta el equipo central. Intervienen tres roles: el Operador de Inventario, que usa solo el móvil, y los roles Inventario y Administrador, que usan solo el escritorio.
 
-La solución se compone de cuatro piezas: (1) una aplicación Android escrita en Kotlin con Jetpack Compose, Room y ZXing; (2) un servicio Bluetooth en Python que recibe los datos por RFCOMM y los guarda en una tabla de tránsito; (3) una base Oracle XE 11g con el paquete `PKG_BATCH`, vistas `V_*` y trabajos de `DBMS_SCHEDULER`; y (4) una aplicación de escritorio en PyQt6 y pyqtgraph. Los componentes del lado del computador corren en contenedores Docker; la única interfaz entre el servicio Bluetooth y el escritorio es la propia base de datos.
+Son cuatro piezas. La APK está escrita en Kotlin con Jetpack Compose, Room y ZXing. El servicio Bluetooth, en Python, recibe los datos por RFCOMM y los deja en una tabla de tránsito. Oracle XE 11g aloja el paquete `PKG_BATCH`, las vistas `V_*` y los trabajos de `DBMS_SCHEDULER`. La aplicación de escritorio usa PyQt6 y pyqtgraph. Todo lo que corre en el computador va en contenedores Docker, y el servicio Bluetooth y el escritorio solo se comunican a través de la base de datos.
 
-La comunicación usa un protocolo propio de líneas de texto con CRC32, confirmaciones acumulativas (`ACK`), rechazos con retroceso (`NAK`, *go-back-N*), reanudación desde el último número de secuencia persistido y una clave única `(uuid, seq)` que impide duplicados. Los resultados técnicos comprobados durante la elaboración de este documento son: 115 pruebas unitarias de la APK sin fallos, 230 de 238 pruebas del servidor y 454 de 464 del escritorio aprobadas en una base limpia (los 18 fallos restantes se analizan en el capítulo 14), una sincronización real de extremo a extremo por el transporte TCP del proyecto, y capturas reales de las pantallas de escritorio de los dos roles que lo usan.
+Entre el teléfono y el servicio se usa un protocolo propio de líneas de texto con CRC32. El servidor confirma de forma acumulativa (`ACK`), rechaza con `NAK` para que el móvil retroceda (*go-back-N*) y reanuda desde el último número de secuencia guardado; la clave única `(uuid, seq)` impide los duplicados. Al elaborar este documento se ejecutaron 115 pruebas de la APK sin fallos, 230 de 238 del servidor y 454 de 464 del escritorio en una base limpia (los 18 fallos se analizan en el capítulo 14). También se hizo una sincronización real de extremo a extremo con el transporte TCP del proyecto y se capturó la aplicación de escritorio en ejecución con los dos roles que la usan.
 
 
 ## 2. Introducción
@@ -25,27 +25,27 @@ La comunicación usa un protocolo propio de líneas de texto con CRC32, confirma
 
 ### 2.1 Contexto del proyecto
 
-El trabajo se desarrolla en la asignatura Computación móvil del programa de Ingeniería de software de la Universidad Manuela Beltrán. El proyecto integra una aplicación móvil de captura de datos, una comunicación inalámbrica de corto alcance y un procesamiento por lotes sobre una base de datos empresarial, tres temas centrales de la computación móvil: captura en el borde, sincronización diferida y persistencia centralizada.
+La asignatura es Computación móvil, del programa de Ingeniería de software de la Universidad Manuela Beltrán. El proyecto reúne tres temas que el curso suele tratar por separado: captura de datos en un dispositivo móvil, comunicación inalámbrica de corto alcance y procesamiento por lotes sobre una base de datos empresarial.
 
 
 ### 2.2 Situación que origina la solución y problema identificado
 
-En un conteo físico, el operador recorre estanterías con un dispositivo en la mano. Si cada lectura exige red, una zona sin cobertura detiene el trabajo; si se registra en papel, aparecen errores de transcripción y demoras. El proyecto asume, como decisión de diseño documentada (D1), que el terminal cuenta sin red y sube lo contado por lotes cuando está cerca del computador.
+En un conteo físico el operador recorre estanterías con el dispositivo en la mano. Si cada lectura exige red, una zona sin cobertura detiene el trabajo; si se anota en papel, aparecen errores de transcripción y demoras. El proyecto parte de una decisión de diseño documentada (D1): el terminal cuenta sin red y sube lo contado por lotes cuando está cerca del computador.
 
 
 ### 2.3 Importancia de la solución
 
-La solución desacopla la captura de la conectividad: guardar una lectura nunca depende de la red. A cambio, exige resolver con cuidado la sincronización: orden, duplicados, cortes, relojes desfasados y cuentas no autorizadas. Estos problemas se abordan en los capítulos 9 y 10 con un protocolo verificable y con pruebas automáticas que se ejecutaron para este documento.
+Separar la captura de la conectividad tiene un costo: la sincronización debe resolver el orden de las lecturas, los duplicados, los cortes, los relojes desfasados y las cuentas no autorizadas. Los capítulos 9 y 10 explican cómo lo hace el protocolo y el capítulo 14 presenta las pruebas que se ejecutaron.
 
 
 ### 2.4 Alcance
 
-Están dentro del alcance: la captura móvil con escáner de códigos de barras y QR, las cuentas locales del operador, el protocolo Bluetooth de versión 5, la persistencia en Oracle, el *batch* de conciliación, la aplicación de escritorio con doce módulos controlados por permisos, los respaldos y la auditoría. Quedan fuera: iOS (D4), Windows como sistema anfitrión del servicio Bluetooth, múltiples almacenes o ubicaciones (D24), el cierre de inventario y la valoración monetaria de diferencias.
+Dentro del alcance están la captura móvil con escáner de barras y QR, las cuentas locales del operador, el protocolo Bluetooth versión 5, la persistencia en Oracle, el *batch* de conciliación, el escritorio con doce módulos controlados por permisos, los respaldos y la auditoría. Quedan fuera iOS (D4), Windows como anfitrión del servicio Bluetooth, los almacenes o ubicaciones múltiples (D24), el cierre de inventario y la valoración monetaria de las diferencias.
 
 
 ### 2.5 Organización del documento
 
-El capítulo 3 enuncia los objetivos; el 4 plantea el problema y su justificación; el 5 describe el sistema; el 6 analiza los requisitos; los capítulos 7 a 10 documentan arquitectura, datos, comunicación y flujos; el 11 describe cada módulo; los capítulos 12 y 13 tratan la experiencia de usuario y la seguridad; el 14, las pruebas; el 15, la instalación; los capítulos 16 y 17 presentan resultados y la evaluación frente a la rúbrica; y los capítulos 18 y 19 recogen conclusiones y trabajo futuro. Las referencias y los anexos cierran el documento.
+El capítulo 3 enuncia los objetivos y el 4 plantea el problema. Los capítulos 5 y 6 describen el sistema y sus requisitos, y del 7 al 10 se documentan arquitectura, datos, comunicación y flujos. El 11 recorre los módulos, el 12 y el 13 tratan la interfaz y la seguridad, y el 14 presenta las pruebas. El 15 es el manual de instalación; el 16 y el 17 comparan los resultados con los objetivos y con la rúbrica. Cierran las conclusiones, el trabajo futuro, las referencias y los anexos.
 
 
 ## 3. Objetivos
@@ -53,7 +53,7 @@ El capítulo 3 enuncia los objetivos; el 4 plantea el problema y su justificaci�
 
 ### 3.1 Objetivo general
 
-Diseñar, implementar y documentar un sistema de inventario físico que capture lecturas sin conexión en un dispositivo Android, las transfiera por Bluetooth a un computador, las almacene y concilie en Oracle mediante un proceso por lotes PL/SQL y las presente en una aplicación de escritorio con control de acceso por roles.
+Diseñar, implementar y documentar un sistema de inventario físico que capture lecturas sin conexión en un dispositivo Android, las transfiera por Bluetooth a un computador, las almacene y concilie en Oracle con un proceso por lotes PL/SQL y las presente en una aplicación de escritorio con control de acceso por roles.
 
 
 ### 3.2 Objetivos específicos
@@ -71,22 +71,22 @@ Diseñar, implementar y documentar un sistema de inventario físico que capture 
 
 ### 4.1 Situación que busca resolver el sistema
 
-El proyecto no documenta una organización cliente concreta ni cifras de un procedimiento anterior; por ello este capítulo se limita a lo que se desprende del diseño y de las decisiones registradas en `docs/arquitectura.md`. La necesidad es contar productos en un lugar sin conectividad garantizada y consolidar el resultado en una base de datos central que no debe recibir duplicados ni lecturas de personas no autorizadas.
+El proyecto no documenta una organización cliente ni cifras de un procedimiento anterior, así que este capítulo se limita a lo que se deduce del diseño y de las decisiones de `docs/arquitectura.md`. La necesidad de fondo es contar productos donde la conectividad no está garantizada y consolidar el resultado en una base central que no reciba duplicados ni lecturas de personas no autorizadas.
 
 
 ### 4.2 Dificultades del proceso y necesidades de los usuarios
 
-- **Falta de red durante el conteo:** la captura no puede depender de un servidor; por eso la APK guarda en una base local antes de cualquier envío (D1, D12).
-- **Cortes de la conexión inalámbrica:** el enlace Bluetooth de corto alcance puede interrumpirse a mitad de un lote; el protocolo reanuda desde el último `seq` confirmado.
-- **Sesgo del conteo:** si el operador viera la cantidad teórica del sistema, podría ajustar lo que cuenta; el catálogo que baja al teléfono nunca lleva el stock (conteo ciego, D12).
-- **Productos no registrados:** aparecen SKU que no están en el catálogo; en lugar de perder la lectura, el Administrador decide si crea el producto o la descarta (D16).
-- **Relojes desfasados:** sin red, el reloj del teléfono deriva; se corrige con la hora del servidor sin modificar la hora original (D15).
-- **Control de acceso:** solo cuentas aprobadas pueden entregar lecturas y cada rol ve únicamente los módulos que le corresponden (D23 a D26).
+- Sin red durante el conteo, la captura no puede depender de un servidor; por eso la APK guarda primero en una base local (D1, D12).
+- El enlace Bluetooth de corto alcance puede cortarse a mitad de un lote, y el protocolo reanuda desde el último `seq` confirmado.
+- Si el operador viera la cantidad teórica podría ajustar lo que cuenta; por eso el catálogo que baja al teléfono nunca lleva el stock (conteo ciego, D12).
+- Aparecen SKU que no están en el catálogo. En vez de perder la lectura, el Administrador decide si crea el producto o la descarta (D16).
+- Sin red el reloj del teléfono se desfasa; se corrige con la hora del servidor sin modificar la hora original (D15).
+- Solo las cuentas aprobadas entregan lecturas y cada rol ve únicamente sus módulos (D23 a D26).
 
 
 ### 4.3 Justificación de la solución tecnológica
 
-Bluetooth clásico (RFCOMM) se eligió porque no requiere infraestructura de red y está disponible en cualquier teléfono Android. Oracle 11g se mantiene como destino porque es el motor del escenario académico; sus limitaciones (sin `IDENTITY` ni funciones JSON) llevaron a usar secuencias, disparadores y un formato de texto con separador `|` (D2). El *batch* se ejecuta en PL/SQL dentro de la base para acercar el procesamiento a los datos y poder programarlo con `DBMS_SCHEDULER`. El escritorio usa PyQt6 por su soporte de hilos y señales, que permite consultar Oracle sin congelar la ventana.
+Se eligió Bluetooth clásico (RFCOMM) porque no necesita infraestructura de red y viene en cualquier teléfono Android. Oracle 11g sigue como destino porque es el motor del escenario académico; como no tiene `IDENTITY` ni funciones JSON, se usan secuencias, disparadores y un formato de texto con separador `|` (D2). El *batch* corre en PL/SQL dentro de la base para quedar junto a los datos y poder programarse con `DBMS_SCHEDULER`. El escritorio usa PyQt6 por sus hilos y señales, que permiten consultar Oracle sin congelar la ventana.
 
 
 ## 5. Descripción general del sistema
@@ -94,15 +94,19 @@ Bluetooth clásico (RFCOMM) se eligió porque no requiere infraestructura de red
 
 ### 5.1 Propósito, aplicaciones y flujo general
 
-El sistema está formado por **dos aplicaciones** (la APK Android y la aplicación de escritorio), **un servicio** (el servicio Bluetooth, que corre aparte de la ventana) y **una base de datos** (Oracle XE 11g). Las entradas son las lecturas del operador (SKU, cantidad, dañados, nota y foto opcional) y las acciones de los usuarios del escritorio. El procesamiento ocurre en tres etapas: validación y confirmación en el servicio Bluetooth, *batch* de conciliación en Oracle y consulta desde el escritorio. Las salidas son el inventario conciliado, los indicadores del *dashboard*, las gráficas, la exportación CSV, los respaldos y la auditoría.
+El sistema tiene dos aplicaciones (la APK y el escritorio), un servicio (el servicio Bluetooth, que corre aparte de la ventana) y una base de datos (Oracle XE 11g). Las entradas son las lecturas del operador (SKU, cantidad, dañados, nota y foto opcional) y las acciones de los usuarios del escritorio. El procesamiento tiene tres etapas: validación y confirmación en el servicio, conciliación por lotes en Oracle y consulta desde el escritorio. De ahí salen el inventario conciliado, los indicadores del *dashboard*, las gráficas, el CSV, los respaldos y la auditoría.
 
-El Figura 1 muestra las cuatro capas y los canales de comunicación reales entre ellas. La captura móvil es la única capa que funciona sin red; las demás dependen de Oracle.
+La Figura 1 muestra las cuatro capas y los canales reales entre ellas. Solo la captura móvil funciona sin red; las demás dependen de Oracle.
+
+**Figura 1**
+
+*Arquitectura general del sistema: capas y canales de comunicación.*
 
 ![Figura 1. Arquitectura general del sistema: capas y canales de comunicación.](diagramas/renderizados/02_arquitectura_general.png)
 
-**Figura 1.** Arquitectura general del sistema: capas y canales de comunicación.  
-Fuente: elaboración propia a partir del código. Fuente PlantUML: docs/documentacion/diagramas/plantuml/02_arquitectura_general.puml.  
-Demuestra: separación en capas y canales reales (RFCOMM, D-Bus, SQL*Net). Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código. Fuente PlantUML: docs/documentacion/diagramas/plantuml/02_arquitectura_general.puml.
+
+**Demuestra:** separación en capas y canales reales (RFCOMM, D-Bus, SQL*Net). Criterio relacionado: Arquitectura y código fuente.
 
 
 ### 5.2 Actores y roles
@@ -121,7 +125,7 @@ _Fuente: README.md y docs/arquitectura.md del proyecto._
 
 ### 5.3 Módulos del sistema
 
-La Tabla 2 resume los módulos. Los doce módulos de la matriz de permisos son `dashboard`, `inventario`, `graficas`, `sync`, `notificaciones`, `perfil`, `solicitudes`, `usuarios`, `permisos`, `auditoria`, `configuracion` y `respaldos`; cada uno se describe con detalle en el capítulo 11.
+La Tabla 2 resume los módulos. La matriz de permisos maneja doce: `dashboard`, `inventario`, `graficas`, `sync`, `notificaciones`, `perfil`, `solicitudes`, `usuarios`, `permisos`, `auditoria`, `configuracion` y `respaldos`. El capítulo 11 describe cada uno.
 
 **Tabla 2.** _Módulos del sistema_
 
@@ -146,7 +150,7 @@ _Fuente: Elaboración propia a partir del código y del README del proyecto._
 
 ### 5.4 Almacenamiento y sistemas externos
 
-Cada teléfono guarda sus datos en SQLite (Room): `Outbox`, catálogo y cuentas locales. El computador guarda todo en Oracle XE 11g, más las fotos de evidencia (`fotos/<uuid>/<seq>.jpg`) y los respaldos `.zip` (`respaldos/`) en carpetas del proyecto. Los sistemas externos al código del proyecto son BlueZ (`bluetoothd`, que vive en el anfitrión), el bus D-Bus del sistema, el servidor gráfico X11 o Wayland y Docker.
+Cada teléfono guarda sus datos en SQLite (Room): `Outbox`, catálogo y cuentas locales. El computador guarda todo en Oracle XE 11g; las fotos de evidencia quedan en `fotos/<uuid>/<seq>.jpg` y los respaldos `.zip` en `respaldos/`. Fuera del código del proyecto están BlueZ (`bluetoothd`, que vive en el anfitrión), el bus D-Bus del sistema, el servidor gráfico X11 o Wayland y Docker.
 
 
 ## 6. Análisis de requisitos
@@ -154,7 +158,7 @@ Cada teléfono guarda sus datos en SQLite (Room): `Outbox`, catálogo y cuentas 
 
 ### 6.1 Requisitos funcionales
 
-Los requisitos se extrajeron del código y de la documentación del proyecto; todos están en estado **Implementado**. Cuando se indica una prueba, es una prueba automática existente en el repositorio; cuando se indica una figura, es una captura obtenida durante este trabajo.
+Los requisitos salen del código y de la documentación del proyecto, y todos están implementados. En la columna de verificación, el nombre de una prueba remite a una prueba automática existente en el repositorio y una figura, a una captura obtenida para este documento.
 
 **Tabla 3.** _Requisitos funcionales (1 de 2)_
 
@@ -221,13 +225,17 @@ _Fuente: Elaboración propia._
 
 ### 6.3 Casos de uso
 
-El Figura 2 presenta los actores, los límites del sistema y las relaciones `include` y `extend` verificadas contra la implementación. El Scheduler de Oracle aparece como actor porque inicia el procesamiento por lotes sin intervención humana.
+La Figura 2 muestra los actores, el límite del sistema y las relaciones `include` y `extend`, contrastadas con la implementación. El Scheduler de Oracle figura como actor porque inicia el procesamiento por lotes sin intervención humana.
+
+**Figura 2**
+
+*Diagrama de casos de uso.*
 
 ![Figura 2. Diagrama de casos de uso.](diagramas/renderizados/01_casos_uso.png)
 
-**Figura 2.** Diagrama de casos de uso.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/01_casos_uso.puml.  
-Demuestra: actores, funcionalidades y límites del sistema. Criterio: Funcionalidad y requisitos.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/01_casos_uso.puml.
+
+**Demuestra:** actores, funcionalidades y límites del sistema. Criterio relacionado: Funcionalidad y requisitos.
 
 **Tabla 6.** _Especificación resumida de los casos de uso principales_
 
@@ -248,9 +256,9 @@ _Fuente: Elaboración propia a partir de README.md, docs/protocolo.md y el códi
 
 ### 7.1 Estilo arquitectónico
 
-El sistema combina tres estilos que se pueden demostrar en el código. Primero, una **arquitectura por capas distribuida en procesos** (captura móvil, recepción, base de datos y presentación) cuyos únicos canales son RFCOMM, D-Bus y SQL\*Net. Segundo, **MVC con trabajadores** en el escritorio: el modelo son los *dataclasses* de `models.py` y las consultas de `db.py`; las vistas están en `desktop/app/views/`; y el controlador es `QueryRunner`, que ejecuta cada consulta en un `QueryWorker` y devuelve el resultado al hilo de la interfaz. Tercero, **MVVM** en Android: las pantallas Compose (`ui/pantallas/`) no tienen estado propio, `CountViewModel` y `SyncRunner` exponen estados, y el modelo está formado por `Outbox`, el catálogo en Room, `SyncClient` y `Protocol`.
+Tres estilos conviven en el código. En conjunto, el sistema es una arquitectura por capas repartida en procesos (captura móvil, recepción, base de datos y presentación) cuyos únicos canales son RFCOMM, D-Bus y SQL*Net. El escritorio sigue MVC con trabajadores: el modelo son los *dataclasses* de `models.py` y las consultas de `db.py`, las vistas están en `desktop/app/views/` y el controlador es `QueryRunner`, que ejecuta cada consulta en un `QueryWorker` y devuelve el resultado al hilo de la interfaz. Android sigue MVVM: las pantallas Compose de `ui/pantallas/` no guardan estado, `CountViewModel` y `SyncRunner` exponen estados, y el modelo lo forman `Outbox`, el catálogo en Room, `SyncClient` y `Protocol`.
 
-No se etiqueta la arquitectura como un único patrón porque el código muestra una combinación; la evidencia de cada afirmación son los archivos citados y las capturas de código de las figuras de este capítulo.
+Se evita llamar al sistema «MVC» o «MVVM» sin más porque cada cliente aplica un patrón distinto; los archivos citados y las figuras de código de este capítulo respaldan la clasificación.
 
 
 ### 7.2 Arquitectura lógica
@@ -266,43 +274,59 @@ No se etiqueta la arquitectura como un único patrón porque el código muestra 
 
 _Fuente: docs/arquitectura.md, verificado contra el código._
 
-Las capas 2 y 4 son **dos procesos**: la recepción sigue activa aunque se cierre la ventana del escritorio. Se comunican solo por Oracle: el servicio escribe su estado y latido en `SERVICIO_BT` y el escritorio lo lee cada 2 s (`ServicioRemoto`). Este acoplamiento débil es una decisión explícita (D11, D29).
+Las capas 2 y 4 son dos procesos distintos, de modo que la recepción sigue activa aunque se cierre la ventana del escritorio. Solo se comunican por Oracle: el servicio escribe su estado y su latido en `SERVICIO_BT` y el escritorio lo lee cada 2 s con `ServicioRemoto`. Es un acoplamiento débil buscado (D11, D29).
 
 
 ### 7.3 Arquitectura física
 
-El Figura 3 (en página horizontal) muestra dónde corre cada componente. Docker Compose define tres servicios permanentes (`oracle`, `app` y `bluetooth`) y cuatro de apoyo por perfiles (`pybase`, `apk-build`, `plantuml` y `bt-spike`). `app` y `bluetooth` usan `network_mode: host`, `NET_ADMIN`/`NET_RAW` y el bus D-Bus del anfitrión, porque `bluetoothd` no corre en contenedor (D7). Android y el computador se hablan solo por Bluetooth clásico.
+La Figura 3, en página horizontal, muestra dónde corre cada componente. Docker Compose define tres servicios permanentes (`oracle`, `app` y `bluetooth`) y cuatro de apoyo, activados por perfiles (`pybase`, `apk-build`, `plantuml` y `bt-spike`). `app` y `bluetooth` usan `network_mode: host`, `NET_ADMIN`/`NET_RAW` y el bus D-Bus del anfitrión, porque `bluetoothd` no corre en contenedor (D7). El teléfono y el computador solo se hablan por Bluetooth clásico.
+
+**Figura 3**
+
+*Diagrama de despliegue.*
 
 ![Figura 3. Diagrama de despliegue.](diagramas/renderizados/04_despliegue.png)
 
-**Figura 3.** Diagrama de despliegue.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/04_despliegue.puml.  
-Demuestra: ubicación física de cada componente y enlaces (RFCOMM, D-Bus, X11, SQL*Net). Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/04_despliegue.puml.
+
+**Demuestra:** ubicación física de cada componente y enlaces (RFCOMM, D-Bus, X11, SQL*Net). Criterio relacionado: Arquitectura y código fuente.
 
 
 ### 7.4 Arquitectura de componentes
 
-El Figura 4 muestra los componentes y las interfaces verdaderas (`Transport`, RFCOMM, D-Bus, SQL\*Net). `SyncController` depende de la interfaz `Transport`, no de una implementación concreta, de modo que `BluezTransport` y `TcpTransport` son intercambiables (plan B por TCP). El Figura 5 muestra las dependencias entre paquetes de Python y de Kotlin: las vistas del escritorio no importan el servicio Bluetooth; solo comparten `Store.connect_oracle`.
+La Figura 4 muestra los componentes y sus interfaces (`Transport`, RFCOMM, D-Bus, SQL*Net). `SyncController` depende de la interfaz `Transport` y no de una implementación, así que `BluezTransport` y `TcpTransport` son intercambiables (plan B por TCP). La Figura 5 agrega las dependencias entre paquetes de Python y de Kotlin: las vistas del escritorio no importan el servicio Bluetooth y solo comparten `Store.connect_oracle`.
+
+**Figura 4**
+
+*Diagrama de componentes.*
 
 ![Figura 4. Diagrama de componentes.](diagramas/renderizados/03_componentes.png)
 
-**Figura 4.** Diagrama de componentes.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/03_componentes.puml.  
-Demuestra: módulos de software, dependencias e interfaces. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/03_componentes.puml.
+
+**Demuestra:** módulos de software, dependencias e interfaces. Criterio relacionado: Arquitectura y código fuente.
+
+**Figura 5**
+
+*Diagrama de paquetes y dependencias.*
 
 ![Figura 5. Diagrama de paquetes y dependencias.](diagramas/renderizados/07b_paquetes.png)
 
-**Figura 5.** Diagrama de paquetes y dependencias.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/07b_paquetes.puml.  
-Demuestra: dependencias entre `btsync`, `desktop.app` y `mobile`. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/07b_paquetes.puml.
 
-El Figura 6 (siguiente página horizontal) presenta las clases de la librería `btsync`: `Message`, `Rec` y `FrameError` (protocolo), `Store` (persistencia en Oracle), `Session` (una conversación con un teléfono), `SyncController` (máquina de estados) y los transportes. Las clases del escritorio y de la APK están en los anexos (figuras Figura 75 y Figura 76).
+**Demuestra:** dependencias entre `btsync`, `desktop.app` y `mobile`. Criterio relacionado: Arquitectura y código fuente.
+
+La Figura 6 presenta las clases de la librería `btsync`: `Message`, `Rec` y `FrameError` para el protocolo, `Store` para la persistencia, `Session` para cada conversación con un teléfono, `SyncController` como máquina de estados y los transportes. Las clases del escritorio y de la APK están en el Anexo B (Figura 75 y Figura 76).
+
+**Figura 6**
+
+*Diagrama de clases de la librería btsync.*
 
 ![Figura 6. Diagrama de clases de la librería btsync.](diagramas/renderizados/07_clases_paquetes.png)
 
-**Figura 6.** Diagrama de clases de la librería btsync.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/07_clases_paquetes.puml (fuente original: docs/uml/01-clases-servidor.puml).  
-Demuestra: clases reales del servidor y sus relaciones. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/07_clases_paquetes.puml (fuente original: docs/uml/01-clases-servidor.puml).
+
+**Demuestra:** clases reales del servidor y sus relaciones. Criterio relacionado: Arquitectura y código fuente.
 
 
 ### 7.5 Organización del código fuente
@@ -329,43 +353,61 @@ Demuestra: clases reales del servidor y sus relaciones. Criterio: Arquitectura y
 
 _Fuente: Elaboración propia a partir del repositorio (conteo de líneas con `wc -l`)._
 
+La Figura 7 y la Figura 8 muestran los dos puntos de arranque: la ventana de escritorio y el servicio Bluetooth, que son procesos distintos. La Figura 9 recoge cómo se despliega el servicio `bluetooth` y la Figura 10, cómo cada vista se registra con su módulo y se oculta según la sesión.
+
+**Figura 7**
+
+*Punto de entrada de la aplicación de escritorio.*
+
 ![Figura 7. Punto de entrada de la aplicación de escritorio.](capturas/codigo/codigo_01_entrada_escritorio.png)
 
-**Figura 7.** Punto de entrada de la aplicación de escritorio.  
-Archivo: desktop/app/main.py (líneas 1052–1071). Función o elemento: `main()`.  
-Demuestra: el arranque de la aplicación: tema, migraciones de Oracle, ventana y bucle de eventos. Criterio: Arquitectura y código.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/main.py` (líneas 1052–1071); elemento: `main()`.
+
+**Demuestra:** el arranque de la aplicación: tema, migraciones de Oracle, ventana y bucle de eventos. Criterio relacionado: Arquitectura y código.
+
+**Figura 8**
+
+*Punto de entrada del servicio Bluetooth.*
 
 ![Figura 8. Punto de entrada del servicio Bluetooth.](capturas/codigo/codigo_02_entrada_servicio.png)
 
-**Figura 8.** Punto de entrada del servicio Bluetooth.  
-Archivo: server/btsync/servicio.py (líneas 188–203). Función o elemento: `main()`.  
-Demuestra: el arranque del servicio Bluetooth como proceso independiente de la ventana. Criterio: Arquitectura y código.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/servicio.py` (líneas 188–203); elemento: `main()`.
+
+**Demuestra:** el arranque del servicio Bluetooth como proceso independiente de la ventana. Criterio relacionado: Arquitectura y código.
+
+**Figura 9**
+
+*Configuración del servicio «bluetooth» en Docker Compose.*
 
 ![Figura 9. Configuración del servicio «bluetooth» en Docker Compose.](capturas/codigo/codigo_03_configuracion_compose.png)
 
-**Figura 9.** Configuración del servicio «bluetooth» en Docker Compose.  
-Archivo: docker-compose.yml (líneas 97–122). Función o elemento: servicio `bluetooth`.  
-Demuestra: la configuración de despliegue: red de host, capacidades, volúmenes, reinicio y variables de entorno. Criterio: Arquitectura / instalación.  
+*Nota.* Fuente: elaboración propia a partir del archivo `docker-compose.yml` (líneas 97–122); elemento: servicio `bluetooth`.
+
+**Demuestra:** la configuración de despliegue: red de host, capacidades, volúmenes, reinicio y variables de entorno. Criterio relacionado: Arquitectura / instalación.
+
+**Figura 10**
+
+*Composición de la ventana: registro de vistas y permisos.*
 
 ![Figura 10. Composición de la ventana: registro de vistas y permisos.](capturas/codigo/codigo_04_composicion_ventana.png)
 
-**Figura 10.** Composición de la ventana: registro de vistas y permisos.  
-Archivo: desktop/app/main.py (líneas 557–585). Función o elemento: `MainWindow.add_view`.  
-Demuestra: cómo cada vista se registra con su módulo y se oculta según la sesión y el rol. Criterio: Arquitectura y código.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/main.py` (líneas 557–585); elemento: `MainWindow.add_view`.
+
+**Demuestra:** cómo cada vista se registra con su módulo y se oculta según la sesión y el rol. Criterio relacionado: Arquitectura y código.
 
 
 ### 7.6 Patrones de diseño
 
-- **Estrategia (Transport):** `Transport`/`Connection` tienen dos implementaciones, `BluezTransport` y `TcpTransport`; la sesión no sabe cuál usa.
-- **Máquina de estados:** `SyncController` pasa por `IDLE`, `ESPERANDO_EMPAREJAMIENTO`, `CONECTADO`, `RECIBIENDO`, `PROCESANDO`, `LISTO` y `ERROR` (Figura 16).
-- **Repositorio:** `Store` (Python) y `Outbox`/DAO de Room (Kotlin) encapsulan el acceso a datos.
-- **Observador:** señales y ranuras de Qt (`ServicioRemoto.listo`, `refresh_requested`) y `Flow`/`StateFlow` en Android.
-- **Idempotencia:** la clave única `(uuid_dispositivo, seq)` hace seguro reenviar una lectura.
+- Estrategia (Transport): `Transport`/`Connection` tienen dos implementaciones, `BluezTransport` y `TcpTransport`; la sesión no sabe cuál usa.
+- Máquina de estados: `SyncController` pasa por `IDLE`, `ESPERANDO_EMPAREJAMIENTO`, `CONECTADO`, `RECIBIENDO`, `PROCESANDO`, `LISTO` y `ERROR` (Figura 16).
+- Repositorio: `Store` (Python) y `Outbox`/DAO de Room (Kotlin) encapsulan el acceso a datos.
+- Observador: señales y ranuras de Qt (`ServicioRemoto.listo`, `refresh_requested`) y `Flow`/`StateFlow` en Android.
+- Idempotencia: la clave única `(uuid_dispositivo, seq)` hace seguro reenviar una lectura.
 
 
 ### 7.7 Gestión de concurrencia
 
-La Tabla 9 identifica los hilos y mecanismos asíncronos que existen en el código. Ninguna consulta a Oracle se ejecuta en el hilo de la interfaz del escritorio; en Android, la red y el disco se mueven a `Dispatchers.IO`.
+La Tabla 9 enumera los hilos y mecanismos asíncronos que hay en el código. En el escritorio ninguna consulta a Oracle corre en el hilo de la interfaz, y en Android la red y el disco pasan a `Dispatchers.IO`.
 
 **Tabla 9.** _Hilos, procesos y mecanismos de comunicación_
 
@@ -383,51 +425,77 @@ La Tabla 9 identifica los hilos y mecanismos asíncronos que existen en el códi
 
 _Fuente: Elaboración propia a partir del código; ver las figuras de código de esta sección._
 
+`QueryWorker` (Figura 11) ejecuta la consulta en un hilo del pool y `QueryRunner` (Figura 12) entrega el resultado a la interfaz y descarta los obsoletos. `ServicioRemoto` (Figura 13) sondea Oracle y emite señales. En el servicio, el controlador crea una sesión por conexión y rechaza a un segundo teléfono (Figura 14), y `Servicio.tick` mantiene el latido y la pausa (Figura 15).
+
+**Figura 11**
+
+*Concurrencia: QueryWorker (QRunnable) con señales Qt.*
+
 ![Figura 11. Concurrencia: QueryWorker (QRunnable) con señales Qt.](capturas/codigo/codigo_15_hilos_worker.png)
 
-**Figura 11.** Concurrencia: QueryWorker (QRunnable) con señales Qt.  
-Archivo: desktop/app/workers.py (líneas 26–47). Función o elemento: `QueryWorker`.  
-Demuestra: una tarea `QRunnable` que ejecuta la consulta en un hilo del pool y emite señales con el resultado o el error. Criterio: Arquitectura / concurrencia.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/workers.py` (líneas 26–47); elemento: `QueryWorker`.
+
+**Demuestra:** una tarea `QRunnable` que ejecuta la consulta en un hilo del pool y emite señales con el resultado o el error. Criterio relacionado: Arquitectura / concurrencia.
+
+**Figura 12**
+
+*Concurrencia: QueryRunner entrega el resultado al hilo de la UI.*
 
 ![Figura 12. Concurrencia: QueryRunner entrega el resultado al hilo de la UI.](capturas/codigo/codigo_16_hilos_runner.png)
 
-**Figura 12.** Concurrencia: QueryRunner entrega el resultado al hilo de la UI.  
-Archivo: desktop/app/views/base.py (líneas 543–555). Función o elemento: `QueryRunner.run`.  
-Demuestra: el despacho de consultas fuera del hilo de la interfaz y el descarte de resultados obsoletos por clave. Criterio: Arquitectura / concurrencia.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/views/base.py` (líneas 543–555); elemento: `QueryRunner.run`.
+
+**Demuestra:** el despacho de consultas fuera del hilo de la interfaz y el descarte de resultados obsoletos por clave. Criterio relacionado: Arquitectura / concurrencia.
+
+**Figura 13**
+
+*Señales: ServicioRemoto convierte el estado de Oracle en señales Qt.*
 
 ![Figura 13. Señales: ServicioRemoto convierte el estado de Oracle en señales Qt.](capturas/codigo/codigo_17_remoto.png)
 
-**Figura 13.** Señales: ServicioRemoto convierte el estado de Oracle en señales Qt.  
-Archivo: desktop/app/servicio_remoto.py (líneas 15–63). Función o elemento: `ServicioRemoto`.  
-Demuestra: la puerta hacia el servicio Bluetooth: sondeo periódico de Oracle y conversión del estado en señales Qt. Criterio: Arquitectura / señales.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/servicio_remoto.py` (líneas 15–63); elemento: `ServicioRemoto`.
+
+**Demuestra:** la puerta hacia el servicio Bluetooth: sondeo periódico de Oracle y conversión del estado en señales Qt. Criterio relacionado: Arquitectura / señales.
+
+**Figura 14**
+
+*Controlador: una sesión por conexión y D19 (PC ocupado).*
 
 ![Figura 14. Controlador: una sesión por conexión y D19 (PC ocupado).](capturas/codigo/codigo_13_controlador_conexion.png)
 
-**Figura 14.** Controlador: una sesión por conexión y D19 (PC ocupado).  
-Archivo: server/btsync/controller.py (líneas 227–278). Función o elemento: `SyncController._on_connection`.  
-Demuestra: la creación de una sesión por conexión, el rechazo de un segundo teléfono (`OCUPADO`) y el cambio de estado. Criterio: Arquitectura / concurrencia.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/controller.py` (líneas 227–278); elemento: `SyncController._on_connection`.
+
+**Demuestra:** la creación de una sesión por conexión, el rechazo de un segundo teléfono (`OCUPADO`) y el cambio de estado. Criterio relacionado: Arquitectura / concurrencia.
+
+**Figura 15**
+
+*Servicio: latido, pausa y estado en SERVICIO_BT.*
 
 ![Figura 15. Servicio: latido, pausa y estado en SERVICIO_BT.](capturas/codigo/codigo_14_servicio_tick.png)
 
-**Figura 15.** Servicio: latido, pausa y estado en SERVICIO_BT.  
-Archivo: server/btsync/servicio.py (líneas 81–106). Función o elemento: `Servicio.tick`.  
-Demuestra: el latido y la gestión de pausa que mantienen visible el estado del servicio en Oracle. Criterio: Arquitectura / concurrencia.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/servicio.py` (líneas 81–106); elemento: `Servicio.tick`.
 
-Para la rúbrica de arquitectura, el punto que el código sí demuestra es que la interfaz del escritorio no se bloquea con consultas, y que la APK no hace red en su hilo principal. La Figura 16 ofrece la máquina de estados del controlador, el mecanismo que coordina estas piezas.
+**Demuestra:** el latido y la gestión de pausa que mantienen visible el estado del servicio en Oracle. Criterio relacionado: Arquitectura / concurrencia.
+
+En términos de la rúbrica, el código demuestra dos cosas: el escritorio no se bloquea por consultas y la APK no hace red en su hilo principal. La Figura 16 muestra la máquina de estados del controlador, que coordina estas piezas.
+
+**Figura 16**
+
+*Máquina de estados del controlador de sincronización.*
 
 ![Figura 16. Máquina de estados del controlador de sincronización.](diagramas/renderizados/09_estados.png)
 
-**Figura 16.** Máquina de estados del controlador de sincronización.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/09_estados.puml.  
-Demuestra: estados reales de `SyncController` y sus transiciones. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/09_estados.puml.
+
+**Demuestra:** estados reales de `SyncController` y sus transiciones. Criterio relacionado: Arquitectura y código fuente.
 
 
 ### 7.8 Gestión de errores
 
-- **Protocolo:** cada línea inválida produce `NAK|<seq esperado>|<motivo>` con motivos `CRC`, `FORMAT`, `LINEA_LARGA`, `SECUENCIA`, `DB_NO_DISPONIBLE`, `CUENTA_NO_ACTIVA` y `OCUPADO`.
-- **Base de datos:** si Oracle no está disponible durante la sesión, `Session._db_unavailable` responde `NAK DB_NO_DISPONIBLE`; `connect_oracle` reintenta hasta tres veces ante `ORA-12516`.
-- **Lecturas inválidas:** el *batch* las deja en `ERROR` con mensaje (por ejemplo `CANTIDAD_INVALIDA`) y no entran a la conciliación hasta reprocesarlas.
-- **Interfaz:** `StateBanner` y avisos muestran errores de Oracle o del servicio; el servicio no se detiene si falla una tarea periódica.
+- Protocolo: cada línea inválida produce `NAK|<seq esperado>|<motivo>` con motivos `CRC`, `FORMAT`, `LINEA_LARGA`, `SECUENCIA`, `DB_NO_DISPONIBLE`, `CUENTA_NO_ACTIVA` y `OCUPADO`.
+- Base de datos: si Oracle no está disponible durante la sesión, `Session._db_unavailable` responde `NAK DB_NO_DISPONIBLE`; `connect_oracle` reintenta hasta tres veces ante `ORA-12516`.
+- Lecturas inválidas: el *batch* las deja en `ERROR` con mensaje (por ejemplo `CANTIDAD_INVALIDA`) y no entran a la conciliación hasta reprocesarlas.
+- Interfaz: `StateBanner` y avisos muestran errores de Oracle o del servicio; el servicio no se detiene si falla una tarea periódica.
 
 
 ## 8. Modelo de datos y base de datos
@@ -435,18 +503,22 @@ Demuestra: estados reales de `SyncController` y sus transiciones. Criterio: Arqu
 
 ### 8.1 Motor, conexión y persistencia
 
-El motor es **Oracle Database 11g Express Edition 11.2.0.2.0** (verificado con `v$version` en el contenedor `gvenzl/oracle-xe:11-slim`). Las aplicaciones Python se conectan con **python-oracledb 26.1.0 en modo *thick*** mediante el Instant Client 19.23, porque Oracle 11g lo exige. La conexión de la aplicación y del servicio se abre con el usuario `app`; las credenciales viven en el archivo `.env` y nunca se incluyen en este documento. La persistencia es un volumen Docker (`oracle-data`).
+El motor es Oracle Database 11g Express Edition 11.2.0.2.0, verificado con `v$version` en el contenedor `gvenzl/oracle-xe:11-slim`. Las aplicaciones Python se conectan con python-oracledb 26.1.0 en modo *thick* y el Instant Client 19.23, que Oracle 11g exige. La conexión de la aplicación y la del servicio usan el usuario `app`; sus credenciales viven en `.env` y no se reproducen en este documento. Los datos persisten en un volumen Docker (`oracle-data`). La Figura 17 muestra cómo se abre cada conexión.
+
+**Figura 17**
+
+*Conexión con Oracle (python-oracledb).*
 
 ![Figura 17. Conexión con Oracle (python-oracledb).](capturas/codigo/codigo_11_store_conexion.png)
 
-**Figura 17.** Conexión con Oracle (python-oracledb).  
-Archivo: server/btsync/store.py (líneas 21–40). Función o elemento: `connect_oracle`.  
-Demuestra: la apertura de conexiones serializada con candado y el reintento ante `ORA-12516`. Criterio: Conectividad / datos.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/store.py` (líneas 21–40); elemento: `connect_oracle`.
+
+**Demuestra:** la apertura de conexiones serializada con candado y el reintento ante `ORA-12516`. Criterio relacionado: Conectividad / datos.
 
 
 ### 8.2 Tablas y relaciones
 
-El esquema tiene 17 tablas: catorce creadas por `db/init/01_schema.sql` y tres que crea la propia aplicación al arrancar (`AUDITORIA`, `NOTIFICACIONES` y `NOTIFICACIONES_LEIDAS`). La Tabla 10 resume las principales con sus claves; el Figura 18 muestra todas con sus relaciones.
+El esquema tiene 17 tablas: catorce las crea `db/init/01_schema.sql` y tres las crea la propia aplicación al arrancar (`AUDITORIA`, `NOTIFICACIONES` y `NOTIFICACIONES_LEIDAS`). La Tabla 10 resume las principales con sus claves y la Figura 18 muestra todas con sus relaciones. La tabla de *staging* aparece en detalle en la Figura 19.
 
 **Tabla 10.** _Tablas principales del esquema_
 
@@ -467,17 +539,25 @@ El esquema tiene 17 tablas: catorce creadas por `db/init/01_schema.sql` y tres q
 
 _Fuente: db/init/01_schema.sql y docs/uml/04-modelo-datos.puml._
 
+**Figura 18**
+
+*Diagrama del modelo de datos de Oracle (conteo continuo ACTUAL).*
+
 ![Figura 18. Diagrama del modelo de datos de Oracle (conteo continuo ACTUAL).](diagramas/renderizados/10_modelo_datos.png)
 
-**Figura 18.** Diagrama del modelo de datos de Oracle (conteo continuo ACTUAL).  
-Fuente: elaboración propia a partir de db/init/01_schema.sql. PlantUML: diagramas/plantuml/10_modelo_datos.puml.  
-Demuestra: tablas, llaves y cardinalidades reales. Criterio: Funcionalidad / Arquitectura.  
+*Nota.* Fuente: elaboración propia a partir de db/init/01_schema.sql. PlantUML: diagramas/plantuml/10_modelo_datos.puml.
+
+**Demuestra:** tablas, llaves y cardinalidades reales. Criterio relacionado: Funcionalidad / Arquitectura.
+
+**Figura 19**
+
+*Modelo de datos: tabla de staging CAPTURA_TRANSITO.*
 
 ![Figura 19. Modelo de datos: tabla de staging CAPTURA_TRANSITO.](capturas/codigo/codigo_22_sql_tabla_transito.png)
 
-**Figura 19.** Modelo de datos: tabla de staging CAPTURA_TRANSITO.  
-Archivo: db/init/01_schema.sql (líneas 52–74). Función o elemento: `CREATE TABLE captura_transito`.  
-Demuestra: la tabla de *staging* con su clave única `(uuid, seq)` y los estados de una lectura. Criterio: Datos.  
+*Nota.* Fuente: elaboración propia a partir del archivo `db/init/01_schema.sql` (líneas 52–74); elemento: `CREATE TABLE captura_transito`.
+
+**Demuestra:** la tabla de *staging* con su clave única `(uuid, seq)` y los estados de una lectura. Criterio relacionado: Datos.
 
 
 ### 8.3 Vistas, trabajos y consultas principales
@@ -497,32 +577,48 @@ Demuestra: la tabla de *staging* con su clave única `(uuid, seq)` y los estados
 
 _Fuente: db/init/03_pkg_batch.sql, 04_jobs.sql, 05_views.sql y desktop/app/db.py._
 
+La inserción idempotente en la tabla de tránsito está en la Figura 20 y la validación PL/SQL de cada fila, en la Figura 21.
+
+**Figura 20**
+
+*Persistencia: inserción idempotente en CAPTURA_TRANSITO.*
+
 ![Figura 20. Persistencia: inserción idempotente en CAPTURA_TRANSITO.](capturas/codigo/codigo_10_store_insert.png)
 
-**Figura 20.** Persistencia: inserción idempotente en CAPTURA_TRANSITO.  
-Archivo: server/btsync/store.py (líneas 187–201). Función o elemento: `Store.insert_staging`.  
-Demuestra: la inserción idempotente: devuelve `False` si `(uuid, seq)` ya existía, sin duplicar. Criterio: Conectividad / datos.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/store.py` (líneas 187–201); elemento: `Store.insert_staging`.
+
+**Demuestra:** la inserción idempotente: devuelve `False` si `(uuid, seq)` ya existía, sin duplicar. Criterio relacionado: Conectividad / datos.
+
+**Figura 21**
+
+*PKG_BATCH: validación y proceso de una lectura.*
 
 ![Figura 21. PKG_BATCH: validación y proceso de una lectura.](capturas/codigo/codigo_23_sql_batch.png)
 
-**Figura 21.** PKG_BATCH: validación y proceso de una lectura.  
-Archivo: db/init/03_pkg_batch.sql (líneas 118–169). Función o elemento: `procesar_fila` en `PKG_BATCH`.  
-Demuestra: la validación PL/SQL de cada lectura: SKU conocido, cantidad y dañados válidos; si no, queda en `ERROR`. Criterio: Datos / funcionalidad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `db/init/03_pkg_batch.sql` (líneas 118–169); elemento: `procesar_fila` en `PKG_BATCH`.
+
+**Demuestra:** la validación PL/SQL de cada lectura: SKU conocido, cantidad y dañados válidos; si no, queda en `ERROR`. Criterio relacionado: Datos / funcionalidad.
 
 
 ### 8.4 Operaciones de escritura, transacciones y errores
 
-- **Escritura del servicio:** `insert_staging` por lectura y `COMMIT` cada 25 inserciones o al `END`; un corte antes del `COMMIT` provoca `ROLLBACK` de las filas no confirmadas.
-- **Escritura del *batch*:** cada fila se reclama (`PENDIENTE → PROCESANDO`), se inserta en `REGISTROS_PROCESADOS`, se recalcula la lectura vigente y se marca `PROCESADO`; las filas `PROCESANDO` de más de 5 minutos se devuelven a `PENDIENTE`.
-- **Auditoría:** el escritorio escribe en `AUDITORIA` dentro de la misma transacción que cada cambio (D28).
-- **Restauración:** se ejecuta en una transacción, tras pausar el servicio y guardar un respaldo previo (D29).
-- **Errores de conexión:** el escritorio muestra «Oracle no está listo» y reintenta; el servicio responde `NAK DB_NO_DISPONIBLE`.
+Las escrituras ocurren en el servicio, en el *batch*, en la auditoría y en la restauración. La matriz de permisos se siembra con el script de la Figura 22.
+
+- Escritura del servicio: `insert_staging` por lectura y `COMMIT` cada 25 inserciones o al `END`; un corte antes del `COMMIT` provoca `ROLLBACK` de las filas no confirmadas.
+- Escritura del *batch*: cada fila se reclama (`PENDIENTE → PROCESANDO`), se inserta en `REGISTROS_PROCESADOS`, se recalcula la lectura vigente y se marca `PROCESADO`; las filas `PROCESANDO` de más de 5 minutos se devuelven a `PENDIENTE`.
+- Auditoría: el escritorio escribe en `AUDITORIA` dentro de la misma transacción que cada cambio (D28).
+- Restauración: se ejecuta en una transacción, tras pausar el servicio y guardar un respaldo previo (D29).
+- Errores de conexión: el escritorio muestra «Oracle no está listo» y reintenta; el servicio responde `NAK DB_NO_DISPONIBLE`.
+
+**Figura 22**
+
+*Matriz de permisos rol × módulo (Oracle).*
 
 ![Figura 22. Matriz de permisos rol × módulo (Oracle).](capturas/codigo/codigo_24_sql_permisos.png)
 
-**Figura 22.** Matriz de permisos rol × módulo (Oracle).  
-Archivo: db/init/06_permisos.sql (líneas 8–31). Función o elemento: bloque `BEGIN … INSERT INTO permisos`.  
-Demuestra: la matriz de permisos inicial (rol × módulo × nivel) sembrada en Oracle. Criterio: Seguridad / datos.  
+*Nota.* Fuente: elaboración propia a partir del archivo `db/init/06_permisos.sql` (líneas 8–31); elemento: bloque `BEGIN … INSERT INTO permisos`.
+
+**Demuestra:** la matriz de permisos inicial (rol × módulo × nivel) sembrada en Oracle. Criterio relacionado: Seguridad / datos.
 
 
 ## 9. Conectividad y comunicación de datos
@@ -530,7 +626,7 @@ Demuestra: la matriz de permisos inicial (rol × módulo × nivel) sembrada en O
 
 ### 9.1 Mecanismos de comunicación implementados
 
-El proyecto implementa cuatro canales de datos y no usa REST ni WebSockets: no existe ninguna interfaz HTTP en el código. Los canales son Bluetooth clásico RFCOMM entre la APK y el servicio, D-Bus entre el servicio y BlueZ, SQL\*Net entre las aplicaciones Python y Oracle, y un transporte TCP alterno que se usa en pruebas y como plan B de demostración (`BT_TRANSPORT=tcp`). Entre el servicio y el escritorio no hay canal directo: coordinan por la tabla `SERVICIO_BT`.
+El proyecto usa cuatro canales de datos. No hay REST ni WebSockets: el código no tiene ninguna interfaz HTTP. Los canales son Bluetooth clásico RFCOMM entre la APK y el servicio, D-Bus entre el servicio y BlueZ, SQL*Net entre las aplicaciones Python y Oracle, y un transporte TCP alterno para pruebas y demostraciones (`BT_TRANSPORT=tcp`). Entre el servicio y el escritorio no hay un canal directo: se coordinan mediante la tabla `SERVICIO_BT`.
 
 **Tabla 12.** _Canales de comunicación_
 
@@ -538,7 +634,7 @@ El proyecto implementa cuatro canales de datos y no usa REST ni WebSockets: no e
 |---|---|---|---|---|
 | Bluetooth RFCOMM | APK ↔ servicio `bluetooth` (vía BlueZ) | Líneas UTF-8 con `\|` y CRC32 (versión 5) | Bidireccional | `HELLO`, `ACCT`, `REC`, `FOTO`, `END` ↔ `ACCTST`, `READY`, catálogo, `ACK`, `NAK`, `BYE` |
 | D-Bus (`org.bluez`) | Servicio ↔ `bluetoothd` | D-Bus del sistema (`dbus-fast`) | Bidireccional | `RegisterProfile`, `NewConnection(fd)`, alias y visibilidad del adaptador |
-| SQL\*Net 1521 | Servicio y escritorio ↔ Oracle | Oracle Net (`oracledb`, modo thick) | Bidireccional | INSERT en tránsito, llamadas a `PKG_BATCH`, SELECT sobre vistas, `SERVICIO_BT` |
+| SQL*Net 1521 | Servicio y escritorio ↔ Oracle | Oracle Net (`oracledb`, modo thick) | Bidireccional | INSERT en tránsito, llamadas a `PKG_BATCH`, SELECT sobre vistas, `SERVICIO_BT` |
 | TCP (alterno) | Teléfono simulado ↔ servicio | El mismo protocolo de líneas | Bidireccional | Pruebas y demostración; `TcpTransport` |
 
 _Fuente: server/btsync/transports, docs/protocolo.md y docs/arquitectura.md._
@@ -546,7 +642,7 @@ _Fuente: server/btsync/transports, docs/protocolo.md y docs/arquitectura.md._
 
 ### 9.2 Formato de mensajes
 
-Cada mensaje es una línea UTF-8 terminada en `\n`. Los campos se separan con `|`; al final se añaden `*` y el CRC32 de los bytes anteriores en ocho dígitos hexadecimales mayúsculos. La longitud máxima es de 4000 bytes. Los caracteres `%`, `|`, `\r` y `\n` dentro de campos de texto se codifican como `%25`, `%7C`, `%0D` y `%0A`. Ejemplo calculado con la herramienta del proyecto (`python -m btsync.protocol --frame`): `HELLO|5|dev-0001|Bodega Norte*788FF277`.
+Un mensaje es una línea UTF-8 terminada en `\n`, con los campos separados por `|`. Al final se agregan `*` y el CRC32 de los bytes anteriores, en ocho dígitos hexadecimales mayúsculos. El máximo es de 4000 bytes por línea. Dentro de los campos de texto, `%`, `|`, `\r` y `\n` se codifican como `%25`, `%7C`, `%0D` y `%0A`. Con la herramienta del proyecto (`python -m btsync.protocol --frame`) se obtiene, por ejemplo, `HELLO|5|dev-0001|Bodega Norte*788FF277`. La Figura 23 muestra la construcción y la validación de la trama.
 
 **Tabla 13.** _Mensajes del protocolo (versión 5)_
 
@@ -566,113 +662,169 @@ Cada mensaje es una línea UTF-8 terminada en `\n`. Los campos se separan con `|
 
 _Fuente: docs/protocolo.md contrastado con server/btsync/protocol.py._
 
+**Figura 23**
+
+*Protocolo: construcción y validación de tramas (longitud, CRC32, formato).*
+
 ![Figura 23. Protocolo: construcción y validación de tramas (longitud, CRC32, formato).](capturas/codigo/codigo_05_protocolo_trama.png)
 
-**Figura 23.** Protocolo: construcción y validación de tramas (longitud, CRC32, formato).  
-Archivo: server/btsync/protocol.py (líneas 132–161). Función o elemento: `frame`, `parse`.  
-Demuestra: la construcción de la trama con CRC32 y la validación de longitud, CRC y número de campos que produce `FrameError`. Criterio: Conectividad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/protocol.py` (líneas 132–161); elemento: `frame`, `parse`.
+
+**Demuestra:** la construcción de la trama con CRC32 y la validación de longitud, CRC y número de campos que produce `FrameError`. Criterio relacionado: Conectividad.
 
 
 ### 9.3 Secuencia, validación y confirmación
 
-El Figura 24 sigue el recorrido de un conteo desde la `Outbox` hasta la consulta del escritorio. La sesión valida cada `REC` en este orden: longitud, CRC, formato, cuenta activa y secuencia. Si el `seq` es menor al esperado es un duplicado y se ignora (lo cubre el siguiente `ACK`); si es mayor hay un hueco y se envía un único `NAK|esperado|SECUENCIA`; si es igual, se inserta.
+La Figura 24 sigue un conteo desde la `Outbox` hasta la consulta en el escritorio. Para cada `REC` la sesión valida, en este orden, longitud, CRC, formato, cuenta activa y secuencia. Un `seq` menor al esperado es un duplicado y se ignora (lo cubre el siguiente `ACK`); uno mayor indica un hueco y provoca un único `NAK|esperado|SECUENCIA`; uno igual se inserta. El bucle de la sesión está en la Figura 25, la validación de cada `REC` en la Figura 26, la confirmación en la Figura 27 y el perfil RFCOMM que recibe la conexión en la Figura 28.
+
+**Figura 24**
+
+*Diagrama de secuencia del flujo principal de datos.*
 
 ![Figura 24. Diagrama de secuencia del flujo principal de datos.](diagramas/renderizados/05_secuencia_flujo_datos.png)
 
-**Figura 24.** Diagrama de secuencia del flujo principal de datos.  
-Fuente: elaboración propia a partir de session.py, controller.py y store.py. PlantUML: diagramas/plantuml/05_secuencia_flujo_datos.puml.  
-Demuestra: el recorrido real de los datos del teléfono a Oracle y su consulta. Criterio: Conectividad y comunicación.  
+*Nota.* Fuente: elaboración propia a partir de session.py, controller.py y store.py. PlantUML: diagramas/plantuml/05_secuencia_flujo_datos.puml.
+
+**Demuestra:** el recorrido real de los datos del teléfono a Oracle y su consulta. Criterio relacionado: Conectividad y comunicación.
+
+**Figura 25**
+
+*Sesión: bucle de recepción y despacho de mensajes.*
 
 ![Figura 25. Sesión: bucle de recepción y despacho de mensajes.](capturas/codigo/codigo_07_sesion_bucle.png)
 
-**Figura 25.** Sesión: bucle de recepción y despacho de mensajes.  
-Archivo: server/btsync/session.py (líneas 85–110). Función o elemento: `Session._run`.  
-Demuestra: el bucle de lectura y el despacho por tipo de mensaje dentro de una sesión. Criterio: Conectividad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/session.py` (líneas 85–110); elemento: `Session._run`.
+
+**Demuestra:** el bucle de lectura y el despacho por tipo de mensaje dentro de una sesión. Criterio relacionado: Conectividad.
+
+**Figura 26**
+
+*Sesión: validación de secuencia, inserción y NAK (go-back-N).*
 
 ![Figura 26. Sesión: validación de secuencia, inserción y NAK (go-back-N).](capturas/codigo/codigo_08_sesion_rec.png)
 
-**Figura 26.** Sesión: validación de secuencia, inserción y NAK (go-back-N).  
-Archivo: server/btsync/session.py (líneas 177–200). Función o elemento: `Session._on_rec`.  
-Demuestra: la validación de secuencia, la inserción en staging y el `NAK` con retroceso. Criterio: Conectividad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/session.py` (líneas 177–200); elemento: `Session._on_rec`.
+
+**Demuestra:** la validación de secuencia, la inserción en staging y el `NAK` con retroceso. Criterio relacionado: Conectividad.
+
+**Figura 27**
+
+*Sesión: COMMIT y confirmación acumulativa ACK.*
 
 ![Figura 27. Sesión: COMMIT y confirmación acumulativa ACK.](capturas/codigo/codigo_09_sesion_ack.png)
 
-**Figura 27.** Sesión: COMMIT y confirmación acumulativa ACK.  
-Archivo: server/btsync/session.py (líneas 247–263). Función o elemento: `Session._commit_and_ack`.  
-Demuestra: el `COMMIT` y el envío del `ACK` acumulativo; el `ROLLBACK` silencioso ante fallos. Criterio: Conectividad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/session.py` (líneas 247–263); elemento: `Session._commit_and_ack`.
+
+**Demuestra:** el `COMMIT` y el envío del `ACK` acumulativo; el `ROLLBACK` silencioso ante fallos. Criterio relacionado: Conectividad.
+
+**Figura 28**
+
+*Transporte Bluetooth: perfil RFCOMM registrado por D-Bus (BlueZ ProfileManager1).*
 
 ![Figura 28. Transporte Bluetooth: perfil RFCOMM registrado por D-Bus (BlueZ ProfileManager1).](capturas/codigo/codigo_12_bluez_perfil.png)
 
-**Figura 28.** Transporte Bluetooth: perfil RFCOMM registrado por D-Bus (BlueZ ProfileManager1).  
-Archivo: server/btsync/transports/bluez.py (líneas 216–235). Función o elemento: `_Profile`.  
-Demuestra: la interfaz D-Bus que BlueZ invoca (`NewConnection`) cuando un teléfono se conecta al perfil RFCOMM. Criterio: Conectividad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `server/btsync/transports/bluez.py` (líneas 216–235); elemento: `_Profile`.
+
+**Demuestra:** la interfaz D-Bus que BlueZ invoca (`NewConnection`) cuando un teléfono se conecta al perfil RFCOMM. Criterio relacionado: Conectividad.
 
 
 ### 9.4 Reintentos, cortes y reanudación
 
-Si la conexión se corta antes del `COMMIT`, el servidor hace `ROLLBACK` y conserva solo lo confirmado. Al reconectar, el móvil recibe `READY|<último seq>` y reconcilia su `Outbox`: lo confirmado pasa a `CONFIRMADO` y lo enviado sin confirmar vuelve a `PENDIENTE`. `SyncRunner` reintenta la conexión hasta tres veces. El Figura 29 describe el caso probado con 30 lecturas, y la sección 9.5 muestra la misma situación ejecutada realmente.
+Si la conexión se corta antes del `COMMIT`, el servidor hace `ROLLBACK` y conserva solo lo confirmado. Al reconectar, el móvil recibe `READY|<último seq>` y reconcilia su `Outbox`: lo confirmado pasa a `CONFIRMADO` y lo enviado sin confirmar vuelve a `PENDIENTE`. `SyncRunner` reintenta la conexión hasta tres veces. La Figura 29 describe el caso probado con 30 lecturas y la sección 9.5 muestra la misma situación en una ejecución real. Del lado móvil, `SyncClient` (Figura 30), `SyncRunner` (Figura 31) y la `Outbox` (Figura 32) implementan esta parte.
+
+**Figura 29**
+
+*Diagrama de secuencia de comunicación: corte, READY y retroceso go-back-N.*
 
 ![Figura 29. Diagrama de secuencia de comunicación: corte, READY y retroceso go-back-N.](diagramas/renderizados/06_secuencia_comunicacion.png)
 
-**Figura 29.** Diagrama de secuencia de comunicación: corte, READY y retroceso go-back-N.  
-Fuente: elaboración propia a partir de la prueba `test_connection_cut_after_30_rec_keeps_25`. PlantUML: diagramas/plantuml/06_secuencia_comunicacion.puml.  
-Demuestra: mensajes, confirmaciones, NAK y reanudación sin duplicados. Criterio: Conectividad y comunicación.  
+*Nota.* Fuente: elaboración propia a partir de la prueba `test_connection_cut_after_30_rec_keeps_25`. PlantUML: diagramas/plantuml/06_secuencia_comunicacion.puml.
+
+**Demuestra:** mensajes, confirmaciones, NAK y reanudación sin duplicados. Criterio relacionado: Conectividad y comunicación.
+
+**Figura 30**
+
+*Android: SyncClient, protocolo de sincronización (HELLO, READY, REC, ACK).*
 
 ![Figura 30. Android: SyncClient, protocolo de sincronización (HELLO, READY, REC, ACK).](capturas/codigo/codigo_25_android_sync.png)
 
-**Figura 30.** Android: SyncClient, protocolo de sincronización (HELLO, READY, REC, ACK).  
-Archivo: mobile/app/src/main/java/co/edu/umariana/inventario/sync/SyncClient.kt (líneas 97–146). Función o elemento: `SyncClient.session`.  
-Demuestra: el lado móvil del protocolo: lectura de `READY`, `ACCTST` y catálogo, y envío de `REC` en ventanas. Criterio: Conectividad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `mobile/app/src/main/java/co/edu/umariana/inventario/sync/SyncClient.kt` (líneas 97–146); elemento: `SyncClient.session`.
+
+**Demuestra:** el lado móvil del protocolo: lectura de `READY`, `ACCTST` y catálogo, y envío de `REC` en ventanas. Criterio relacionado: Conectividad.
+
+**Figura 31**
+
+*Android: SyncRunner con reintentos y estados.*
 
 ![Figura 31. Android: SyncRunner con reintentos y estados.](capturas/codigo/codigo_26_android_runner.png)
 
-**Figura 31.** Android: SyncRunner con reintentos y estados.  
-Archivo: mobile/app/src/main/java/co/edu/umariana/inventario/ui/SyncRunner.kt (líneas 38–86). Función o elemento: `SyncRunner.ejecutar`.  
-Demuestra: los estados de la sincronización (`Conectando`, `Reintentando`, `Cortado`, `Listo`…) y el reintento de conexión. Criterio: Conectividad / UI.  
+*Nota.* Fuente: elaboración propia a partir del archivo `mobile/app/src/main/java/co/edu/umariana/inventario/ui/SyncRunner.kt` (líneas 38–86); elemento: `SyncRunner.ejecutar`.
+
+**Demuestra:** los estados de la sincronización (`Conectando`, `Reintentando`, `Cortado`, `Listo`…) y el reintento de conexión. Criterio relacionado: Conectividad / UI.
+
+**Figura 32**
+
+*Android: Outbox (Room), envío y reconciliación tras un corte.*
 
 ![Figura 32. Android: Outbox (Room), envío y reconciliación tras un corte.](capturas/codigo/codigo_27_android_outbox.png)
 
-**Figura 32.** Android: Outbox (Room), envío y reconciliación tras un corte.  
-Archivo: mobile/app/src/main/java/co/edu/umariana/inventario/data/Lectura.kt (líneas 98–125). Función o elemento: `Outbox.tomarParaEnviar`, `reemplazar`, `reconciliar`.  
-Demuestra: cómo la bandeja local pasa lecturas por `PENDIENTE`, `ENVIADO` y `CONFIRMADO`, y se reconcilia con `READY`. Criterio: Conectividad / datos.  
+*Nota.* Fuente: elaboración propia a partir del archivo `mobile/app/src/main/java/co/edu/umariana/inventario/data/Lectura.kt` (líneas 98–125); elemento: `Outbox.tomarParaEnviar`, `reemplazar`, `reconciliar`.
+
+**Demuestra:** cómo la bandeja local pasa lecturas por `PENDIENTE`, `ENVIADO` y `CONFIRMADO`, y se reconcilia con `READY`. Criterio relacionado: Conectividad / datos.
 
 
 ### 9.5 Evidencia de funcionamiento real
 
-En este equipo no hay un teléfono emparejado (`adb devices` no lista dispositivos), por lo que la evidencia de comunicación usa el **transporte TCP** del proyecto con el **teléfono simulado** `tools/fake_phone.py`, que habla el mismo protocolo que la APK. La prueba se ejecutó contra un Oracle independiente y limpio (puerto 1522) para no alterar los datos de demostración. No se afirma que el enlace Bluetooth físico se haya verificado en esta ejecución; la capa Bluetooth se comprueba con las pruebas de `BluezTransport` (con un bus D-Bus falso) y con la prueba de campo documentada en `docs/spikes/bluez.md`.
+En este equipo no hay un teléfono emparejado (`adb devices` no lista dispositivos), así que la evidencia de comunicación usa el transporte TCP del proyecto con el teléfono simulado `tools/fake_phone.py`, que habla el mismo protocolo que la APK. La prueba se hizo contra un Oracle independiente y limpio (puerto 1522) para no alterar los datos de demostración. El enlace Bluetooth físico no se verificó en esta ejecución; la capa Bluetooth se comprueba con las pruebas de `BluezTransport` (con un bus D-Bus falso) y con la prueba de campo que el proyecto documenta en `docs/spikes/bluez.md`.
 
-**Resultado de la sincronización.** Con la cuenta sin aprobar, el PC respondió que está pendiente y no aceptó lecturas (Figura 33). Tras la aprobación, el teléfono envió 126 lecturas; el servicio respondió `BYE|126|0` y el *batch* procesó 123, dejó 1 en `ERROR` (`CANTIDAD_INVALIDA`) y 2 en `NUEVO_SKU`, sin filas duplicadas (Figura 34).
+Con la cuenta sin aprobar, el PC respondió que estaba pendiente y no aceptó lecturas (Figura 33). Tras la aprobación, el teléfono envió 126 lecturas y el servicio contestó `BYE|126|0`. El *batch* procesó 123, dejó 1 en `ERROR` (`CANTIDAD_INVALIDA`) y 2 en `NUEVO_SKU`, sin filas duplicadas (Figura 34).
+
+**Figura 33**
+
+*Ejecución real: cuenta pendiente, aprobación y envío de 126 lecturas.*
 
 ![Figura 33. Ejecución real: cuenta pendiente, aprobación y envío de 126 lecturas.](capturas/pruebas/registro_06_comunicacion_a.png)
 
-**Figura 33.** Ejecución real: cuenta pendiente, aprobación y envío de 126 lecturas.  
-Fuente: docs/documentacion/anexos/registros/comunicacion_tcp.txt (generado por herramientas/comunicacion_tcp.sh, 17-nov-2026).  
-Demuestra: validación de la cuenta y confirmación `BYE`. Criterio: Conectividad y comunicación.  
+*Nota.* Fuente: docs/documentacion/anexos/registros/comunicacion_tcp.txt (generado por herramientas/comunicacion_tcp.sh, 17-nov-2026).
+
+**Demuestra:** validación de la cuenta y confirmación `BYE`. Criterio relacionado: Conectividad y comunicación.
+
+**Figura 34**
+
+*Ejecución real: estado de Oracle tras el batch.*
 
 ![Figura 34. Ejecución real: estado de Oracle tras el batch.](capturas/pruebas/registro_07_comunicacion_b.png)
 
-**Figura 34.** Ejecución real: estado de Oracle tras el batch.  
-Fuente: comunicacion_tcp.txt. Consulta de solo lectura con herramientas/consulta_estado.py.  
-Demuestra: persistencia posterior, ausencia de duplicados y conciliación calculada. Criterio: Conectividad y comunicación.  
+*Nota.* Fuente: comunicacion_tcp.txt. Consulta de solo lectura con herramientas/consulta_estado.py.
 
-**Corte y reanudación.** Un segundo teléfono simulado fue terminado con `SIGKILL` a los 4 s: en Oracle quedaron 50 filas confirmadas. Al relanzar con el mismo *outbox*, el servicio respondió con el último `seq` y el teléfono envió solo las 70 restantes (`BYE|70|0`): 120 filas en total, 0 duplicadas (Figura 35 y Figura 36).
+**Demuestra:** persistencia posterior, ausencia de duplicados y conciliación calculada. Criterio relacionado: Conectividad y comunicación.
+
+Un segundo teléfono simulado se terminó con `SIGKILL` a los 4 s y en Oracle quedaron 50 filas confirmadas. Al relanzarlo con el mismo *outbox*, el servicio informó el último `seq` y el teléfono envió solo las 70 restantes (`BYE|70|0`): 120 filas en total y ninguna duplicada (Figura 35 y Figura 36).
+
+**Figura 35**
+
+*Ejecución real: corte del envío con SIGKILL y reanudación.*
 
 ![Figura 35. Ejecución real: corte del envío con SIGKILL y reanudación.](capturas/pruebas/registro_08_corte.png)
 
-**Figura 35.** Ejecución real: corte del envío con SIGKILL y reanudación.  
-Fuente: anexos/registros/comunicacion_corte.txt (herramientas/comunicacion_corte.sh).  
-Demuestra: reintento y reanudación desde el último `seq` confirmado. Criterio: Conectividad y comunicación.  
+*Nota.* Fuente: anexos/registros/comunicacion_corte.txt (herramientas/comunicacion_corte.sh).
+
+**Demuestra:** reintento y reanudación desde el último `seq` confirmado. Criterio relacionado: Conectividad y comunicación.
+
+**Figura 36**
+
+*Ejecución real: estado final tras la reanudación, sin duplicados.*
 
 ![Figura 36. Ejecución real: estado final tras la reanudación, sin duplicados.](capturas/pruebas/registro_09_corte_final.png)
 
-**Figura 36.** Ejecución real: estado final tras la reanudación, sin duplicados.  
-Fuente: comunicacion_corte.txt.  
-Demuestra: integridad `(uuid, seq)` tras un corte. Criterio: Conectividad y comunicación.  
+*Nota.* Fuente: comunicacion_corte.txt.
+
+**Demuestra:** integridad `(uuid, seq)` tras un corte. Criterio relacionado: Conectividad y comunicación.
 
 
 ### 9.6 Seguridad y límites del canal
 
-Por decisión de diseño (D22) el modo por defecto **no empareja ni cifra** el enlace: el teléfono recuerda al PC y conecta directo. Quien esté al alcance (~10 m) podría conectarse y enviar lecturas falsas mientras el servicio esté activo; las mitigaciones documentadas son aceptar un solo teléfono a la vez, validar cada línea, exigir una cuenta aprobada y vinculada al UUID del teléfono, y permitir al Administrador pausar el servicio. Existe un modo con código de emparejamiento (`BT_CON_CLAVE=1`) que no se ejecutó en esta verificación. Por todo ello no se afirma que la comunicación sea «segura» en sentido de confidencialidad.
+Por decisión de diseño (D22), el modo por defecto no empareja ni cifra el enlace: el teléfono recuerda al PC y conecta directo. Quien esté al alcance (unos 10 m) podría conectarse y enviar lecturas falsas mientras el servicio esté activo. Lo limitan el aceptar un solo teléfono a la vez, la validación de cada línea, la exigencia de una cuenta aprobada y vinculada al UUID del teléfono, y la posibilidad de que el Administrador pause el servicio. Existe un modo con código de emparejamiento (`BT_CON_CLAVE=1`) que no se ejecutó en esta verificación. Por eso no se afirma que la comunicación sea segura en el sentido de la confidencialidad.
 
 **Tabla 14.** _Escenarios de falla y mecanismo de tolerancia_
 
@@ -693,7 +845,7 @@ _Fuente: server/tests/test_session.py, test_bluez.py y test_e2e_tcp.py; ejecuci�
 
 ## 10. Flujos de operación del sistema
 
-Este capítulo describe los procesos de extremo a extremo con sus validaciones y errores. Los diagramas de secuencia de los flujos de datos se encuentran en el capítulo 9; aquí se añaden los diagramas de actividades y de estados.
+Este capítulo describe los procesos de extremo a extremo con sus validaciones y errores. Los diagramas de secuencia de los flujos de datos están en el capítulo 9; aquí se agregan los de actividades y de estados.
 
 **Tabla 15.** _Procesos principales de extremo a extremo_
 
@@ -713,43 +865,59 @@ _Fuente: Elaboración propia a partir del código y de la documentación del pro
 
 ### 10.1 Del teléfono al batch: diagrama de actividades
 
-El Figura 37 reparte las responsabilidades en carriles: el móvil, la sesión del servicio, el controlador y Oracle. Muestra el ciclo de lectura de `REC` con validación, la confirmación cada 25 y el procesamiento por lotes con recuperación de filas huérfanas.
+La Figura 37 reparte las responsabilidades en carriles: el móvil, la sesión del servicio, el controlador y Oracle. Muestra el ciclo de lectura de `REC` con su validación, la confirmación cada 25 inserciones y el procesamiento por lotes con recuperación de filas huérfanas. El conteo visto desde el teléfono está en la Figura 38.
+
+**Figura 37**
+
+*Diagrama de actividades: de la subida al ACK y el batch PKG_BATCH.PROCESAR_PENDIENTES.*
 
 ![Figura 37. Diagrama de actividades: de la subida al ACK y el batch PKG_BATCH.PROCESAR_PENDIENTES.](diagramas/renderizados/08_actividades.png)
 
-**Figura 37.** Diagrama de actividades: de la subida al ACK y el batch PKG_BATCH.PROCESAR_PENDIENTES.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/08_actividades.puml.  
-Demuestra: flujo real de validación, confirmación y conciliación. Criterio: Funcionalidad y requisitos.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/08_actividades.puml.
+
+**Demuestra:** flujo real de validación, confirmación y conciliación. Criterio relacionado: Funcionalidad y requisitos.
+
+**Figura 38**
+
+*Diagrama de actividades del conteo en el móvil.*
 
 ![Figura 38. Diagrama de actividades del conteo en el móvil.](diagramas/renderizados/08b_actividad_conteo_movil.png)
 
-**Figura 38.** Diagrama de actividades del conteo en el móvil.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/08b_actividad_conteo_movil.puml.  
-Demuestra: el flujo del operador desde el acceso hasta la sincronización. Criterio: Funcionalidad y requisitos.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/08b_actividad_conteo_movil.puml.
+
+**Demuestra:** el flujo del operador desde el acceso hasta la sincronización. Criterio relacionado: Funcionalidad y requisitos.
 
 
 ### 10.2 Estados de una lectura y de una cuenta
 
-Una fila de tránsito recorre `PENDIENTE → PROCESANDO → PROCESADO | ERROR | NUEVO_SKU | DESCARTADO` (Figura 39). Una cuenta pasa por `PENDIENTE → ACTIVO | RECHAZADO` y `ACTIVO ⇄ SUSPENDIDO` (Figura 40). Ambos diagramas coinciden con las restricciones `CHECK` del esquema.
+Una fila de tránsito pasa por `PENDIENTE → PROCESANDO → PROCESADO | ERROR | NUEVO_SKU | DESCARTADO` (Figura 39). Una cuenta pasa por `PENDIENTE → ACTIVO | RECHAZADO` y `ACTIVO ⇄ SUSPENDIDO` (Figura 40). Ambos diagramas coinciden con las restricciones `CHECK` del esquema.
+
+**Figura 39**
+
+*Estados de una fila de CAPTURA_TRANSITO.*
 
 ![Figura 39. Estados de una fila de CAPTURA_TRANSITO.](diagramas/renderizados/09b_estados_fila_transito.png)
 
-**Figura 39.** Estados de una fila de CAPTURA_TRANSITO.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/09b_estados_fila_transito.puml.  
-Demuestra: ciclo de vida de una lectura en el staging. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/09b_estados_fila_transito.puml.
+
+**Demuestra:** ciclo de vida de una lectura en el staging. Criterio relacionado: Arquitectura y código fuente.
+
+**Figura 40**
+
+*Estados de una cuenta de usuario.*
 
 ![Figura 40. Estados de una cuenta de usuario.](diagramas/renderizados/09c_estados_cuenta.png)
 
-**Figura 40.** Estados de una cuenta de usuario.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/09c_estados_cuenta.puml.  
-Demuestra: ciclo de vida de una cuenta y su acceso. Criterio: Seguridad / Funcionalidad.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/09c_estados_cuenta.puml.
+
+**Demuestra:** ciclo de vida de una cuenta y su acceso. Criterio relacionado: Seguridad / Funcionalidad.
 
 
 ## 11. Descripción de los módulos y funcionalidades
 
-Cada módulo se describe con una ficha y, cuando tiene interfaz, con una captura de la aplicación en ejecución. Las capturas del escritorio se obtuvieron ejecutando la ventana real (`app.main.build_window`) con las cuentas de demostración del README, en el contenedor de la aplicación con Qt en modo `offscreen`, y guardando el contenido de la ventana (`QWidget.grab`). Las de la APK son renderizados del código de Compose de la propia aplicación producidos por la prueba `CapturasTest`; no son fotografías de un teléfono físico. En todos los casos los datos que se ven son los de demostración del proyecto (`08_demo.sql`).
+Cada módulo se describe con una ficha y, si tiene interfaz, con una captura de la aplicación en ejecución. Las capturas del escritorio se tomaron ejecutando la ventana real (`app.main.build_window`) con las cuentas de demostración del README, en el contenedor de la aplicación con Qt en modo `offscreen`, y guardando el contenido de la ventana con `QWidget.grab`. Las de la APK son renderizados del código Compose de la propia aplicación que produce la prueba `CapturasTest`; no son fotografías de un teléfono. Los datos visibles son los de demostración del proyecto (`08_demo.sql`).
 
-En las capturas del escritorio aparecen dos elementos transitorios reales: un aviso emergente «Servicio Bluetooth en pausa» (el servicio estaba pausado en la base de demostración) y el aviso flotante «Nuevo SKU» con dos lecturas de SKU no registrados. No se alteraron datos para ocultarlos.
+En las capturas del escritorio aparecen dos elementos transitorios reales: un aviso emergente «Servicio Bluetooth en pausa» (el servicio estaba pausado en la base de demostración) y el aviso flotante «Nuevo SKU», con dos lecturas de SKU no registrados. No se alteraron datos para ocultarlos.
 
 
 ### 11.1 Acceso y creación de cuenta (escritorio)
@@ -766,17 +934,25 @@ En las capturas del escritorio aparecen dos elementos transitorios reales: un av
 | Pruebas | `test_auth.py`, `test_fortaleza.py`, `test_estado_cuenta.py`, `test_app.py::test_without_session_the_window_shows_only_the_login` (aprobadas en Oracle limpio). |
 | Resultado de verificación | Verificado: captura de la pantalla real (Figura 41) y pruebas aprobadas. |
 
+**Figura 41**
+
+*Pantalla de acceso de la aplicación de escritorio.*
+
 ![Figura 41. Pantalla de acceso de la aplicación de escritorio.](capturas/aplicacion/acceso/01_acceso.png)
 
-**Figura 41.** Pantalla de acceso de la aplicación de escritorio.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/acceso/01_acceso.png.  
-Demuestra: la pantalla inicial real, con usuario, contraseña, recordar usuario, recuperación y alta de cuenta. Criterio: UI/UX y Funcionalidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/acceso/01_acceso.png`.
+
+**Demuestra:** la pantalla inicial real, con usuario, contraseña, recordar usuario, recuperación y alta de cuenta. Criterio relacionado: UI/UX y Funcionalidad.
+
+**Figura 42**
+
+*Autenticación: hash, bloqueo por intentos y auditoría.*
 
 ![Figura 42. Autenticación: hash, bloqueo por intentos y auditoría.](capturas/codigo/codigo_18_autenticacion.png)
 
-**Figura 42.** Autenticación: hash, bloqueo por intentos y auditoría.  
-Archivo: desktop/app/auth.py (líneas 261–306). Función o elemento: `auth.iniciar_sesion`.  
-Demuestra: la verificación de contraseña, el contador de intentos con bloqueo y la auditoría de cada intento. Criterio: Seguridad / funcionalidad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/auth.py` (líneas 261–306); elemento: `auth.iniciar_sesion`.
+
+**Demuestra:** la verificación de contraseña, el contador de intentos con bloqueo y la auditoría de cada intento. Criterio relacionado: Seguridad / funcionalidad.
 
 
 ### 11.2 Dashboard
@@ -793,11 +969,15 @@ Demuestra: la verificación de contraseña, el contador de intentos con bloqueo 
 | Pruebas | `test_dashboard_views.py`, `test_dashboard_personal.py`, `test_dashboard_motion.py`. En Oracle limpio fallan `test_kpis_del_conteo_continuo` (espera 6,2 % del seed de 60 SKU; con 120 SKU da 3,2 %) y dos pruebas de geometría/animación (ver 14.4). |
 | Resultado de verificación | Verificado visualmente (Figura 43); las cifras mostradas (120 SKU, 100 contados, 83,3 %) son coherentes entre sí. Pruebas parcialmente fallidas por causas ajenas a la presentación. |
 
+**Figura 43**
+
+*Dashboard visto por el Administrador.*
+
 ![Figura 43. Dashboard visto por el Administrador.](capturas/roles/administrador/01_dashboard.png)
 
-**Figura 43.** Dashboard visto por el Administrador.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/01_dashboard.png.  
-Demuestra: indicadores del conteo continuo, gráfica de diferencia por categoría, aviso emergente del servicio y aviso flotante «Nuevo SKU». Criterio: Funcionalidad y UI/UX.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/01_dashboard.png`.
+
+**Demuestra:** indicadores del conteo continuo, gráfica de diferencia por categoría, aviso emergente del servicio y aviso flotante «Nuevo SKU». Criterio relacionado: Funcionalidad y UI/UX.
 
 
 ### 11.3 Inventario
@@ -814,11 +994,15 @@ Demuestra: indicadores del conteo continuo, gráfica de diferencia por categorí
 | Pruebas | `test_inventario_views.py` (aprobadas), `test_visor_foto.py` (aprobadas). |
 | Resultado de verificación | Verificado visualmente (Figura 44): 120 SKU, 100 contados, 20 sin contar, como indica el pie de la tabla. |
 
+**Figura 44**
+
+*Módulo Inventario con datos.*
+
 ![Figura 44. Módulo Inventario con datos.](capturas/roles/administrador/02_inventario.png)
 
-**Figura 44.** Módulo Inventario con datos.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/02_inventario.png.  
-Demuestra: tabla de cinco columnas con búsqueda, filtros y exportación; pie con totales. Criterio: Funcionalidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/02_inventario.png`.
+
+**Demuestra:** tabla de cinco columnas con búsqueda, filtros y exportación; pie con totales. Criterio relacionado: Funcionalidad.
 
 
 ### 11.4 Gráficas
@@ -834,11 +1018,15 @@ Demuestra: tabla de cinco columnas con búsqueda, filtros y exportación; pie co
 | Pruebas | `test_charts_views.py`: en Oracle limpio fallan 2 de sus pruebas (una por cifras del seed de 60 SKU y otra de geometría). |
 | Resultado de verificación | Verificado visualmente (Figura 45) con el usuario de rol Inventario. |
 
+**Figura 45**
+
+*Módulo Gráficas (rol Inventario).*
+
 ![Figura 45. Módulo Gráficas (rol Inventario).](capturas/roles/inventario/03_graficas.png)
 
-**Figura 45.** Módulo Gráficas (rol Inventario).  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/inventario/03_graficas.png.  
-Demuestra: gráficas de avance por categoría, SKUs contados vs. pendientes y lecturas; filtros y exportación. Criterio: UI/UX y Funcionalidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/inventario/03_graficas.png`.
+
+**Demuestra:** gráficas de avance por categoría, SKUs contados vs. pendientes y lecturas; filtros y exportación. Criterio relacionado: UI/UX y Funcionalidad.
 
 
 ### 11.5 Sincronización (escritorio)
@@ -855,17 +1043,25 @@ Demuestra: gráficas de avance por categoría, SKUs contados vs. pendientes y le
 | Pruebas | `test_sync_views.py`, `test_sync_centro.py`, `test_servicio.py` (aprobadas). |
 | Resultado de verificación | Verificado visualmente: Figura 46 (1240 × 800) y Figura 47 (1920 × 1080). En 1240 px de ancho la columna derecha de indicadores queda recortada por el borde de la ventana; a 1920 px se ve completa. |
 
+**Figura 46**
+
+*Módulo Sincronización con el servicio en pausa.*
+
 ![Figura 46. Módulo Sincronización con el servicio en pausa.](capturas/roles/administrador/08_sincronizacion.png)
 
-**Figura 46.** Módulo Sincronización con el servicio en pausa.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/08_sincronizacion.png.  
-Demuestra: estado del servicio, botón «Reanudar servicio» e indicadores de flujo de datos. Criterio: Conectividad y UI/UX.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/08_sincronizacion.png`.
+
+**Demuestra:** estado del servicio, botón «Reanudar servicio» e indicadores de flujo de datos. Criterio relacionado: Conectividad y UI/UX.
+
+**Figura 47**
+
+*Sincronización a 1920 × 1080.*
 
 ![Figura 47. Sincronización a 1920 × 1080.](capturas/aplicacion/resoluciones/sincronizacion_1920x1080.png)
 
-**Figura 47.** Sincronización a 1920 × 1080.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/resoluciones/sincronizacion_1920x1080.png.  
-Demuestra: el mismo módulo con espacio suficiente para todos los indicadores. Criterio: UI/UX y adaptabilidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/resoluciones/sincronizacion_1920x1080.png`.
+
+**Demuestra:** el mismo módulo con espacio suficiente para todos los indicadores. Criterio relacionado: UI/UX y adaptabilidad.
 
 
 ### 11.6 Solicitudes, Empleados y Roles y permisos
@@ -880,11 +1076,15 @@ Demuestra: el mismo módulo con espacio suficiente para todos los indicadores. C
 | Código y pruebas | `views/solicitudes.py`, `auth.aprobar/rechazar/resolver_clave`; `test_requests_only_allow_inventory_for_pc_and_operator_for_mobile` y `test_auth.py` (aprobadas). |
 | Resultado de verificación | Verificado visualmente (Figura 48): dos cuentas pendientes (PC y celular) y el historial. |
 
+**Figura 48**
+
+*Módulo Solicitudes.*
+
 ![Figura 48. Módulo Solicitudes.](capturas/roles/administrador/03_solicitudes.png)
 
-**Figura 48.** Módulo Solicitudes.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/03_solicitudes.png.  
-Demuestra: cuentas pendientes con su origen, contraseñas por aprobar e historial. Criterio: Funcionalidad y Seguridad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/03_solicitudes.png`.
+
+**Demuestra:** cuentas pendientes con su origen, contraseñas por aprobar e historial. Criterio relacionado: Funcionalidad y Seguridad.
 
 **Tabla 22.** _Ficha del módulo: Empleados_
 
@@ -895,11 +1095,15 @@ Demuestra: cuentas pendientes con su origen, contraseñas por aprobar e historia
 | Código y pruebas | `views/usuarios.py`; `test_usuarios_views.py` (incluye `test_movil_se_suspende_con_motivo_y_se_reactiva` y `test_administrador_no_se_puede_suspender`, aprobadas). |
 | Resultado de verificación | Verificado visualmente (Figura 49): siete cuentas activas, con rol y estado. |
 
+**Figura 49**
+
+*Módulo Empleados.*
+
 ![Figura 49. Módulo Empleados.](capturas/roles/administrador/04_empleados.png)
 
-**Figura 49.** Módulo Empleados.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/04_empleados.png.  
-Demuestra: cuentas con rol y estado, filtros y acciones de administración. Criterio: Funcionalidad y Seguridad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/04_empleados.png`.
+
+**Demuestra:** cuentas con rol y estado, filtros y acciones de administración. Criterio relacionado: Funcionalidad y Seguridad.
 
 **Tabla 23.** _Ficha del módulo: Roles y permisos_
 
@@ -910,11 +1114,15 @@ Demuestra: cuentas con rol y estado, filtros y acciones de administración. Crit
 | Código y pruebas | `views/roles.py`, `permisos.py`; `test_roles_view.py`, `test_permisos.py` (aprobadas). |
 | Resultado de verificación | Verificado visualmente (Figura 50) y comparando con la barra lateral de cada rol (sección 13.2). |
 
+**Figura 50**
+
+*Módulo Roles y permisos.*
+
 ![Figura 50. Módulo Roles y permisos.](capturas/roles/administrador/05_roles_y_permisos.png)
 
-**Figura 50.** Módulo Roles y permisos.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/05_roles_y_permisos.png.  
-Demuestra: la matriz rol × módulo con la columna del Administrador deshabilitada. Criterio: Seguridad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/05_roles_y_permisos.png`.
+
+**Demuestra:** la matriz rol × módulo con la columna del Administrador deshabilitada. Criterio relacionado: Seguridad.
 
 
 ### 11.7 Auditoría, Configuración y Respaldos
@@ -928,11 +1136,15 @@ Demuestra: la matriz rol × módulo con la columna del Administrador deshabilita
 | Código y pruebas | `auditoria.py`, `views/auditoria.py`; `test_auditoria.py`, `test_auditoria_views.py`, `test_selector_fecha.py` (aprobadas). |
 | Resultado de verificación | Verificado visualmente (Figura 51); incluye los inicios de sesión generados por la captura de este documento y un intento fallido con «usuario inexistente». |
 
+**Figura 51**
+
+*Módulo Auditoría.*
+
 ![Figura 51. Módulo Auditoría.](capturas/roles/administrador/06_auditoria.png)
 
-**Figura 51.** Módulo Auditoría.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/06_auditoria.png.  
-Demuestra: registro de accesos y acciones con filtros. Criterio: Seguridad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/06_auditoria.png`.
+
+**Demuestra:** registro de accesos y acciones con filtros. Criterio relacionado: Seguridad.
 
 **Tabla 25.** _Ficha del módulo: Configuración_
 
@@ -943,11 +1155,15 @@ Demuestra: registro de accesos y acciones con filtros. Criterio: Seguridad.
 | Código y pruebas | `configuracion.py`, `views/configuracion.py`; `test_configuracion.py`, `test_configuracion_views.py` (aprobadas). |
 | Resultado de verificación | Verificado visualmente (Figura 52). |
 
+**Figura 52**
+
+*Módulo Configuración.*
+
 ![Figura 52. Módulo Configuración.](capturas/roles/administrador/07_configuracion.png)
 
-**Figura 52.** Módulo Configuración.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/07_configuracion.png.  
-Demuestra: parámetros editables y la carpeta de fotos de solo lectura. Criterio: Funcionalidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/07_configuracion.png`.
+
+**Demuestra:** parámetros editables y la carpeta de fotos de solo lectura. Criterio relacionado: Funcionalidad.
 
 **Tabla 26.** _Ficha del módulo: Respaldos_
 
@@ -958,11 +1174,15 @@ Demuestra: parámetros editables y la carpeta de fotos de solo lectura. Criterio
 | Código y pruebas | `btsync/respaldo.py`, `views/respaldos.py`; `test_respaldo.py`, `test_respaldos.py` (aprobadas) y `test_respaldos_views.py` (una prueba falla en Oracle limpio: `test_tras_restaurar_la_ventana_vuelve_al_login_con_el_aviso`, no diagnosticada). |
 | Resultado de verificación | Verificado visualmente (Figura 53): estado vacío «Aún no hay respaldos»; no se creó ni restauró ningún respaldo sobre la base de demostración para no alterarla. |
 
+**Figura 53**
+
+*Módulo Respaldos (estado vacío).*
+
 ![Figura 53. Módulo Respaldos (estado vacío).](capturas/roles/administrador/09_respaldos.png)
 
-**Figura 53.** Módulo Respaldos (estado vacío).  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/09_respaldos.png.  
-Demuestra: creación manual, tabla vacía y programación del respaldo automático. Criterio: Funcionalidad y UI/UX (estado vacío).  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/09_respaldos.png`.
+
+**Demuestra:** creación manual, tabla vacía y programación del respaldo automático. Criterio relacionado: Funcionalidad y UI/UX (estado vacío).
 
 
 ### 11.8 Notificaciones y Perfil
@@ -976,17 +1196,25 @@ Demuestra: creación manual, tabla vacía y programación del respaldo automáti
 | Código y pruebas | `views/bandeja.py`, `notificaciones.py`, `views/perfil.py`, `views/foto.py`; `test_notificaciones*.py`, `test_perfil*.py`, `test_idioma.py`, `test_tema_sistema.py`. |
 | Resultado de verificación | Verificado visualmente (Figura 54 y Figura 55). |
 
+**Figura 54**
+
+*Hoja flotante de notificaciones.*
+
 ![Figura 54. Hoja flotante de notificaciones.](capturas/aplicacion/navegacion/notificaciones_hoja.png)
 
-**Figura 54.** Hoja flotante de notificaciones.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/navegacion/notificaciones_hoja.png.  
-Demuestra: avisos con indicador de no leídos y acción «Ver». Criterio: UI/UX.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/navegacion/notificaciones_hoja.png`.
+
+**Demuestra:** avisos con indicador de no leídos y acción «Ver». Criterio relacionado: UI/UX.
+
+**Figura 55**
+
+*Módulo Perfil.*
 
 ![Figura 55. Módulo Perfil.](capturas/roles/administrador/20_perfil.png)
 
-**Figura 55.** Módulo Perfil.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/roles/administrador/20_perfil.png.  
-Demuestra: datos de la cuenta, seguridad, tema e idioma. Criterio: UI/UX y Seguridad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/roles/administrador/20_perfil.png`.
+
+**Demuestra:** datos de la cuenta, seguridad, tema e idioma. Criterio relacionado: UI/UX y Seguridad.
 
 
 ### 11.9 Captura móvil (APK Android)
@@ -1003,17 +1231,25 @@ Demuestra: datos de la cuenta, seguridad, tema e idioma. Criterio: UI/UX y Segur
 | Pruebas | `CountViewModelTest` (15), `OutboxTest`, `AuthRepositoryTest` (12), `CodigoEscaneadoTest`, `CompresorTest` y `CapturasTest` (29): 115 pruebas de la APK, todas aprobadas en la ejecución de este trabajo. |
 | Resultado de verificación | Verificado con renderizados de la propia app (Figura 56, Figura 57 y Figura 59); no se probó en un teléfono físico (no hay uno conectado). |
 
+**Figura 56**
+
+*Pantallas de acceso y cuenta de la APK.*
+
 ![Figura 56. Pantallas de acceso y cuenta de la APK.](capturas/movil/movil_montaje_1_acceso.png)
 
-**Figura 56.** Pantallas de acceso y cuenta de la APK.  
-Fuente: renderizados de CapturasTest (mobile/app/src/test/.../ui/CapturasTest.kt) a 1080 × 2340 px; originales en capturas/movil/originales/. No son fotografías de un teléfono físico.  
-Demuestra: acceso, alta de cuenta con pregunta de seguridad, recuperación, error de acceso, bienvenida y cuenta pendiente. Criterio: UI/UX.  
+*Nota.* Fuente: renderizados de CapturasTest (mobile/app/src/test/.../ui/CapturasTest.kt) a 1080 × 2340 px; originales en capturas/movil/originales/. No son fotografías de un teléfono físico.
+
+**Demuestra:** acceso, alta de cuenta con pregunta de seguridad, recuperación, error de acceso, bienvenida y cuenta pendiente. Criterio relacionado: UI/UX.
+
+**Figura 57**
+
+*Pantallas de captura de la APK.*
 
 ![Figura 57. Pantallas de captura de la APK.](capturas/movil/movil_montaje_2_captura.png)
 
-**Figura 57.** Pantallas de captura de la APK.  
-Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).  
-Demuestra: inicio, catálogo, contar con escáner o digitación, SKU fuera del catálogo, contado y pendientes. Criterio: Funcionalidad y UI/UX.  
+*Nota.* Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).
+
+**Demuestra:** inicio, catálogo, contar con escáner o digitación, SKU fuera del catálogo, contado y pendientes. Criterio relacionado: Funcionalidad y UI/UX.
 
 
 ### 11.10 Sincronización móvil
@@ -1028,91 +1264,119 @@ Demuestra: inicio, catálogo, contar con escáner o digitación, SKU fuera del c
 | Pruebas | `SyncClientTest` (16, con un PC falso `FakePc`), `SyncRunnerTest` (9), `ProtocolTest` (6): aprobadas. |
 | Resultado de verificación | Estados verificados con renderizados (Figura 58); el protocolo, con la ejecución de la sección 9.5. El enlace Bluetooth físico no se ejecutó en esta verificación. |
 
+**Figura 58**
+
+*Estados de la sincronización en la APK.*
+
 ![Figura 58. Estados de la sincronización en la APK.](capturas/movil/movil_montaje_3_sincronizacion.png)
 
-**Figura 58.** Estados de la sincronización en la APK.  
-Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).  
-Demuestra: buscar, conectar, enviar, listo, PC ocupado y sin conexión. Criterio: Conectividad y UI/UX (estados de carga y error).  
+*Nota.* Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).
+
+**Demuestra:** buscar, conectar, enviar, listo, PC ocupado y sin conexión. Criterio relacionado: Conectividad y UI/UX (estados de carga y error).
+
+**Figura 59**
+
+*Notificaciones, cuenta, editor de foto y tema oscuro en la APK.*
 
 ![Figura 59. Notificaciones, cuenta, editor de foto y tema oscuro en la APK.](capturas/movil/movil_montaje_4_apariencia.png)
 
-**Figura 59.** Notificaciones, cuenta, editor de foto y tema oscuro en la APK.  
-Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).  
-Demuestra: avisos, perfil con preferencias, editor de foto y el tema oscuro. Criterio: UI/UX.  
+*Nota.* Fuente: renderizados de CapturasTest (originales en capturas/movil/originales/).
+
+**Demuestra:** avisos, perfil con preferencias, editor de foto y el tema oscuro. Criterio relacionado: UI/UX.
 
 
 ### 11.11 Servicio Bluetooth y batch de Oracle
 
-Estos dos módulos no tienen interfaz propia; su evidencia es la ejecución real descrita en la sección 9.5 y las pruebas del capítulo 14. El **servicio Bluetooth** (`btsync.servicio`) es el proceso que mantiene el perfil RFCOMM, crea una `Session` por teléfono, escribe su estado y latido en `SERVICIO_BT` y ejecuta el respaldo automático. El **batch** (`PKG_BATCH`) valida cada fila, calcula la lectura vigente y concilia `ACTUAL`; en la ejecución real procesó 123 lecturas con 1 error, sin duplicados.
+Estos dos módulos no tienen interfaz propia, y su evidencia es la ejecución descrita en la sección 9.5 y las pruebas del capítulo 14. El servicio Bluetooth (`btsync.servicio`) mantiene el perfil RFCOMM, crea una `Session` por teléfono, escribe su estado y su latido en `SERVICIO_BT` y ejecuta el respaldo automático; su código se recorre en la sección 7.7. El *batch* (`PKG_BATCH`) valida cada fila, calcula la lectura vigente y concilia `ACTUAL`; en la ejecución real procesó 123 lecturas con 1 error y sin duplicados.
 
 
 ## 12. Experiencia de usuario e interfaz gráfica
 
-El análisis se hizo con la aplicación ejecutándose. Se distingue lo observado en las capturas de lo que el código declara, y se señalan también los defectos encontrados.
+El análisis se hizo con la aplicación en ejecución. Se separa lo observado en las capturas de lo que el código declara, y se anotan también los defectos encontrados.
 
 
 ### 12.1 Diseño, jerarquía visual y navegación
 
-- **Estructura:** barra lateral izquierda con iconos y texto, cabecera con título, estado de Oracle y de Bluetooth y botón «Actualizar», y contenido en tarjetas. El pie de la barra muestra avatar, nombre, rol, tema y cerrar sesión; la campana está junto al título de la barra.
-- **Identidad visual:** verde esmeralda (`#10B981` y tonos) como color de acción, fondo gris claro y tarjetas blancas; rojo y ámbar para faltantes y sobrantes. La tipografía es la sans-serif por defecto del sistema (en el contenedor donde se tomaron las capturas, DejaVu Sans): el proyecto no incorpora una fuente propia.
-- **Iconografía:** iconos de trazo para cada módulo (`views/iconos.py`).
-- **Consistencia:** mismas cabeceras, tablas con encabezado fijo, botones primarios verdes y secundarios con borde en todas las pantallas.
-- **Navegación por teclado:** atajos para ir a un módulo por número y para enfocar el buscador (`MainWindow._instalar_atajos`).
+- Hay una barra lateral izquierda con iconos y texto, una cabecera con el título, el estado de Oracle y de Bluetooth y el botón «Actualizar», y el contenido en tarjetas. El pie de la barra muestra avatar, nombre, rol, tema y cerrar sesión, y la campana está junto al título de la barra.
+- El color de acción es un verde esmeralda (`#10B981` y tonos) sobre fondo gris claro y tarjetas blancas; el rojo y el ámbar marcan faltantes y sobrantes. La tipografía es la sans-serif por defecto del sistema (en el contenedor donde se tomaron las capturas, DejaVu Sans), porque el proyecto no incorpora una fuente propia.
+- Cada módulo tiene un icono de trazo (`views/iconos.py`).
+- Las cabeceras, las tablas con encabezado fijo y los botones (primarios verdes, secundarios con borde) se repiten en todas las pantallas.
+- Por teclado hay atajos para ir a un módulo por número y para enfocar el buscador (`MainWindow._instalar_atajos`).
 
 
 ### 12.2 Estados de carga, vacío y error
 
-- **Carga:** las tarjetas muestran «—» y «Cargando…» mientras Oracle responde (Figura 60).
-- **Vacío:** Respaldos muestra «Aún no hay respaldos» y la tabla «Sin datos» (Figura 53); Solicitudes, «Sin datos» en la tabla de contraseñas (Figura 48); el catálogo móvil, «No hay productos en el catálogo» (Figura 57).
-- **Error:** la APK muestra «PC ocupado» y «No se pudo conectar» con iconos y texto (Figura 58); el acceso muestra el mensaje de credenciales incorrectas (Figura 56); el escritorio muestra un aviso cuando el servicio está en pausa.
-- **Confirmaciones y avisos:** avisos emergentes («Servicio Bluetooth en pausa»), confirmación al descartar un SKU nuevo y escritura de `RESTAURAR` para restaurar.
+- Mientras Oracle responde, las tarjetas muestran «—» y «Cargando…» (Figura 60).
+- Respaldos muestra «Aún no hay respaldos» y la tabla «Sin datos» (Figura 53); Solicitudes usa «Sin datos» en la tabla de contraseñas (Figura 48); el catálogo móvil dice «No hay productos en el catálogo» (Figura 57).
+- La APK muestra «PC ocupado» y «No se pudo conectar» con icono y texto (Figura 58); el acceso muestra el mensaje de credenciales incorrectas (Figura 56); el escritorio avisa cuando el servicio está en pausa.
+- Hay avisos emergentes («Servicio Bluetooth en pausa»), confirmación antes de descartar un SKU nuevo y la palabra `RESTAURAR` como confirmación para restaurar un respaldo.
+
+**Figura 60**
+
+*Dashboard en estado de carga.*
 
 ![Figura 60. Dashboard en estado de carga.](capturas/aplicacion/pantalla_principal/dashboard_estado_de_carga.png)
 
-**Figura 60.** Dashboard en estado de carga.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/pantalla_principal/dashboard_estado_de_carga.png.  
-Demuestra: el estado «Cargando…» con tarjetas provisionales mientras llegan los datos. Criterio: UI/UX (estados de carga).  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/pantalla_principal/dashboard_estado_de_carga.png`.
+
+**Demuestra:** el estado «Cargando…» con tarjetas provisionales mientras llegan los datos. Criterio relacionado: UI/UX (estados de carga).
 
 
 ### 12.3 Adaptabilidad a distintas resoluciones
 
-La ventana tiene un mínimo de 900 × 600 (`setMinimumSize`) y se probó a 900 × 600, 1240 × 800, 1366 × 768 y 1920 × 1080. A 900 px la barra lateral se contrae automáticamente a solo iconos (Figura 61); también se puede contraer a mano (Figura 62). A 1920 × 1080 el contenido aprovecha el ancho disponible y muestra más filas (Figura 63).
+La ventana tiene un mínimo de 900 × 600 (`setMinimumSize`) y se probó a 900 × 600, 1240 × 800, 1366 × 768 y 1920 × 1080. A 900 px la barra lateral se contrae sola a iconos (Figura 61); también se puede contraer a mano (Figura 62). A 1920 × 1080 el contenido aprovecha el ancho y muestra más filas (Figura 63). La Figura 64 muestra el módulo más ancho, Sincronización, en una pantalla de portátil común.
+
+**Figura 61**
+
+*Dashboard a 900 × 600 (mínimo).*
 
 ![Figura 61. Dashboard a 900 × 600 (mínimo).](capturas/aplicacion/resoluciones/dashboard_900x600.png)
 
-**Figura 61.** Dashboard a 900 × 600 (mínimo).  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/resoluciones/dashboard_900x600.png.  
-Demuestra: contracción automática de la barra lateral y reacomodo de las tarjetas. Criterio: UI/UX y adaptabilidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/resoluciones/dashboard_900x600.png`.
+
+**Demuestra:** contracción automática de la barra lateral y reacomodo de las tarjetas. Criterio relacionado: UI/UX y adaptabilidad.
+
+**Figura 62**
+
+*Barra lateral contraída a 1240 × 800.*
 
 ![Figura 62. Barra lateral contraída a 1240 × 800.](capturas/aplicacion/navegacion/lateral_contraida.png)
 
-**Figura 62.** Barra lateral contraída a 1240 × 800.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/navegacion/lateral_contraida.png.  
-Demuestra: el modo de solo iconos que libera espacio horizontal. Criterio: UI/UX y adaptabilidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/navegacion/lateral_contraida.png`.
+
+**Demuestra:** el modo de solo iconos que libera espacio horizontal. Criterio relacionado: UI/UX y adaptabilidad.
+
+**Figura 63**
+
+*Inventario a 1920 × 1080.*
 
 ![Figura 63. Inventario a 1920 × 1080.](capturas/aplicacion/resoluciones/inventario_1920x1080.png)
 
-**Figura 63.** Inventario a 1920 × 1080.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/resoluciones/inventario_1920x1080.png.  
-Demuestra: la tabla ocupando el ancho disponible con más filas visibles. Criterio: UI/UX y adaptabilidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/resoluciones/inventario_1920x1080.png`.
+
+**Demuestra:** la tabla ocupando el ancho disponible con más filas visibles. Criterio relacionado: UI/UX y adaptabilidad.
+
+**Figura 64**
+
+*Sincronización a 1366 × 768.*
 
 ![Figura 64. Sincronización a 1366 × 768.](capturas/aplicacion/resoluciones/sincronizacion_1366x768.png)
 
-**Figura 64.** Sincronización a 1366 × 768.  
-Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo docs/documentacion/capturas/aplicacion/resoluciones/sincronizacion_1366x768.png.  
-Demuestra: comportamiento del módulo más ancho en una pantalla de portátil común. Criterio: UI/UX y adaptabilidad.  
+*Nota.* Fuente: captura de la aplicación real en ejecución (PyQt6 sobre Oracle XE 11g); archivo: `docs/documentacion/capturas/aplicacion/resoluciones/sincronizacion_1366x768.png`.
 
-La APK usa Jetpack Compose con Material 3; los renderizados se hicieron a 1080 × 2340 en vertical. **No se evaluó la orientación horizontal ni otros tamaños de teléfono o tableta**, por lo que la adaptabilidad móvil queda sin demostrar.
+**Demuestra:** comportamiento del módulo más ancho en una pantalla de portátil común. Criterio relacionado: UI/UX y adaptabilidad.
+
+La APK usa Jetpack Compose con Material 3 y sus renderizados se hicieron a 1080 × 2340 en vertical. No se evaluó la orientación horizontal ni otros tamaños de teléfono o tableta, por lo que la adaptabilidad móvil queda sin demostrar.
 
 
 ### 12.4 Experiencia por rol
 
-La barra lateral muestra solo los módulos del rol: el Administrador ve nueve módulos más Perfil al pie y el rol Inventario cuatro más Perfil (Figura 68). El Operador no usa el escritorio. Las capturas de la sección 13.2 comparan ambas experiencias.
+La barra lateral muestra solo los módulos del rol: el Administrador ve nueve módulos más Perfil al pie, y el rol Inventario cuatro más Perfil (Figura 68). El Operador no usa el escritorio. La sección 13.2 compara ambas experiencias.
 
 
 ### 12.5 Animaciones y movimiento
 
-El proyecto implementa transiciones de página, entradas escalonadas de tarjetas, gráficas con movimiento y arrastre de tarjetas en el Dashboard (`motion_global.py`, `graficas_motion.py`, `rejilla_personal.py`), controladas por la variable `APP_SIN_ANIMACIONES`. Las capturas se tomaron con las animaciones desactivadas para obtener el estado final; **no se grabó video ni GIF** de estas transiciones, de modo que su fluidez no se demuestra visualmente en este documento; solo existen pruebas automáticas (`test_dashboard_motion.py`, `test_motion_admin.py`, `test_sync_motion.py`).
+El proyecto tiene transiciones de página, entrada escalonada de tarjetas, gráficas con movimiento y arrastre de tarjetas en el Dashboard (`motion_global.py`, `graficas_motion.py`, `rejilla_personal.py`), que se controlan con la variable `APP_SIN_ANIMACIONES`. Las capturas se tomaron con las animaciones apagadas para obtener el estado final. No se grabó video ni GIF, así que la fluidez de las transiciones no queda demostrada visualmente en este documento; solo hay pruebas automáticas (`test_dashboard_motion.py`, `test_motion_admin.py`, `test_sync_motion.py`).
 
 
 ### 12.6 Defectos y limitaciones observados
@@ -1146,28 +1410,42 @@ El proyecto implementa transiciones de página, entradas escalonadas de tarjetas
 
 _Fuente: Elaboración propia a partir del código._
 
+La Figura 65 muestra cómo se guardan las contraseñas (PBKDF2-HMAC-SHA256 con sal aleatoria), la Figura 66 la matriz inicial de permisos con sus tres niveles y la Figura 67 la revalidación en vivo del nivel antes de cambiar datos.
+
+**Figura 65**
+
+*Contraseñas: PBKDF2 con sal.*
+
 ![Figura 65. Contraseñas: PBKDF2 con sal.](capturas/codigo/codigo_19_hash.png)
 
-**Figura 65.** Contraseñas: PBKDF2 con sal.  
-Archivo: desktop/app/auth.py (líneas 133–137). Función o elemento: `auth.crear_hash`.  
-Demuestra: el derivado PBKDF2-HMAC-SHA256 con sal aleatoria de 16 bytes y 200 000 iteraciones. Criterio: Seguridad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/auth.py` (líneas 133–137); elemento: `auth.crear_hash`.
+
+**Demuestra:** el derivado PBKDF2-HMAC-SHA256 con sal aleatoria de 16 bytes y 200 000 iteraciones. Criterio relacionado: Seguridad.
+
+**Figura 66**
+
+*Permisos: matriz inicial de 12 módulos y niveles Sin acceso / Consulta / Gestión.*
 
 ![Figura 66. Permisos: matriz inicial de 12 módulos y niveles Sin acceso / Consulta / Gestión.](capturas/codigo/codigo_20_permisos.png)
 
-**Figura 66.** Permisos: matriz inicial de 12 módulos y niveles Sin acceso / Consulta / Gestión.  
-Archivo: desktop/app/permisos.py (líneas 17–54). Función o elemento: `_MATRIZ_INICIAL`, `INTOCABLES`, `alcanza`.  
-Demuestra: la matriz de 12 módulos y los niveles de acceso, con la fila del Administrador intocable. Criterio: Seguridad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/permisos.py` (líneas 17–54); elemento: `_MATRIZ_INICIAL`, `INTOCABLES`, `alcanza`.
+
+**Demuestra:** la matriz de 12 módulos y los niveles de acceso, con la fila del Administrador intocable. Criterio relacionado: Seguridad.
+
+**Figura 67**
+
+*Permisos: revalidación en vivo antes de cambiar datos.*
 
 ![Figura 67. Permisos: revalidación en vivo antes de cambiar datos.](capturas/codigo/codigo_21_exigir.png)
 
-**Figura 67.** Permisos: revalidación en vivo antes de cambiar datos.  
-Archivo: desktop/app/permisos.py (líneas 86–95). Función o elemento: `permisos.exigir`.  
-Demuestra: la revalidación en vivo del nivel del rol antes de ejecutar una acción que cambia datos. Criterio: Seguridad.  
+*Nota.* Fuente: elaboración propia a partir del archivo `desktop/app/permisos.py` (líneas 86–95); elemento: `permisos.exigir`.
+
+**Demuestra:** la revalidación en vivo del nivel del rol antes de ejecutar una acción que cambia datos. Criterio relacionado: Seguridad.
 
 
 ### 13.2 Acceso según el rol
 
-La Tabla 31 compara lo que ve cada rol en el escritorio, comprobado con las capturas y con el resultado de `MainWindow.secciones()` impreso durante la captura. El Administrador ve nueve secciones más Perfil; el rol Inventario, cuatro más Perfil. El Operador no puede iniciar sesión en el escritorio: recibe «Los operadores usan la app móvil».
+La Tabla 31 compara lo que ve cada rol en el escritorio, según las capturas y el resultado de `MainWindow.secciones()` impreso durante la captura. El Administrador ve nueve secciones más Perfil y el rol Inventario cuatro más Perfil. El Operador no puede iniciar sesión en el escritorio y recibe «Los operadores usan la app móvil».
 
 **Tabla 31.** _Secciones visibles por rol (resultado de la ejecución)_
 
@@ -1179,13 +1457,17 @@ La Tabla 31 compara lo que ve cada rol en el escritorio, comprobado con las capt
 
 _Fuente: Salida de capturar_pantallas.py: «admin ADMIN […]» e «inventario INVENTARIO […]»._
 
+**Figura 68**
+
+*Experiencia del rol Inventario (cuatro secciones más Perfil).*
+
 ![Figura 68. Experiencia del rol Inventario (cuatro secciones más Perfil).](capturas/roles/inventario/01_dashboard.png)
 
-**Figura 68.** Experiencia del rol Inventario (cuatro secciones más Perfil).  
-Fuente: captura de la aplicación real con la cuenta `inventario` (docs/documentacion/capturas/roles/inventario/01_dashboard.png).  
-Demuestra: la barra lateral restringida del rol Inventario frente a la del Administrador (Figura 43). Criterio: Seguridad y UI/UX.  
+*Nota.* Fuente: captura de la aplicación real con la cuenta `inventario` (docs/documentacion/capturas/roles/inventario/01_dashboard.png).
 
-**Restricciones comprobadas:** el rol Inventario no tiene Solicitudes, Empleados, Roles y permisos, Auditoría, Configuración ni Respaldos en su barra, y no puede cambiar la matriz; el Administrador no ve el módulo Gráficas. La prueba de que un módulo sin permiso no se abre es `ir_a` (que ignora títulos fuera de `secciones()`) y `test_app.py::test_admin_sidebar_exact_order_and_profile_at_the_footer` junto con `test_inventory_sidebar_exact_order`.
+**Demuestra:** la barra lateral restringida del rol Inventario frente a la del Administrador (Figura 43). Criterio relacionado: Seguridad y UI/UX.
+
+Restricciones comprobadas: la barra del rol Inventario no incluye Solicitudes, Empleados, Roles y permisos, Auditoría, Configuración ni Respaldos, y ese rol no puede cambiar la matriz. El Administrador, en cambio, no ve el módulo Gráficas. Que un módulo sin permiso no se abra lo garantiza `ir_a`, que ignora los títulos fuera de `secciones()`, y lo comprueban `test_app.py::test_admin_sidebar_exact_order_and_profile_at_the_footer` y `test_inventory_sidebar_exact_order`.
 
 
 ### 13.3 Límites de seguridad
@@ -1201,7 +1483,7 @@ Demuestra: la barra lateral restringida del rol Inventario frente a la del Admin
 
 ### 14.1 Qué es existente y qué se ejecutó
 
-Se distinguen tres tipos de evidencia. **(a) Pruebas existentes en el repositorio:** `server/tests` (pytest, contra Oracle), `desktop/tests` (pytest-qt, Qt `offscreen`, contra Oracle) y `mobile/app/src/test` (JUnit en la JVM). **(b) Pruebas ejecutadas durante la elaboración de este documento** el 17 de noviembre de 2026, con los comandos del capítulo 15 y los scripts de `docs/documentacion/herramientas/`; su salida íntegra está en `docs/documentacion/anexos/registros/`. **(c) Verificaciones manuales o visuales:** la inspección de las capturas de la aplicación en ejecución. No se midieron cobertura de código ni tiempos de transferencia, por lo que no se reporta ninguna cifra de cobertura ni de rendimiento.
+Hay tres tipos de evidencia. Primero, las pruebas que ya existen en el repositorio: `server/tests` (pytest contra Oracle), `desktop/tests` (pytest-qt con Qt `offscreen`, contra Oracle) y `mobile/app/src/test` (JUnit en la JVM). Segundo, las pruebas ejecutadas al elaborar este documento el 17 de noviembre de 2026, con los comandos del capítulo 15 y los scripts de `docs/documentacion/herramientas/`; su salida completa está en `docs/documentacion/anexos/registros/`. Tercero, las verificaciones visuales sobre las capturas de la aplicación en ejecución. No se midió la cobertura de código ni los tiempos de transferencia, de modo que no se reporta ninguna cifra de cobertura ni de rendimiento.
 
 
 ### 14.2 Resultados de las suites
@@ -1218,37 +1500,57 @@ Se distinguen tres tipos de evidencia. **(a) Pruebas existentes en el repositori
 
 _Fuente: Registros en docs/documentacion/anexos/registros/._
 
-Se usaron dos bases porque las pruebas fueron escritas para la base **limpia** de la semilla del proyecto; el Oracle de trabajo contiene los 13 meses de datos de demostración y rompe más aserciones numéricas. Las dos ejecuciones se comparan en la tabla anterior. **Las suites fueron ejecutadas en serie** porque comparten base (como exige el propio proyecto) y no se modificó ningún archivo de producto para que pasaran.
+Se usaron dos bases porque las pruebas están escritas para la base limpia de la semilla del proyecto; el Oracle de trabajo tiene 13 meses de datos de demostración y rompe más aserciones numéricas. La tabla compara las dos ejecuciones. Las suites se corrieron en serie porque comparten base (como exige el propio proyecto) y no se modificó ningún archivo de producto para que pasaran.
+
+**Figura 69**
+
+*Resultado de las pruebas del servidor (Oracle limpio).*
 
 ![Figura 69. Resultado de las pruebas del servidor (Oracle limpio).](capturas/pruebas/registro_01_servidor_limpia.png)
 
-**Figura 69.** Resultado de las pruebas del servidor (Oracle limpio).  
-Fuente: anexos/registros/pruebas_servidor_limpia.txt (herramientas/pruebas_limpia.sh). 230 aprobadas, 8 fallidas.  
-Demuestra: ejecución real y fallos conocidos de las pruebas. Criterio: Funcionalidad y Documentación.  
+*Nota.* Fuente: anexos/registros/pruebas_servidor_limpia.txt (herramientas/pruebas_limpia.sh). 230 aprobadas, 8 fallidas.
+
+**Demuestra:** ejecución real y fallos conocidos de las pruebas. Criterio relacionado: Funcionalidad y Documentación.
+
+**Figura 70**
+
+*Resultado de las pruebas del escritorio (Oracle limpio).*
 
 ![Figura 70. Resultado de las pruebas del escritorio (Oracle limpio).](capturas/pruebas/registro_02_escritorio_limpia.png)
 
-**Figura 70.** Resultado de las pruebas del escritorio (Oracle limpio).  
-Fuente: anexos/registros/pruebas_escritorio_limpia.txt. 454 aprobadas, 10 fallidas.  
-Demuestra: ejecución real de las pruebas de la interfaz con Qt offscreen. Criterio: UI/UX y Funcionalidad.  
+*Nota.* Fuente: anexos/registros/pruebas_escritorio_limpia.txt. 454 aprobadas, 10 fallidas.
+
+**Demuestra:** ejecución real de las pruebas de la interfaz con Qt offscreen. Criterio relacionado: UI/UX y Funcionalidad.
+
+**Figura 71**
+
+*Resultado de las pruebas unitarias de la APK.*
 
 ![Figura 71. Resultado de las pruebas unitarias de la APK.](capturas/pruebas/registro_03_android.png)
 
-**Figura 71.** Resultado de las pruebas unitarias de la APK.  
-Fuente: anexos/registros/pruebas_android.txt (herramientas/pruebas_android.sh). 115 pruebas, 0 fallos.  
-Demuestra: ejecución real de las pruebas Kotlin en la JVM. Criterio: Funcionalidad y Conectividad.  
+*Nota.* Fuente: anexos/registros/pruebas_android.txt (herramientas/pruebas_android.sh). 115 pruebas, 0 fallos.
+
+**Demuestra:** ejecución real de las pruebas Kotlin en la JVM. Criterio relacionado: Funcionalidad y Conectividad.
+
+**Figura 72**
+
+*Pruebas del servidor sobre la base con datos de demostración.*
 
 ![Figura 72. Pruebas del servidor sobre la base con datos de demostración.](capturas/pruebas/registro_04_servidor_demo.png)
 
-**Figura 72.** Pruebas del servidor sobre la base con datos de demostración.  
-Fuente: anexos/registros/pruebas_servidor.txt.  
-Demuestra: el efecto de los datos de demostración sobre las aserciones. Criterio: Funcionalidad.  
+*Nota.* Fuente: anexos/registros/pruebas_servidor.txt.
+
+**Demuestra:** el efecto de los datos de demostración sobre las aserciones. Criterio relacionado: Funcionalidad.
+
+**Figura 73**
+
+*Pruebas del escritorio sobre la base con datos de demostración.*
 
 ![Figura 73. Pruebas del escritorio sobre la base con datos de demostración.](capturas/pruebas/registro_05_escritorio_demo.png)
 
-**Figura 73.** Pruebas del escritorio sobre la base con datos de demostración.  
-Fuente: anexos/registros/pruebas_escritorio.txt.  
-Demuestra: el mismo efecto en las pruebas de la interfaz. Criterio: Funcionalidad.  
+*Nota.* Fuente: anexos/registros/pruebas_escritorio.txt.
+
+**Demuestra:** el mismo efecto en las pruebas de la interfaz. Criterio relacionado: Funcionalidad.
 
 
 ### 14.3 Casos de prueba representativos
@@ -1279,7 +1581,7 @@ _Fuente: Resultados tomados de los registros de ejecución del 17-nov-2026._
 
 ### 14.4 Fallos encontrados y su análisis
 
-En la base limpia fallan 8 pruebas del servidor y 10 del escritorio. **No se corrigió ningún archivo** para no alterar el producto evaluado; se clasifican así:
+En la base limpia fallan 8 pruebas del servidor y 10 del escritorio. No se corrigió ningún archivo, para no alterar el producto evaluado, y se clasifican así:
 
 **Tabla 34.** _Clasificación de las pruebas fallidas en Oracle limpio_
 
@@ -1315,7 +1617,7 @@ _Fuente: Conteos tomados de los registros de ejecución._
 
 ## 15. Instalación, configuración y ejecución
 
-Los comandos de este capítulo provienen del `README.md` y del `docker-compose.yml` del proyecto y se ejecutaron o usaron en la verificación (contenedores `oracle`, `bluetooth`, `app` y las suites de prueba). Las rutas del proyecto pueden tener espacios (`/home/t1an/movil oracle bluetooth`): deben entrecomillarse.
+Los comandos de este capítulo vienen del `README.md` y del `docker-compose.yml` del proyecto, y se usaron en la verificación (contenedores `oracle`, `bluetooth` y `app` y las suites de prueba). Si la ruta del proyecto tiene espacios (`/home/t1an/movil oracle bluetooth`), hay que entrecomillarla.
 
 
 ### 15.1 Requisitos
@@ -1339,7 +1641,7 @@ _Fuente: README.md, docker/pybase/Dockerfile, build.gradle.kts y entorno.txt._
 
 ### 15.2 Variables de entorno
 
-Las variables se definen en el archivo `.env` (copiado de `.env.example`, que contiene valores de desarrollo local; no se reproducen aquí). El archivo `.env` no se versiona.
+Las variables se definen en `.env`, copiado de `.env.example`, que trae valores de desarrollo local y no se reproduce aquí. El archivo `.env` no se versiona.
 
 **Tabla 37.** _Variables de entorno_
 
@@ -1383,21 +1685,25 @@ docker compose --profile build run --rm apk-build ./gradlew assembleDebug
 adb install -r mobile/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-**Cuentas.** Con los datos de demostración existen `admin` (Administrador) e `inventario`, con la contraseña de demostración que indica el README; `laura.mora` y `sofia.vega` quedan pendientes en Solicitudes. Con una base sin demostración (borrando `08_demo.sql` antes de crearla) la primera cuenta del PC se convierte en el Administrador.
+Cuentas. Con los datos de demostración existen `admin` (Administrador) e `inventario`, con la contraseña de demostración que indica el README; `laura.mora` y `sofia.vega` quedan pendientes en Solicitudes. En una base sin demostración (borrando `08_demo.sql` antes de crearla), la primera cuenta del PC pasa a ser el Administrador.
 
 
 ### 15.4 Verificaciones iniciales
 
 - `docker compose ps` debe mostrar `oracle` como `healthy`, y `bluetooth` y `app` como `Up` (evidencia: Figura 74).
 - `docker compose logs -f bluetooth` muestra «servicio Bluetooth en marcha»; `docker compose logs -f app` y `./logs/app.log` registran el arranque de la ventana.
-- En el escritorio, la pantalla **Sincronización** muestra el estado del servicio; en el teléfono, el PC se anuncia como `gestion_inventario`.
+- En el escritorio, la pantalla Sincronización muestra el estado del servicio; en el teléfono, el PC se anuncia como `gestion_inventario`.
 - Pruebas: `docker compose run --rm pybase pytest server/tests -v`, `docker compose run --rm -e QT_QPA_PLATFORM=offscreen app pytest desktop/tests -v` y `docker compose --profile build run --rm apk-build ./gradlew testDebugUnitTest`.
+
+**Figura 74**
+
+*Estado real de los contenedores y versiones del entorno.*
 
 ![Figura 74. Estado real de los contenedores y versiones del entorno.](capturas/pruebas/registro_10_entorno.png)
 
-**Figura 74.** Estado real de los contenedores y versiones del entorno.  
-Fuente: anexos/registros/entorno.txt (herramientas/entorno.sh).  
-Demuestra: servicios en marcha y versiones de las tecnologías. Criterio: Documentación (instalación).  
+*Nota.* Fuente: anexos/registros/entorno.txt (herramientas/entorno.sh).
+
+**Demuestra:** servicios en marcha y versiones de las tecnologías. Criterio relacionado: Documentación (instalación).
 
 
 ### 15.5 Solución de problemas frecuentes
@@ -1441,21 +1747,25 @@ _Fuente: Elaboración propia._
 
 ### 16.2 Funcionalidades comprobadas, limitaciones y problemas
 
-- **Comprobado en ejecución:** acceso, dashboard, inventario, gráficas (rol Inventario), sincronización, solicitudes, empleados, roles y permisos, auditoría, configuración, respaldos (vista vacía), notificaciones y perfil en el escritorio; sincronización de 126 lecturas y reanudación tras un corte por el transporte TCP; batch con conciliación; 115 pruebas de la APK.
-- **Limitaciones:** no se ejecutó el enlace Bluetooth físico ni un teléfono real; no se probaron la orientación horizontal ni otros tamaños en Android; no se midió rendimiento; no se creó ni restauró un respaldo sobre la base de demostración; una sola sincronización a la vez; sin cifrado por defecto.
-- **Problemas identificados:** 18 pruebas fallidas en Oracle limpio por deriva de cifras (semilla de 120 SKU), una clase UML inexistente tres pruebas de geometría sin diagnosticar y dos preexistentes (14.4); recorte del módulo Sincronización a 1240 px; solapamiento transitorio del aviso emergente con la cabecera.
-- **Inconsistencias documentales halladas:** el README describe al Administrador con acceso a «todo», pero el módulo Gráficas solo se registra para el rol Inventario; `docs/verificacion.md` cita 60 productos y 216 + 166 + 110 pruebas, cifras anteriores a la semilla actual (120 SKU, 238 + 464 + 115 pruebas).
-- **Código residual:** `desktop/app/views/iconos.py` conserva iconos de pantallas retiradas y `web/` es un directorio no rastreado ajeno al sistema (observaciones O3 y O4 de `docs/verificacion.md`).
+En ejecución se comprobaron el acceso, el dashboard, el inventario, las gráficas (rol Inventario), la sincronización, las solicitudes, los empleados, los roles y permisos, la auditoría, la configuración, los respaldos (solo la vista vacía), las notificaciones y el perfil del escritorio. También se sincronizaron 126 lecturas, se reanudó tras un corte por el transporte TCP, se ejecutó el *batch* con su conciliación y se aprobaron las 115 pruebas de la APK.
+
+Entre las limitaciones, no se ejecutó el enlace Bluetooth físico ni se usó un teléfono real, no se probaron la orientación horizontal ni otros tamaños en Android, no se midió el rendimiento y no se creó ni restauró un respaldo sobre la base de demostración. Por diseño solo se sincroniza un teléfono a la vez y el enlace no se cifra por defecto.
+
+Los problemas identificados son 18 pruebas fallidas en Oracle limpio (cifras de la semilla de 120 SKU, una clase UML inexistente, tres pruebas de geometría sin diagnosticar y dos preexistentes; ver 14.4), el recorte del módulo Sincronización a 1240 px y el solapamiento transitorio del aviso emergente con la cabecera.
+
+La documentación previa tiene dos inconsistencias: el README describe al Administrador con acceso a «todo», pero el módulo Gráficas solo se registra para el rol Inventario, y `docs/verificacion.md` cita 60 productos y 216 + 166 + 110 pruebas, cifras anteriores a la semilla actual (120 SKU y 238 + 464 + 115 pruebas).
+
+Queda código residual: `desktop/app/views/iconos.py` conserva iconos de pantallas retiradas y `web/` es un directorio no rastreado ajeno al sistema (observaciones O3 y O4 de `docs/verificacion.md`).
 
 
 ### 16.3 Mejoras posibles
 
-Las mejoras se priorizan en el capítulo 19; aquí solo se aclara que ninguna de ellas está implementada.
+Las mejoras se priorizan en el capítulo 19; ninguna está implementada.
 
 
 ## 17. Evaluación según la rúbrica
 
-La Tabla 40 presenta una **autoevaluación técnica razonada**. No es la calificación oficial: el nivel lo asigna el evaluador. Se usa la escala de la rúbrica (Excelente 5,0; Satisfactorio 4,0; En desarrollo 3,0; Insuficiente 1,0–2,0) con valores intermedios solo cuando la evidencia cumple parte de un nivel superior.
+La Tabla 40 presenta una autoevaluación técnica razonada. No es la calificación oficial, que asigna el evaluador. Se usa la escala de la rúbrica (Excelente 5,0; Satisfactorio 4,0; En desarrollo 3,0; Insuficiente de 1,0 a 2,0) con valores intermedios solo cuando la evidencia cumple parte de un nivel superior.
 
 **Tabla 40.** _Autoevaluación frente a la rúbrica_
 
@@ -1469,18 +1779,24 @@ La Tabla 40 presenta una **autoevaluación técnica razonada**. No es la calific
 
 _Fuente: Elaboración propia. Autoevaluación; no sustituye la calificación del evaluador._
 
-**Cálculo ponderado indicativo:** 0,25 × 4,2 + 0,25 × 4,3 + 0,20 × 4,5 + 0,15 × 4,0 + 0,15 × 4,5 = **4,3 / 5,0**. Se presenta solo como resumen de la autoevaluación: depende de las valoraciones intermedias asignadas arriba, que son juicios de los autores del documento, no mediciones.
+Cálculo ponderado indicativo: 0,25 × 4,2 + 0,25 × 4,3 + 0,20 × 4,5 + 0,15 × 4,0 + 0,15 × 4,5 = 4,3 sobre 5,0. Es un resumen de la autoevaluación: depende de las valoraciones intermedias de arriba, que son juicios de los autores del documento y no mediciones.
 
 
 ## 18. Conclusiones
 
-- **Arquitectura.** El sistema separa captura, recepción, procesamiento y presentación en procesos distintos que solo se acoplan por Oracle y por un protocolo explícito; el código muestra MVC con trabajadores en el escritorio y MVVM en Android, y un transporte intercambiable que permitió probar la comunicación sin Bluetooth.
-- **Funcionalidad.** Los 28 requisitos funcionales identificados están implementados y los flujos de extremo a extremo (captura, sincronización, conciliación y consulta) se ejecutaron realmente con resultados coherentes.
-- **Comunicación.** El protocolo con CRC32, `ACK` acumulativo, `NAK` con retroceso y clave `(uuid, seq)` resistió un corte forzado sin pérdidas ni duplicados (50 + 70 filas). La seguridad del canal por defecto es limitada por diseño (D22) y no debe presentarse como confidencial.
-- **Base de datos.** El modelo de 17 tablas con restricciones, vistas y un paquete PL/SQL mantiene la integridad; la clave única y el *staging* separan la recepción del procesamiento.
-- **Interfaz.** La aplicación de escritorio es coherente, se adapta de 900 a 1920 px y tiene estados de carga, vacío y error; quedan defectos menores de solapamiento y la adaptabilidad móvil sin demostrar.
-- **Calidad y validación.** Se ejecutaron 799 pruebas aprobadas (230 + 454 + 115) en la base limpia; 18 fallan por pruebas desactualizadas y casos de geometría sin diagnosticar, lo que indica que el mantenimiento de las pruebas no siguió el de la semilla.
-- **Alcance logrado.** El objetivo general se cumple en el ámbito verificado; el enlace Bluetooth físico, la orientación horizontal en Android y la medición de rendimiento quedan fuera de lo demostrado en este documento.
+La arquitectura separa captura, recepción, procesamiento y presentación en procesos distintos que solo se acoplan por Oracle y por un protocolo explícito. El escritorio sigue MVC con trabajadores y Android, MVVM; el transporte intercambiable permitió probar la comunicación sin Bluetooth.
+
+Los 28 requisitos funcionales identificados están implementados, y los flujos de extremo a extremo (captura, sincronización, conciliación y consulta) se ejecutaron con resultados coherentes.
+
+El protocolo con CRC32, `ACK` acumulativo, `NAK` con retroceso y clave `(uuid, seq)` resistió un corte forzado sin pérdidas ni duplicados (50 + 70 filas). La seguridad del canal por defecto es limitada por diseño (D22) y no debe presentarse como confidencial.
+
+El modelo de 17 tablas, con sus restricciones, vistas y un paquete PL/SQL, mantiene la integridad de los datos. La clave única y la tabla de *staging* separan la recepción del procesamiento.
+
+La aplicación de escritorio es coherente y se adapta de 900 a 1920 px, con estados de carga, vacío y error. Quedan solapamientos menores y la adaptabilidad móvil sin demostrar.
+
+En la base limpia se ejecutaron 799 pruebas aprobadas (230 + 454 + 115). Fallan 18, por pruebas desactualizadas y casos de geometría sin diagnosticar, lo que indica que el mantenimiento de las pruebas no siguió al de la semilla.
+
+El objetivo general se cumple en lo verificado. El enlace Bluetooth físico, la orientación horizontal en Android y la medición de rendimiento quedan fuera de lo que este documento demuestra.
 
 
 ## 19. Trabajo futuro
@@ -1657,17 +1973,25 @@ _Fuente: anexos/registros/pruebas_android.txt_
 
 Los dos diagramas de clases siguientes son de gran tamaño: impresos a página completa quedan a escala reducida y su texto no es legible en papel. Por eso se adjuntan como SVG vectorial (`diagramas/renderizados/07c_clases_escritorio.svg` y `07d_clases_android.svg`), que se pueden ampliar sin pérdida de calidad; el PNG incrustado tiene alta resolución y admite zoom en el visor.
 
+**Figura 75**
+
+*Diagrama de clases de la aplicación de escritorio.*
+
 ![Figura 75. Diagrama de clases de la aplicación de escritorio.](diagramas/renderizados/07c_clases_escritorio.png)
 
-**Figura 75.** Diagrama de clases de la aplicación de escritorio.  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/07c_clases_escritorio.puml (original docs/uml/02-clases-escritorio.puml). SVG en diagramas/renderizados/.  
-Demuestra: MainWindow, vistas, QueryRunner, ServicioRemoto y el módulo db. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/07c_clases_escritorio.puml (original docs/uml/02-clases-escritorio.puml). SVG en diagramas/renderizados/.
+
+**Demuestra:** MainWindow, vistas, QueryRunner, ServicioRemoto y el módulo db. Criterio relacionado: Arquitectura y código fuente.
+
+**Figura 76**
+
+*Diagrama de clases de la APK Android (MVVM).*
 
 ![Figura 76. Diagrama de clases de la APK Android (MVVM).](diagramas/renderizados/07d_clases_android.png)
 
-**Figura 76.** Diagrama de clases de la APK Android (MVVM).  
-Fuente: elaboración propia. PlantUML: diagramas/plantuml/07d_clases_android.puml (original docs/uml/03-clases-android.puml). SVG en diagramas/renderizados/.  
-Demuestra: pantallas, CountViewModel, SyncRunner, SyncClient, Protocol y la Outbox. Criterio: Arquitectura y código fuente.  
+*Nota.* Fuente: elaboración propia a partir del código fuente y de la documentación del proyecto. PlantUML: diagramas/plantuml/07d_clases_android.puml (original docs/uml/03-clases-android.puml). SVG en diagramas/renderizados/.
+
+**Demuestra:** pantallas, CountViewModel, SyncRunner, SyncClient, Protocol y la Outbox. Criterio relacionado: Arquitectura y código fuente.
 
 
 ### 21.3 Anexo C. Índice de evidencias
@@ -1814,7 +2138,7 @@ _Fuente: docs/documentacion/herramientas/._
 
 ### 21.6 Anexo F. Matriz de trazabilidad con la rúbrica
 
-La matriz relaciona cada criterio de la rúbrica con los requisitos que debe demostrar, el componente, la evidencia técnica, las capturas, las pruebas y el resultado de la verificación. Las referencias son a figuras y tablas de este documento.
+La matriz relaciona cada criterio de la rúbrica con lo que debe demostrarse, el componente, la evidencia técnica, las capturas, las pruebas y el resultado de la verificación. Las referencias son a figuras y tablas de este documento.
 
 **Tabla 49.** _Matriz de trazabilidad con la rúbrica de evaluación_
 
