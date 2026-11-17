@@ -41,7 +41,7 @@ _EN: dict[str, str] = {
     "Activo": "Active",
     "Suspendido": "Suspended",
     # ------------------------------------------------ acceso
-    "Gestión de inventario": "Inventory management",
+    "Kardex — Gestión de inventario": "Kardex — Inventory management",
     "Conteo físico con el celular, sin red.\nLos datos llegan por Bluetooth y Oracle los concilia.":
         "Physical counting with the phone, offline.\nData arrives over Bluetooth and Oracle reconciles it.",
     "Iniciar sesión": "Sign in",

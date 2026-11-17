@@ -13,5 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "inventario"
+// Producto «Kardex»; el paquete/applicationId co.edu.umariana.inventario se conserva (identificador institucional, cambiarlo rompe instalaciones).
+rootProject.name = "kardex"
 include(":app")

@@ -33,7 +33,7 @@ def normalizar(items) -> list[tuple[str, str]]:
 
 
 def _ajustes() -> QSettings:
-    return QSettings("GestionInventario", "Graficas")
+    return QSettings("Kardex", "Graficas")
 
 
 def _clave(usuario: str) -> str:
