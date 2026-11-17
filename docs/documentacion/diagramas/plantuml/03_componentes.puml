@@ -1,0 +1,65 @@
+@startuml
+!include estilo.iuml
+title Diagrama 3 · Componentes y sus interfaces
+left to right direction
+
+component "APK Android" as apk {
+  component "Pantallas + CountViewModel" as ui
+  component "SyncClient / SyncRunner" as cliente
+  component "Outbox + catálogo (Room/SQLite)" as room
+}
+
+component "Aplicación de escritorio (en Docker)" as desk {
+  component "Pantallas PyQt6 + pyqtgraph\n(Dashboard, Inventario, Sincronización,\nConfiguración, Respaldos, …)" as vistas
+  component "ServicioRemoto\n(lee SERVICIO_BT cada 2 s)" as remoto
+}
+
+component "Servicio Bluetooth (otro proceso: btsync.servicio)" as svc {
+  component "Servicio\n(tick de 1 s: latido, pausa,\nrespaldo automático)" as tick
+  component "Librería btsync" as btsync {
+    component "SyncController" as ctrl
+    component "Session" as ses
+    component "BluezTransport" as bz
+    component "TcpTransport\n(pruebas / plan B)" as tcp
+    component "Store" as store
+    component "respaldo\n(zip: tablas + fotos)" as resp
+  }
+}
+
+component "Oracle XE 11g (contenedor)" as ora {
+  component "PKG_BATCH" as pkg
+  component "DBMS_SCHEDULER\n(JOB_PROCESAR_CAPTURAS, JOB_PURGA_TRANSITO)" as sch
+  component "Tablas y vistas V_*" as tablas
+}
+
+component "bluetoothd (BlueZ, en el host)" as bluez
+
+interface "RFCOMM\nUUID 7a1c0b52-…" as rfcomm
+interface "D-Bus\n(org.bluez)" as dbus
+interface "SQL*Net :1521" as sqlnet
+interface "Transport" as itransport
+
+cliente -( rfcomm
+bz -- rfcomm
+bz -( dbus
+bluez -- dbus
+bz -up- itransport
+tcp -up- itransport
+ctrl -( itransport
+ctrl --> ses : crea
+ses --> store
+ctrl --> store
+vistas --> remoto
+remoto -( sqlnet : SERVICIO_BT (estado, pausado, respuesta)
+tick --> ctrl : start / confirm / cancel / status
+tick -( sqlnet : latido y estado
+tick --> resp : automático diario
+vistas --> resp : crear / restaurar
+store -( sqlnet
+vistas -( sqlnet : consultas (V_*)
+ora -- sqlnet
+ui --> room
+cliente --> room
+sch --> pkg
+pkg --> tablas
+@enduml

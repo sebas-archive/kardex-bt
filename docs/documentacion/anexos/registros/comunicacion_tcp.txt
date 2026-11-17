@@ -1,0 +1,61 @@
+# Evidencia de comunicación — 2026-11-17T16:41:02Z
+
+## 1. Primera sincronización: la cuenta del teléfono aún no está aprobada
+corte en el intento 1: la cuenta operador.demo está PENDIENTE: apruébala en «Solicitudes» del PC
+OCUPADO: el PC ya está sincronizando otro teléfono
+rc=3
+-- Cuentas del teléfono
+USUARIO | ESTADO | ROL | ORIGEN
+operador.demo | PENDIENTE |  | MOVIL
+
+-- CAPTURA_TRANSITO por estado (staging)
+ESTADO | FILAS | SEQ_MIN | SEQ_MAX
+
+-- Filas duplicadas por (uuid, seq)
+
+## 2. El Administrador aprueba la cuenta
+Administrador aprueba la cuenta operador.demo (equivale a «Aprobar» en Solicitudes): 1 fila
+
+## 3. Sincronización con reintento ante corte (outbox persistente) y lecturas con error
+BYE|126|0
+confirmadas 126 lecturas
+rc=0
+
+## 4. Estado de Oracle tras el batch
+-- Cuentas del teléfono
+USUARIO | ESTADO | ROL | ORIGEN
+operador.demo | ACTIVO | OPERADOR | MOVIL
+
+-- CAPTURA_TRANSITO por estado (staging)
+ESTADO | FILAS | SEQ_MIN | SEQ_MAX
+ERROR | 1 | 123 | 123
+NUEVO_SKU | 2 | 121 | 122
+PROCESADO | 123 | 1 | 126
+
+-- Filas duplicadas por (uuid, seq)
+DUPLICADAS
+0
+
+-- REGISTROS_PROCESADOS
+TOTAL | VIGENTES
+123 | 120
+
+-- Últimas corridas del batch
+ORIGEN | PROCESADOS | ERRORES | FIN
+SYNC | 123 | 1 | 16:41:15
+
+-- CONCILIACION (muestra)
+SKU | CANT_SISTEMA | CANT_CONTADA | DIFERENCIA
+7701234000001 | 18.0 | 18.0 | 0.0
+7701234000002 | 201.0 | 202.0 | 1.0
+7701234000003 | 82.0 | 82.0 | 0.0
+7701234000004 | 74.0 | 74.0 | 0.0
+7701234000005 | 69.0 | 62.0 | -7.0
+
+-- Errores
+MENSAJE_ERROR | FILAS
+CANTIDAD_INVALIDA | 1
+
+
+## 5. Registro del servicio (últimas líneas)
+2026-11-17 16:41:03,678 INFO btsync.servicio: servicio Bluetooth en marcha

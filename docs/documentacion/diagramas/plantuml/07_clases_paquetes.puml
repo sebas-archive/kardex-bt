@@ -1,0 +1,117 @@
+@startuml
+!include estilo.iuml
+' @code: server/btsync
+title Diagrama 7 · Clases del servidor (librería btsync)
+left to right direction
+
+package "btsync.protocol" {
+  class FrameError <<Exception>> {
+    +reason : str
+  }
+  class Message <<dataclass>> {
+    +kind : str
+    +fields : list[str]
+  }
+  class Rec <<dataclass>> {
+    +seq : int
+    +ts_ms : int
+    +id_conteo : str
+    +sku : str
+    +cantidad : str
+    +operador : str
+    +nota : str
+    +from_message(m : Message) : Rec
+    +to_raw() : str
+  }
+}
+
+package "btsync.store" {
+  class Catalog <<dataclass>> {
+    +conteos : list
+    +productos : list
+  }
+  class Store {
+    +register_device(uuid, name)
+    +last_seq(uuid) : int
+    +insert_staging(uuid, seq, raw) : bool
+    +commit()
+    +rollback()
+    +catalog() : Catalog
+    +run_batch(origen) : tuple
+    +open_sync(uuid) : int
+    +close_sync(id, recibidos, aceptados)
+  }
+}
+
+package "btsync.session" {
+  class Session {
+    +uuid : str
+    +expected : int
+    +last_acked : int
+    +received : int
+    +inserted : int
+    +rejected : int
+    +run()
+  }
+}
+
+package "btsync.controller" {
+  class SyncController {
+    +status() : dict
+    +start()
+    +confirm(accept : bool)
+    +cancel()
+  }
+}
+
+package "btsync.transports" {
+  interface Transport <<Protocol>> {
+    +begin_pairing(on_passkey)
+    +serve(on_connection)
+    +stop()
+  }
+  interface Connection <<Protocol>> {
+    +readline() : bytes
+    +write(data : bytes)
+    +close()
+  }
+  class BluezTransport {
+    +adapter : str
+    +service_uuid : str
+    +discoverable_s : int
+    +alias : str
+    +require_pairing : bool
+    +busy : bool
+  }
+  class TcpTransport {
+    +host : str
+    +port : int
+    +busy : bool
+  }
+  class BluezConnection {
+    +abort()
+  }
+  class TcpConnection {
+    +abort()
+  }
+  class BluetoothUnavailable <<Exception>>
+}
+
+Message <.. Rec : from_message
+FrameError <.. Rec : lanza
+SyncController *-- Session : crea una por conexión
+SyncController o--> Transport : usa
+SyncController --> Store : run_batch("SYNC")
+Session --> Connection : lee y escribe líneas
+Session --> Store : staging y catálogo
+Session ..> Message : parse / frame
+Store ..> Catalog : devuelve
+Transport <|.. BluezTransport
+Transport <|.. TcpTransport
+Connection <|.. BluezConnection
+Connection <|.. TcpConnection
+BluezTransport ..> BluezConnection : entrega
+TcpTransport ..> TcpConnection : entrega
+BluezTransport ..> BluetoothUnavailable : lanza
+SyncController ..> BluetoothUnavailable : muestra su mensaje
+@enduml

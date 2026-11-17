@@ -1,0 +1,45 @@
+# Evidencia de corte y reanudación — 2026-11-17T16:42:57Z
+## 1. Registro de la cuenta del segundo teléfono (queda PENDIENTE) y aprobación
+corte en el intento 1: la cuenta operador.dos está PENDIENTE: apruébala en «Solicitudes» del PC
+OCUPADO: el PC ya está sincronizando otro teléfono
+Administrador aprueba operador.dos: 1 fila
+
+## 2. Envío interrumpido: el teléfono se mata (SIGKILL) a los 4 s, a mitad del lote
+docs/documentacion/herramientas/comunicacion_corte.sh: line 38: 146946 Killed                     timeout -s KILL 4 python3 -I tools/fake_phone.py --host 127.0.0.1 --port 9100 --seed 7 --cuenta operador.dos --uuid doc-phone-0002 --state-file /tmp/outbox-corte.json --delay-ms 60
+rc=137 (137 = terminado por SIGKILL)
+Lo persistido antes del corte:
+-- Filas recibidas por dispositivo (CAPTURA_TRANSITO)
+UUID_DISPOSITIVO | FILAS | SEQ_MIN | SEQ_MAX
+doc-phone-0001 | 126 | 1 | 126
+doc-phone-0002 | 50 | 1 | 50
+
+-- Cuentas del teléfono
+
+## 3. Reconexión: el teléfono reanuda desde el READY del servidor (mismo outbox)
+confirmadas 120 lecturas
+BYE|70|0
+rc=0
+
+## 4. Estado final: sin duplicados
+-- Filas recibidas por dispositivo (CAPTURA_TRANSITO)
+UUID_DISPOSITIVO | FILAS | SEQ_MIN | SEQ_MAX
+doc-phone-0001 | 126 | 1 | 126
+doc-phone-0002 | 120 | 1 | 120
+
+-- Cuentas del teléfono
+USUARIO | ESTADO | ROL | ORIGEN
+operador.demo | ACTIVO | OPERADOR | MOVIL
+operador.dos | ACTIVO | OPERADOR | MOVIL
+
+-- CAPTURA_TRANSITO por estado (staging)
+ESTADO | FILAS | SEQ_MIN | SEQ_MAX
+ERROR | 1 | 123 | 123
+NUEVO_SKU | 2 | 121 | 122
+PROCESADO | 243 | 1 | 126
+
+-- Filas duplicadas por (uuid, seq)
+DUPLICADAS
+0
+
+-- REGISTROS_PROCESADOS
+TOTAL | VIGENTES

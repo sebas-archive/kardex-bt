@@ -1,0 +1,56 @@
+@startuml
+!include estilo.iuml
+title Diagrama 8b · Actividad: conteo en el móvil (conteo continuo)
+|Operario|
+start
+:Abre la APK;
+|APK|
+if (¿Hay sesión abierta?) then (no)
+  |Operario|
+  :Inicia sesión, o crea su cuenta\n(usuario, nombre, correo opcional\ny pregunta de seguridad);
+  |APK|
+  :Valida la contraseña y abre la sesión;
+endif
+if (¿Hay catálogo?) then (no)
+  :Avisa: sincronizar una vez con el PC;
+  |Operario|
+  :Sincroniza (ver diagrama 13);
+  |APK|
+endif
+|Operario|
+:Abre el Catálogo (lista de productos, sin stock);
+repeat
+  |Operario|
+  if (¿Digita el código a mano?) then (sí)
+    :Escribe el SKU;
+  else (no)
+    :Escanea el código de barras\no el QR con la cámara (ZXing);
+  endif
+  |APK|
+  :Busca el producto en el catálogo;
+  if (¿Está en el catálogo?) then (no)
+    :Advierte «SKU fuera del catálogo»\n(igual se puede guardar; queda pendiente de alta);
+  endif
+  |Operario|
+  :Pone la cantidad, los dañados\ny una nota (≤ 255);
+  :Adjunta una foto si hace falta;
+  |APK|
+  if (¿Cantidad válida, dañados ≤ cantidad?) then (sí)
+    if (¿Ya hay lectura de este SKU?) then (sí)
+      :Reemplaza la lectura (recuento);
+    else (no)
+      :Inserta una lectura nueva en la Outbox;
+    endif
+  else (no)
+    :Muestra el error y no guarda;
+  endif
+  |Operario|
+repeat while (¿Más productos?) is (sí) not (no)
+:Se acerca al PC;
+|APK|
+:Conecta con el PC recordado (sin código);
+:Envía las lecturas y las fotos pendientes;
+:Muestra el resultado (BYE);
+|Operario|
+stop
+@enduml

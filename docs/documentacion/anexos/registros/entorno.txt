@@ -1,0 +1,31 @@
+# Entorno de ejecución — 2026-11-17T16:44:43Z
+
+## Contenedores del proyecto (docker ps)
+NAMES                       STATUS                    IMAGE
+oracle-limpio-doc           Up 12 minutes (healthy)   gvenzl/oracle-xe:11-slim
+inventario-bt-app-1         Up 15 minutes             inventario-bt-app
+inventario-bt-oracle-1      Up 2 hours (healthy)      gvenzl/oracle-xe:11-slim
+inventario-bt-bluetooth-1   Up 2 hours                inventario-bt-bluetooth
+
+## Versiones dentro de la imagen de la aplicación de escritorio (inventario-bt-app)
+Python 3.12.16
+dbus-fast         5.2.0
+numpy             2.5.4
+oracledb          26.1.0
+PyQt6             6.12.0
+pyqtgraph         0.14.0
+pytest            9.2.0
+pytest-qt         4.5.0
+META-INF
+instantclient_19_23
+
+## Oracle Database
+
+BANNER
+--------------------------------------------------------------------------------
+Oracle Database 11g Express Edition Release 11.2.0.2.0 - 64bit Production
+
+
+## Host
+Linux 7.3.3-1-cachyos x86_64
+Docker version 29.9.3, build 5457199aa5

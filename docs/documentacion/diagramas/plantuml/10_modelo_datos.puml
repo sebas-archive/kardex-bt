@@ -1,0 +1,188 @@
+@startuml
+!include estilo.iuml
+title Diagrama 10 · Modelo de datos Oracle (conteo continuo ACTUAL)
+hide circle
+skinparam linetype ortho
+
+class conteos <<table>> {
+  * id_conteo : VARCHAR2(30) <<PK>>
+  --
+  nombre : VARCHAR2(100)
+  estado : ABIERTO
+  fecha_inicio : TIMESTAMP
+  .. una sola fila: ACTUAL ..
+}
+
+class productos <<table>> {
+  * sku : VARCHAR2(30) <<PK>>
+  --
+  nombre : VARCHAR2(120)
+  categoria : VARCHAR2(40)
+  unidad : VARCHAR2(10)
+  costo_unit : NUMBER(12,2)
+  tolerancia_pct : NUMBER(5,2)
+}
+
+class stock_sistema <<table>> {
+  * id_conteo : VARCHAR2(30) <<PK, FK>>
+  * sku : VARCHAR2(30) <<PK, FK>>
+  --
+  cantidad_sistema : NUMBER(12,3)
+}
+
+class dispositivos <<table>> {
+  * uuid : VARCHAR2(50) <<PK>>
+  --
+  nombre
+  ultima_sync : TIMESTAMP
+}
+
+class captura_transito <<table>> {
+  * id_transito : NUMBER <<PK>>
+  --
+  uuid_dispositivo
+  seq
+  datos_raw : VARCHAR2(4000 BYTE)
+  estado : PENDIENTE | PROCESANDO | PROCESADO | ERROR
+  mensaje_error
+  fecha_recepcion
+  fecha_reclamo
+  .. UNIQUE (uuid_dispositivo, seq) ..
+}
+
+class registros_procesados <<table>> {
+  * id_registro : NUMBER <<PK>>
+  --
+  id_transito : <<FK, SET NULL>>
+  id_conteo : <<FK>>
+  sku : <<FK>>
+  cantidad : NUMBER(12,3)
+  operador
+  nota
+  fecha_captura : TIMESTAMP (UTC)
+  vigente : S | N
+  fecha_procesado
+  danados : NUMBER(12,3)
+}
+
+class conciliacion <<table>> {
+  * id_conteo : VARCHAR2(30) <<PK, FK>>
+  * sku : VARCHAR2(30) <<PK, FK>>
+  --
+  cant_sistema : NUMBER(12,3)
+  cant_contada : NUMBER(12,3) (NULL sin lectura)
+  diferencia : NUMBER(12,3)
+  diferencia_pct : NUMBER(10,2)
+  fecha_calculo : TIMESTAMP
+}
+
+class fotos <<table>> {
+  * uuid_dispositivo : VARCHAR2(50) <<PK>>
+  * seq : NUMBER <<PK>>
+  --
+  ruta : relativa a FOTOS_DIR
+  bytes
+  recibida
+}
+
+class sync_sesiones <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  uuid_dispositivo
+  inicio
+  fin
+  recibidos
+  aceptados
+}
+
+class log_batch <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  inicio
+  fin
+  procesados
+  errores
+  origen
+}
+
+class usuarios <<table>> {
+  * usuario : VARCHAR2(30) <<PK>>
+  --
+  nombre
+  correo : VARCHAR2(120) (único en cuentas del PC)
+  rol : ADMIN | INVENTARIO | OPERADOR
+  clave_hash : PBKDF2 ('-' en cuentas del móvil)
+  clave_pendiente : PBKDF2 (por aprobar)
+  estado : PENDIENTE | ACTIVO | RECHAZADO | SUSPENDIDO
+  motivo · resuelto_por · resuelto
+  origen : ESCRITORIO | MOVIL
+  uuid_dispositivo
+  intentos · bloqueado_hasta
+  pregunta · respuesta_hash : solo Administrador
+  foto · tema · idioma
+  creado
+}
+
+class permisos <<table>> {
+  * rol <<PK>>
+  * modulo <<PK>>
+  --
+  nivel : NINGUNO | CONSULTA | GESTION
+  .. 12 módulos ..
+}
+
+class configuracion <<table>> {
+  * clave <<PK>>
+  --
+  valor
+  modificado
+  .. lote.intervalo_min · fotos.max_mb · fotos.dir
+  .. respaldos.auto · respaldos.hora · respaldos.conservar ..
+}
+
+class servicio_bt <<table>> {
+  * id = 1 <<PK>>
+  --
+  estado / codigo / recibidos / ultimo_error
+  desde / latido
+  pausado : S | N
+  respuesta : S | N (al código)
+  listos : sincronizaciones terminadas
+}
+
+class auditoria <<table>> {
+  * id : NUMBER <<PK>>
+  --
+  fecha
+  usuario
+  modulo
+  accion
+  detalle
+}
+
+class notificaciones <<table>> {
+  * id <<PK>>
+  --
+  fecha / tipo / texto
+  seccion : pantalla de «Ver»
+  rol | usuario : destino
+  clave : única con tipo (evita duplicados)
+}
+
+class notificaciones_leidas <<table>> {
+  * id_notificacion <<PK>>
+  * usuario <<PK>>
+}
+
+conteos "1" -- "0..*" stock_sistema
+productos "1" -- "0..*" stock_sistema
+conteos "1" -- "0..*" registros_procesados
+productos "1" -- "0..*" registros_procesados
+captura_transito "1" -- "0..1" registros_procesados : id_transito
+conteos "1" -- "0..*" conciliacion
+productos "1" -- "0..*" conciliacion
+dispositivos "1" .. "0..*" captura_transito : uuid (sin FK)
+dispositivos "1" .. "0..*" sync_sesiones : uuid (sin FK)
+captura_transito "1" .. "0..1" fotos : (uuid, seq) (sin FK)
+notificaciones "1" -- "0..*" notificaciones_leidas : quién la leyó
+@enduml
