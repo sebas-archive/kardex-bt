@@ -34,10 +34,14 @@ repeat while (¿Llegó END?) is (no) not (sí)
 :Reclamar pendientes (PENDIENTE → PROCESANDO);
 while (¿Quedan filas reclamadas?) is (sí)
   :Parsear la línea REC;
-  if (¿SKU conocido, cantidad válida\ny dañados válidos?) then (sí)
-    :Insertar en registros_procesados;
-    :Recalcular lectura vigente\n(fecha_captura, luego id_transito);
-    :Marcar PROCESADO;
+  if (¿Formato, cantidad y\ndañados válidos?) then (sí)
+    if (¿El SKU está en PRODUCTOS?) then (sí)
+      :Insertar en registros_procesados;
+      :Recalcular lectura vigente\n(fecha_captura, luego id_transito);
+      :Marcar PROCESADO;
+    else (no)
+      :Marcar NUEVO_SKU\n(espera la decisión del Administrador);
+    endif
   else (no)
     :Marcar ERROR con mensaje;
   endif

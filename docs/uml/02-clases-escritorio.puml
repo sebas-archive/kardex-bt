@@ -131,7 +131,6 @@ class Dona
 class Indicador
 class Pasos
 class AvisoNuevoSku
-class Transicion
 
 RefreshableView <|.. DashboardView
 RefreshableView <|.. InventarioView
@@ -145,7 +144,6 @@ MainWindow *-- AccesoView : sin sesión
 MainWindow *-- EstadoCuentaView : cuenta sin acceso
 MainWindow o-- RefreshableView : secciones de la barra lateral
 MainWindow ..> Sesion : la del usuario que entró
-MainWindow *-- Transicion
 MainWindow ..> AvisoNuevoSku : avisos flotantes
 MainWindow *-- StateBanner
 AccesoView ..> auth : registrar / iniciar_sesion / recuperar
