@@ -1,6 +1,6 @@
 # Arquitectura
 
-Sistema de **toma de inventario físico sin red**: un operador cuenta productos con una APK Android (escáner de
+**Kardex** es un sistema de **toma de inventario físico sin red**: un operador cuenta productos con una APK Android (escáner de
 códigos de barras o digitación), el teléfono guarda todo localmente y, cuando está cerca del PC, lo sube por
 **Bluetooth**. El PC recibe el conteo, lo guarda en **Oracle 11g**, dispara el **batch PL/SQL** que lo concilia
 contra el stock del sistema y lo muestra y grafica en **una sola aplicación de escritorio**. El conteo es

@@ -11,7 +11,7 @@ Bogotá D.C. · 17 de noviembre del año 2026
 
 ## 1. Resumen ejecutivo
 
-El proyecto, llamado Inventario físico offline (APK → Bluetooth → Oracle → aplicación de escritorio), permite contar inventario con un teléfono Android sin conexión de red. El conteo viaja por Bluetooth hasta un computador con Linux, se guarda en Oracle 11g y un proceso por lotes (*batch*) escrito en PL/SQL lo concilia contra el stock del sistema. Una aplicación de escritorio muestra el resultado en tableros, tablas y gráficas. El conteo es continuo: no existe un cierre de inventario y las cifras se recalculan cada vez que el *batch* procesa lecturas nuevas.
+El proyecto, llamado Kardex (inventario físico offline: APK → Bluetooth → Oracle → aplicación de escritorio), permite contar inventario con un teléfono Android sin conexión de red. El conteo viaja por Bluetooth hasta un computador con Linux, se guarda en Oracle 11g y un proceso por lotes (*batch*) escrito en PL/SQL lo concilia contra el stock del sistema. Una aplicación de escritorio muestra el resultado en tableros, tablas y gráficas. El conteo es continuo: no existe un cierre de inventario y las cifras se recalculan cada vez que el *batch* procesa lecturas nuevas.
 
 Está pensado para bodegas y tiendas sin red confiable. Allí el operador no puede depender de un servidor para registrar cada lectura, pero lo que cuenta debe llegar completo, sin duplicados y con trazabilidad hasta el equipo central. Intervienen tres roles: el Operador de Inventario, que usa solo el móvil, y los roles Inventario y Administrador, que usan solo el escritorio.
 
