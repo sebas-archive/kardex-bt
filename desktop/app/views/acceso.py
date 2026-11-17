@@ -291,7 +291,6 @@ class AccesoView(QWidget):
         self._marca_panel.setMinimumWidth(360)
         self._marca_panel.setMaximumWidth(360)
         self._marca_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        self._marca_panel.setVisible(True)
         self._panel_form = QWidget()
         self._panel_form.setObjectName("panelFormulario")
         en_tarjeta.addWidget(self._marca_panel, 0)
