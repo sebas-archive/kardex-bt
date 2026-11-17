@@ -1,6 +1,6 @@
 # Base de datos Oracle
 
-Oracle **XE 11g** (imagen `gvenzl/oracle-xe:11-slim`, solo x86_64). El contenedor ejecuta en orden alfabético los scripts de
+Base de datos de **Kardex**: Oracle **XE 11g** (imagen `gvenzl/oracle-xe:11-slim`, solo x86_64). El contenedor ejecuta en orden alfabético los scripts de
 [`init/`](init/) **solo al crear la base** (volumen `oracle-data` vacío), como `SYS`, y todo queda en el esquema `APP`.
 Es la integración central del sistema: el servicio Bluetooth escribe aquí, el batch PL/SQL concilia y el escritorio consulta.
 

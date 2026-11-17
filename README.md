@@ -1,6 +1,6 @@
-# Inventario físico offline: APK → Bluetooth → Oracle → App de escritorio
+# Kardex: inventario físico offline (APK → Bluetooth → Oracle → App de escritorio)
 
-Sistema de toma de inventario físico para bodegas y tiendas sin red confiable. Un operador cuenta productos con una **APK
+**Kardex** (repositorio `kardex-bt`) es un sistema de toma de inventario físico para bodegas y tiendas sin red confiable. Un operador cuenta productos con una **APK
 Android** sin conexión (escáner de códigos de barras o QR, o digitando el SKU). Cuando está cerca del PC, el conteo sube por
 **Bluetooth** al PC, que lo guarda en **Oracle 11g** y dispara un **batch PL/SQL** que lo concilia contra el stock del
 sistema. Una **aplicación de escritorio** muestra el resultado. El conteo es **continuo** (`ACTUAL`): siempre está abierto y el

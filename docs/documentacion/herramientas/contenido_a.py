@@ -10,7 +10,7 @@ def bloques() -> list:
     # ------------------------------------------------------------------ 1
     b += [
         H(1, "1. Resumen ejecutivo"),
-        P("El sistema **Inventario físico offline: APK → Bluetooth → Oracle → aplicación de escritorio** permite que un "
+        P("El sistema **Kardex** (inventario físico offline: APK → Bluetooth → Oracle → aplicación de escritorio) permite que un "
           "operador cuente productos con un teléfono Android sin conexión de red, que el conteo viaje por Bluetooth hasta un "
           "computador con Linux, que se almacene en Oracle 11g y que un proceso por lotes (_batch_) escrito en PL/SQL lo "
           "concilie contra el stock del sistema. Un único programa de escritorio presenta el resultado en tableros, tablas "

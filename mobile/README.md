@@ -1,6 +1,6 @@
 # Aplicación móvil (APK Android)
 
-App del **Operador de Inventario**: cuenta productos sin red (escaneando código de barras o QR, o digitando el SKU), guarda
+App móvil de **Kardex** para el **Operador de Inventario**: cuenta productos sin red (escaneando código de barras o QR, o digitando el SKU), guarda
 cada lectura en el teléfono y, cuando está cerca del PC, las sincroniza por **Bluetooth clásico (RFCOMM)**. Kotlin, Jetpack
 Compose (Material 3) y Room; `minSdk 23` (Android 6.0), `targetSdk 34`, `namespace co.edu.umariana.inventario`.
 

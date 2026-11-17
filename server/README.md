@@ -1,6 +1,6 @@
 # Servidor: librería `btsync` y servicio Bluetooth
 
-Paquete Python (`server/pyproject.toml`, nombre `btsync`, Python ≥ 3.12, dependencia `oracledb`) que recibe lo que el
+Servidor de **Kardex**. Paquete Python (`server/pyproject.toml`, nombre `btsync`, Python ≥ 3.12, dependencia `oracledb`) que recibe lo que el
 teléfono cuenta y lo deja en Oracle. No tiene API HTTP: habla **Bluetooth RFCOMM** con la APK y **SQL\*Net** con Oracle.
 Lo usan dos procesos:
 

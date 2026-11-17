@@ -1,6 +1,6 @@
 # Aplicación de escritorio (PyQt6)
 
-Interfaz del **Administrador** y del rol **Inventario**: dashboard, inventario conciliado, gráficas, sincronización
+Aplicación de escritorio de **Kardex**: interfaz del **Administrador** y del rol **Inventario**: dashboard, inventario conciliado, gráficas, sincronización
 Bluetooth, solicitudes de cuentas, empleados, roles y permisos, auditoría, configuración, respaldos, notificaciones y perfil.
 El Operador de Inventario **no** entra aquí: cuenta con la APK ([`../mobile/README.md`](../mobile/README.md)).
 

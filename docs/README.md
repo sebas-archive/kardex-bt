@@ -1,7 +1,7 @@
 # Índice de la documentación
 
-Punto de entrada a toda la documentación del proyecto *Inventario físico offline: APK → Bluetooth → Oracle → aplicación de
-escritorio*. Para una visión general empiece por el [README principal](../README.md).
+Punto de entrada a toda la documentación del proyecto *Kardex: inventario físico offline (APK → Bluetooth → Oracle → aplicación de
+escritorio)*. Para una visión general empiece por el [README principal](../README.md).
 
 ## Documento técnico
 
