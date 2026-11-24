@@ -13,7 +13,6 @@
   </defs>
 
   <!-- Fondo y rejilla -->
-  <rect width="1200" height="300" rx="24" fill="#F4F6F8"/>
   <g stroke="#E9EDF2" stroke-width="1">
     <line x1="0" y1="75" x2="1200" y2="75"/>
     <line x1="0" y1="150" x2="1200" y2="150"/>

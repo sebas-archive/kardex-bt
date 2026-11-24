@@ -13,12 +13,6 @@
   </defs>
 
   <!-- Fondo y rejilla -->
-  <rect width="1200" height="300" rx="24" fill="#0A0A0A"/>
-  <g stroke="#232323" stroke-width="1">
-    <line x1="0" y1="75" x2="1200" y2="75"/>
-    <line x1="0" y1="150" x2="1200" y2="150"/>
-    <line x1="0" y1="225" x2="1200" y2="225"/>
-  </g>
 
   <!-- Icono (mismo diseño que desktop/app/recursos/icono.svg) -->
   <g transform="translate(120 90) scale(0.46875)">
