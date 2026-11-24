@@ -8,7 +8,7 @@ actor "Inventario\n(PC)" as inv
 actor "Administrador\n(PC)" as adm
 actor "Scheduler\nde Oracle" as sch
 
-rectangle "Sistema de inventario físico" {
+rectangle "Kardex" {
   usecase "Iniciar sesión" as entrar
   usecase "Crear cuenta\n(queda PENDIENTE)" as registrar
   usecase "Recuperar\ncontraseña" as recuperar

@@ -270,7 +270,7 @@ class AccesoView(QWidget):
         self._pregunta_texto = ""
         self._tema_invitado_elegido = False
         self._idioma_invitado_elegido = False
-        self._ajustes = QSettings("GestionInventario", "Acceso")
+        self._ajustes = QSettings("Kardex", "Acceso")
         self._guest_tema = "claro"
         self._guest_idioma = "es"
         i18n.set_idioma(self._guest_idioma)

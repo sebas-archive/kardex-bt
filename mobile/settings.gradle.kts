@@ -13,5 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "inventario"
+// Producto «Kardex»; el paquete/applicationId com.sebasarchive.kardex se conserva (identificador institucional, cambiarlo rompe instalaciones).
+rootProject.name = "kardex"
 include(":app")

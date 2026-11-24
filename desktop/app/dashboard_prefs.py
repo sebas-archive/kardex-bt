@@ -240,7 +240,7 @@ def normalizar(items: list[Item], sesion=None) -> list[Item]:
 
 # ----------------------------------------------------------------------------- persistencia por usuario
 def _ajustes() -> QSettings:
-    return QSettings("GestionInventario", "Dashboard")
+    return QSettings("Kardex", "Dashboard")
 
 
 def _clave(usuario: str) -> str:

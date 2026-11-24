@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import auth, configuracion, db, i18n, notificaciones, permisos, tema
+from . import auth, configuracion, db, i18n, migracion_ajustes, notificaciones, permisos, tema
 from .servicio_remoto import ServicioRemoto
 from .views.acceso import AccesoView
 from .views.auditoria import AuditoriaView
@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._aplicar_tema_idioma("sistema", "es")
-        self.setWindowTitle(i18n.t("Gestión de inventario"))
+        self.setWindowTitle(i18n.t("Kardex — Gestión de inventario"))
         self.setMinimumSize(900, 600)
         self.resize(1240, 800)
         self._runner = QueryRunner(self)
@@ -412,7 +412,7 @@ class MainWindow(QMainWindow):
 
     def _retraducir_cromo(self) -> None:
         """Vuelve a poner en el idioma activo los textos fijos de la ventana (título, barra lateral, tooltips)."""
-        self.setWindowTitle(i18n.t("Gestión de inventario"))
+        self.setWindowTitle(i18n.t("Kardex — Gestión de inventario"))
         self.marca.setText(i18n.t("Inventario"))
         self.marca.setToolTip(i18n.t("Volver al inicio"))
         self.btn_colapsar.setToolTip(i18n.t("Contraer o expandir la barra (Ctrl+B)"))
@@ -1051,8 +1051,9 @@ def build_window(remoto: ServicioRemoto, auto_refresh_ms: int = 5000, sesion: au
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("Inventario BT")
-    app.setDesktopFileName("inventario-bt")   # en Wayland la barra busca el icono por este nombre (.desktop del equipo)
+    app.setApplicationName("Kardex")
+    migracion_ajustes.migrar()   # una vez: copia las preferencias de la organización «GestionInventario» a «Kardex»
+    app.setDesktopFileName("kardex-bt")  # en Wayland la barra busca el icono por este nombre (.desktop del equipo)
     app.setWindowIcon(QIcon(str(Path(__file__).with_name("recursos") / "icono.svg")))
     app.setStyleSheet(estilo())
     try:                   # si Oracle aún no está listo, la ventana abre igual y muestra el error al entrar

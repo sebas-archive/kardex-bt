@@ -42,7 +42,7 @@ def principal() -> int:
     from app.views.base import estilo
     from app import auth, i18n
 
-    app.setApplicationName("Inventario BT")
+    app.setApplicationName("Kardex")
     app.setStyleSheet(estilo())
 
     # 1. Pantalla de acceso (sin sesión)

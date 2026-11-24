@@ -6,8 +6,8 @@ si un texto no aparece aquí se emite tal cual. Las referencias ``[[id]]`` se re
 """
 
 PARRAFOS = {
-    "El sistema **Inventario físico offline: ":
-        "El proyecto, llamado Inventario físico offline (APK → Bluetooth → Oracle → aplicación de escritorio), permite contar "
+    "El sistema **Kardex** (inventario físico offline: ":
+        "El proyecto, llamado Kardex (inventario físico offline: APK → Bluetooth → Oracle → aplicación de escritorio), permite contar "
         "inventario con un teléfono Android sin conexión de red. El conteo viaja por Bluetooth hasta un computador con Linux, "
         "se guarda en Oracle 11g y un proceso por lotes (_batch_) escrito en PL/SQL lo concilia contra el stock del sistema. "
         "Una aplicación de escritorio muestra el resultado en tableros, tablas y gráficas. El conteo es continuo: no existe un "

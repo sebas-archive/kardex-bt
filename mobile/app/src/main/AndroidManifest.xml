@@ -13,11 +13,12 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
+    <!-- Producto «Kardex»; el paquete/applicationId com.sebasarchive.kardex NO se renombra: es el identificador institucional y cambiarlo rompe instalaciones y datos. -->
     <!-- Pantallas en vertical fija: la app se usa con una mano mientras se cuenta. -->
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_app"
-        android:label="Inventario"
+        android:label="Kardex"
         android:supportsRtl="true"
         android:theme="@style/Theme.Inventario">
 

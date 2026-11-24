@@ -26,7 +26,7 @@ class EstadoCuentaView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.lbl_logo = QLabel(t("Gestión de inventario"))
+        self.lbl_logo = QLabel(t("Kardex — Gestión de inventario"))
         self.lbl_logo.setObjectName("tituloAcceso")
         self.lbl_nombre = QLabel("")
         self.lbl_nombre.setStyleSheet("font-size: 18px; font-weight: 600;")
