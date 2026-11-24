@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="t d">
+  <title id="t">Kardex</title>
+  <desc id="d">Inventario físico offline: captura en Android, sincronización Bluetooth, Oracle 11g y escritorio PyQt6</desc>
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34D399" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#34D399" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo y rejilla -->
+  <rect width="1200" height="300" rx="24" fill="#0A0A0A"/>
+  <g stroke="#232323" stroke-width="1">
+    <line x1="0" y1="75" x2="1200" y2="75"/>
+    <line x1="0" y1="150" x2="1200" y2="150"/>
+    <line x1="0" y1="225" x2="1200" y2="225"/>
+  </g>
+
+  <!-- Icono (mismo diseño que desktop/app/recursos/icono.svg) -->
+  <g transform="translate(120 90) scale(0.46875)">
+    <rect width="256" height="256" rx="58" fill="url(#fondo)"/>
+    <g transform="translate(40 40) scale(7)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m7 7 10 10-5 5V2l5 5L7 17"/>
+    </g>
+  </g>
+
+  <!-- Título -->
+  <text x="282" y="164" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="84" font-weight="800" fill="#EDEDED" letter-spacing="-2">Kardex</text>
+  <text x="284" y="210" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="30" font-weight="500" fill="#8A8A8A">Inventario físico offline</text>
+
+  <!-- Chips -->
+  <g font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#A3A3A3">
+    <rect x="284" y="236" width="156" height="34" rx="17" fill="#161616" stroke="#2E2E2E"/>
+    <text x="362" y="258" text-anchor="middle">Captura sin red</text>
+    <rect x="452" y="236" width="184" height="34" rx="17" fill="#161616" stroke="#2E2E2E"/>
+    <text x="544" y="258" text-anchor="middle">Bluetooth RFCOMM</text>
+    <rect x="648" y="236" width="113" height="34" rx="17" fill="#161616" stroke="#2E2E2E"/>
+    <text x="704.5" y="258" text-anchor="middle">Oracle 11g</text>
+    <rect x="773" y="236" width="164" height="34" rx="17" fill="#161616" stroke="#2E2E2E"/>
+    <text x="855" y="258" text-anchor="middle">Escritorio PyQt6</text>
+  </g>
+
+  <!-- Gráfica decorativa de conteo -->
+  <path d="M800 200 L840 178 L872 188 L906 140 L938 162 L972 112 L1004 150 L1036 128 L1068 168 L1100 118 L1100 230 L800 230 Z" fill="url(#area)"/>
+  <polyline points="800,200 840,178 872,188 906,140 938,162 972,112 1004,150 1036,128 1068,168 1100,118" fill="none" stroke="#34D399" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="1100" cy="118" r="7" fill="#34D399"/>
+  <text x="1100" y="82" text-anchor="end" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#8A8A8A">120 SKU · conteo continuo</text>
+</svg>

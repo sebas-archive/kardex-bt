@@ -1,4 +1,35 @@
-# Inventario físico offline: APK → Bluetooth → Oracle → App de escritorio
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/branding/banner-dark.svg">
+  <img alt="Kardex · Inventario físico offline" src="docs/img/branding/banner-light.svg" width="100%">
+</picture>
+
+# Kardex · Inventario físico offline
+
+*Conteo sin red: una APK Android cuenta, Bluetooth lleva el conteo al PC, Oracle 11g lo concilia y una aplicación de escritorio lo muestra.*
+
+![licencia](https://img.shields.io/badge/licencia-GPLv3-blue)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Android](https://img.shields.io/badge/Android-minSdk%2023-3DDC84?logo=android&logoColor=white)
+![Oracle](https://img.shields.io/badge/Oracle-11g%20XE-F80000?logo=oracle&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Protocolo](https://img.shields.io/badge/protocolo-v5-informational)
+![Pruebas](https://img.shields.io/badge/pruebas-aprox.%20730-brightgreen)
+
+[Problema](#problema-que-resuelve) · [Objetivos](#objetivos) · [Características](#características-principales) ·
+[Arquitectura](#arquitectura-general) · [Tecnologías](#tecnologías-utilizadas) · [Estructura](#estructura-de-directorios) ·
+[Instalación](#requisitos-de-instalación) · [Configuración](#configuración) · [Base de datos](#preparación-de-la-base-de-datos) ·
+[Comunicación](#configuración-de-la-comunicación-entre-dispositivos) · [Ejecución](#instrucciones-de-ejecución) ·
+[Módulos](#descripción-de-los-módulos) · [Roles](#roles-y-permisos) · [Pruebas](#pruebas) · [Diagramas](#diagramas) ·
+[Capturas](#capturas-de-la-aplicación) · [Documentación](#documentación-complementaria) · [Problemas](#solución-de-problemas) ·
+[Licencia](#licencia)
+
+[Repositorio](https://github.com/sebas-archive/kardex-bt) · [Documentación](docs/README.md) · [Licencia](LICENSE)
+
+</div>
+
+## Descripción general
 
 Sistema de toma de inventario físico para bodegas y tiendas sin red confiable. Un operador cuenta productos con una **APK
 Android** sin conexión (escáner de códigos de barras o QR, o digitando el SKU). Cuando está cerca del PC, el conteo sube por
@@ -7,15 +38,6 @@ sistema. Una **aplicación de escritorio** muestra el resultado. El conteo es **
 inventario se actualiza a medida que el batch procesa las lecturas. Todo el lado PC corre en Docker sobre Linux.
 
 > Las rutas del proyecto pueden tener espacios (`/home/t1an/movil oracle bluetooth`): entrecomíllalas.
-
-## Contenido
-
-[Problema](#problema-que-resuelve) · [Objetivos](#objetivos) · [Características](#características-principales) ·
-[Arquitectura](#arquitectura-general) · [Tecnologías](#tecnologías-utilizadas) · [Estructura](#estructura-de-directorios) ·
-[Instalación](#requisitos-de-instalación) · [Configuración](#configuración) · [Base de datos](#preparación-de-la-base-de-datos) ·
-[Comunicación](#configuración-de-la-comunicación-entre-dispositivos) · [Ejecución](#instrucciones-de-ejecución) ·
-[Módulos](#descripción-de-los-módulos) · [Roles](#roles-y-permisos) · [Pruebas](#pruebas) · [Diagramas](#diagramas) ·
-[Capturas](#capturas-de-la-aplicación) · [Documentación](#documentación-complementaria) · [Problemas](#solución-de-problemas)
 
 ## Problema que resuelve
 
@@ -382,9 +404,11 @@ UML de [`docs/uml/`](docs/uml/README.md).
 |---|---|
 | ![Dashboard del Administrador](docs/documentacion/capturas/roles/administrador/01_dashboard.png) | ![Dashboard de Inventario](docs/documentacion/capturas/roles/inventario/01_dashboard.png) |
 
-| APK: catálogo | APK: contar |
-|---|---|
-| ![Catálogo de la APK](docs/img/movil/08-catalogo.png) | ![Contar en la APK](docs/img/movil/09-contar.png) |
+Las capturas de la APK cambian con el tema del sistema (claro u oscuro), igual que el banner.
+
+| APK: acceso | APK: inicio | APK: contar |
+|:---:|:---:|:---:|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/movil/24-acceso-oscuro.png"><img src="docs/img/movil/01-acceso-entrar.png" width="220" alt="Acceso en la APK"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/movil/22-inicio-oscuro.png"><img src="docs/img/movil/06-inicio.png" width="220" alt="Inicio en la APK"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/movil/23-contar-oscuro.png"><img src="docs/img/movil/09-contar.png" width="220" alt="Contar en la APK"></picture> |
 
 Todas las pantallas por rol: [`docs/documentacion/capturas/`](docs/documentacion/capturas/aplicacion/); las 29 capturas de la APK: [`docs/img/movil/`](docs/img/movil/).
 Las de la APK se generan con el motor gráfico de Android y datos de ejemplo (no son fotos de un teléfono físico).
@@ -423,3 +447,7 @@ con un entorno X inválido, recréalo desde una terminal con `DISPLAY` y `XAUTHO
 | `adb install` falla con `INSTALL_FAILED_OLDER_SDK` | El celular es anterior a Android 6.0 (la APK exige `minSdk 23`). |
 | Tras cerrar la app a la fuerza el PC sigue llamándose `gestion_inventario` | La siguiente vez que se abre la ventana lo detecta y restaura el nombre; a mano: `bluetoothctl system-alias <nombre del PC>`. |
 | Quiero empezar con la base limpia | `docker compose down`, `docker volume rm inventario-bt_oracle-data` y `docker compose up -d --wait oracle` (**borra todos los datos de Oracle**; `docker compose down -v` borra además la caché de Gradle). |
+
+## Licencia
+
+Este proyecto se distribuye bajo la [GNU General Public License v3.0](LICENSE). Puedes usarlo, estudiarlo, modificarlo y redistribuirlo bajo esos mismos términos.
