@@ -25,3 +25,11 @@ inventario.csv
 
 # Paquetes de entrega (artefactos, no código)
 ENTREGA/
+
+# Artefactos locales que no forman parte del producto
+ENTREGA_original/
+videos/
+# Fotos sueltas de apoyo (no son capturas del sistema)
+/*.jpg
+/*.jpeg
+/*.webp
