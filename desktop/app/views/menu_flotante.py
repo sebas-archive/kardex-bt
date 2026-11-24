@@ -313,7 +313,7 @@ class MenuFlotante(QWidget):
                     marca.lineTo(cx - 1.2, cy + 3.4)
                     marca.lineTo(cx + 4.8, cy - 3.6)
                     p.setPen(QPen(tono if e.habilitada else suave, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
-                                  Qt.PenJoin.RoundJoin))
+                                  Qt.PenJoinStyle.RoundJoin))
                     p.setBrush(Qt.BrushStyle.NoBrush)
                     p.drawPath(marca)
                     p.setPen(color)
